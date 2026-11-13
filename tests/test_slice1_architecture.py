@@ -128,5 +128,32 @@ class ArchitectureBoundariesTest(unittest.TestCase):
                 self.assertNotIn("to_phrasing", name, part)
 
 
+class NoDesignReferencesInShippedCodeTest(unittest.TestCase):
+    """Step 19 R-17: shipped code names no design document and
+    no design pin at the two charged sites.
+
+    The shell module head cited a design brief by file name and
+    section, and the parse module's assessment closure docstring
+    named a design pin. Both are reworded so the code stands on
+    its own words, keeping its meaning: the shell duties list
+    stands whole, and the assessment closure element keeps its
+    name and its form.
+    """
+
+    def test_shell_docstring_names_no_design_document(self):
+        source = h.module_source("shell")
+        self.assertNotIn("DESIGN-BRIEF", source)
+        self.assertNotIn("DESIGN-PLAN", source)
+        self.assertIn("argument handling for the two", source)
+        self.assertIn("reading the input once as bytes", source)
+
+    def test_parse_assessment_closure_names_no_design_pin(self):
+        source = h.module_source("parse")
+        self.assertNotIn("pin 14", source.lower())
+        self.assertIn("assessment closure element of a paragraph",
+                      source)
+        self.assertIn("Closed as decided under DQ-148", source)
+
+
 if __name__ == "__main__":
     unittest.main()

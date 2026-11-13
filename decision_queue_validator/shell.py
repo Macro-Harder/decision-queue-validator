@@ -1,6 +1,6 @@
 """Shell: the only module that touches the filesystem and the terminal.
 
-Duties (DESIGN-BRIEF.md 5.1): argument handling for the two
+Duties: argument handling for the two
 subcommands, reading the input once as bytes, constructing the
 Vocabulary value from the shipped copy, calling parse, validate and
 render in that order, composing the output in full, the write

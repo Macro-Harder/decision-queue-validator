@@ -738,7 +738,7 @@ class _EntryBuilder:
 
     def assessment_closure_element(self, numbered_lines,
                                    decision_block=None):
-        """The pin 14 assessment closure element of a paragraph.
+        """The assessment closure element of a paragraph.
 
         A paragraph carrying an explicit statement of closure in
         the form Closed as decided under DQ-148 bears that closure
