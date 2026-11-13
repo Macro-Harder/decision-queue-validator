@@ -182,6 +182,68 @@ class UnparsedPrecedenceTest(unittest.TestCase):
         self.assertEqual(h.ambiguous_count(output), 1)
 
 
+class EffectiveElementsExceptionTest(unittest.TestCase):
+    """Derivation sets no element aside beyond the named exceptions.
+
+    Brief section 5.4 states the determining element is the last
+    element in element order subject to the exceptions named in
+    that sentence and nowhere else (pin 16, pin 2 shape A, and the
+    unparsed entry precedence), and that no other exception exists.
+    The constructed entry below is the rf17 shape: a settled entry
+    whose last element states what remains open. Under the mapping
+    table that last element, in an entry carrying decision
+    evidence, reaches the totality row and reports Ambiguous. The
+    shipped derivation set the element aside and reported Settled
+    with no findings at exit 0.
+    """
+
+    RF17_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: A question with a limb still open\n"
+        "\n"
+        "Status: Banked\n"
+        "\n"
+        "Owner of record: Decision-queue Clerk\n"
+        "\n"
+        "The question: Should the whole item be settled now?\n"
+        "\n"
+        "Options:\n"
+        "- Option A: settle the whole item.\n"
+        "- Option B: settle part of it.\n"
+        "\n"
+        "Cost of deciding late: moderate.\n"
+        "\n"
+        "What it blocks: the closing note.\n"
+        "\n"
+        "#### Settlement by the Manager\n"
+        "\n"
+        "Settled by: The Manager (Muse), under the grant.\n"
+        "\n"
+        "Ruling text: \"The main limb is settled.\"\n"
+        "\n"
+        "Decision: The main limb is settled and takes effect at "
+        "once.\n"
+        "\n"
+        "Landing: the closing note.\n"
+        "\n"
+        "Status: SETTLED by the Manager under the grant. The item "
+        "is settled.\n"
+        "\n"
+        "What remains open: the budget limb of this item stays "
+        "undecided.\n")
+
+    def test_rf17_last_element_stating_what_remains_open_is_ambiguous(self):
+        _model, output = h.run_pipeline(self.RF17_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertIsNotNone(entry)
+        self.assertTrue(h.is_ambiguous(entry))
+        self.assertEqual(h.ambiguous_count(output), 1)
+        counts = h.canonical_counts(output)
+        self.assertEqual(counts.get("Settled"), 0)
+        self.assertEqual(h.exit_code_of(output), 4)
+
+
 class ReattachedEntryStateTest(unittest.TestCase):
 
     def test_s8_states_ruled_by_addition_and_open_beside_it(self):

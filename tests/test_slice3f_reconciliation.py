@@ -30,9 +30,12 @@ class ReconciliationSumsTest(unittest.TestCase):
         self.assertEqual(h.int_of(h.entry_total(output)), 157)
 
     def test_r1_findings_views_sum_to_the_findings_list(self):
+        # The R1 totals stand recomputed at Step 19 under the R-04
+        # fix (an element stating what remains open stands in
+        # element order), as the corpus manifest header records.
         output = _output("R1")
         findings = h.findings_of(output)
-        self.assertEqual(len(findings), 8)
+        self.assertEqual(len(findings), 20)
         per_severity = {}
         per_rule = {}
         for finding in findings:
@@ -41,18 +44,18 @@ class ReconciliationSumsTest(unittest.TestCase):
             rule = h.finding_rule_number(finding)
             per_rule[rule] = per_rule.get(rule, 0) + 1
         self.assertEqual(per_severity,
-                         {"Error": 0, "Warning": 3, "Note": 5}
+                         {"Error": 0, "Warning": 14, "Note": 6}
                          if per_severity.get("Error") else
-                         {"Warning": 3, "Note": 5})
+                         {"Warning": 14, "Note": 6})
         recon = h.reconciliation_of(output)
         by_severity = h.get(recon, "findings_per_severity",
                             "findings_by_severity")
         if isinstance(by_severity, dict):
             stated = {h.text_of(key): h.int_of(value)
                       for key, value in by_severity.items()}
-            self.assertEqual(sum(stated.values()), 8)
-            self.assertEqual(stated.get("Warning"), 3)
-            self.assertEqual(stated.get("Note"), 5)
+            self.assertEqual(sum(stated.values()), 20)
+            self.assertEqual(stated.get("Warning"), 14)
+            self.assertEqual(stated.get("Note"), 6)
         by_rule = h.get(recon, "findings_per_rule",
                         "findings_by_rule")
         if isinstance(by_rule, dict):
@@ -64,18 +67,19 @@ class ReconciliationSumsTest(unittest.TestCase):
                 else:
                     stated_rules[h.finding_rule_number({"rule_id": key})] = \
                         h.int_of(value)
-            self.assertEqual(sum(stated_rules.values()), 8)
-            self.assertEqual(stated_rules.get(4), 2)
+            self.assertEqual(sum(stated_rules.values()), 20)
+            self.assertEqual(stated_rules.get(3), 11)
+            self.assertEqual(stated_rules.get(4), 3)
             self.assertEqual(stated_rules.get(6), 2)
             self.assertEqual(stated_rules.get(8), 4)
 
     def test_derived_finding_totals_for_r2_r6_and_r9(self):
         r2 = _output("R2")
-        self.assertEqual(len(h.findings_of(r2)), 6)
+        self.assertEqual(len(h.findings_of(r2)), 18)
         severities = [h.finding_severity(finding)
                       for finding in h.findings_of(r2)]
-        self.assertEqual(severities.count("Warning"), 1)
-        self.assertEqual(severities.count("Note"), 5)
+        self.assertEqual(severities.count("Warning"), 12)
+        self.assertEqual(severities.count("Note"), 6)
         r6 = _output("R6")
         self.assertEqual(len(h.findings_of(r6)), 2)
         r9 = _output("R9")
@@ -323,7 +327,7 @@ class WaitingBlockingTest(unittest.TestCase):
         conditional = h.get(limbo, "conditional_count", "conditional")
         ambiguous = h.get(limbo, "ambiguous_count", "ambiguous")
         unparsed = h.get(limbo, "unparsed_count", "unparsed")
-        self.assertEqual(h.int_of(conditional), 2)
+        self.assertEqual(h.int_of(conditional), 3)
         self.assertEqual(h.int_of(ambiguous), 2)
         self.assertEqual(h.int_of(unparsed), 0)
 

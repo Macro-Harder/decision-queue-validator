@@ -163,17 +163,20 @@ def _effective_elements(entry, elements):
     """The elements derivation reads, in element order.
 
     A segment that only states the remainder of an earlier part
-    settlement, and a line that only asks what remains open, carry no
-    state of their own for derivation. A terminal closure element at
-    the end of an entry that carries a decided Status line is the
-    record closing line of that decision, not a further state.
+    settlement carries no state of its own for derivation, and a
+    terminal closure element at the end of an entry that carries
+    a decided Status line is the record closing line of that
+    decision, not a further state. An element stating what
+    remains open stands in element order like any other: brief
+    section 5.4 names no exception that sets it aside, and under
+    the mapping table it determines the state (the Step 19 fix
+    register records the set asides that stand, and the design
+    questions split out for them, in the open).
     """
     kept = []
     for element in elements:
         statement = (element.statement or "").lstrip()
         if element.kind in _BLOCK_KINDS and statement.startswith("Remainder:"):
-            continue
-        if statement.startswith("What remains open"):
             continue
         if statement.startswith("Closing line for"):
             continue

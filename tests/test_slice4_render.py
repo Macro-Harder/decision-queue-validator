@@ -168,7 +168,7 @@ class RenderOrderTest(unittest.TestCase):
         closing = last_lines[-1]
         self.assertIn("4", closing)
         self.assertIn("Warning", closing)
-        self.assertIn("3", closing)
+        self.assertIn("14", closing)
 
     def test_r1_ambiguous_group_carries_sub_label_marker_and_elements(self):
         text = _render_text("R1")
@@ -425,8 +425,8 @@ class CountsAndFiguresTest(unittest.TestCase):
 
     def test_render_summary_output_preserved_on_the_scan_fixtures(self):
         expected = {
-            "R1": "d37773899c5f62eb86d334ea6b191b201b9d8c01c7e7a7f6d0afd30b83809898",
-            "R2": "1db39c8514815c38ecf7ddeba65d6b799779d5f86ccdac383b193f424121ef2b",
+            "R1": "271f58a5663869fbf5e4ec975df78d99aaa0f7cff110465110f38715643989fc",
+            "R2": "d167077dc3ae2aacb0597817fd3d40b566f03af7a8332a07ff90ad2cb4d47fb8",
             "R3": "61ed884d01a92b2607fb72640404fd793294faf86001b7ba62a91d57de87b524",
             "R4": "295c916be2281e8d8407eaf871f12fbeb4c0d4cb50ad3f14e5a143ee2a2155fb",
             "R5": "cf89623d8195ce92bc7c7d181af84761f758e9cf453332d9c4f4f133e45cedb3",

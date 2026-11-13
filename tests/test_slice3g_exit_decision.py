@@ -193,7 +193,7 @@ class ExitOneAndZeroTest(unittest.TestCase):
         self.assertEqual(h.exit_code_of(output), 4)
         warnings = [finding for finding in h.findings_of(output)
                     if h.finding_severity(finding) == "Warning"]
-        self.assertEqual(len(warnings), 3)
+        self.assertEqual(len(warnings), 14)
 
 
 class FileLevelExitThreeTest(unittest.TestCase):
