@@ -1348,6 +1348,32 @@ def validate_model(model, vocabulary, output_form_edition=None):
         open_fields = {}
         for f in _get(entry, "fields") or []:
             open_fields[_get(f, "label")] = _get(f, "value") or ""
+        if "Options" in open_fields and not open_fields["Options"]:
+            # The Options label can stand alone with its option
+            # lines as the following body lines (fixture S5's
+            # shape). The field's value is then empty, and the
+            # render form printed "Options: absent" for an entry
+            # carrying two option lines, against brief sections
+            # 5.5 and 6.1 (one computation, two views). The
+            # options fact is computed here, once: the option
+            # lines under the label are the field's value.
+            collected = []
+            collecting = False
+            for _line, text in _body_lines(entry):
+                stripped = (text or "").strip()
+                if stripped.startswith("Options:"):
+                    collecting = True
+                    rest = stripped[len("Options:"):].strip()
+                    if rest:
+                        collected.append(rest)
+                    continue
+                if collecting:
+                    if stripped.startswith("- "):
+                        collected.append(stripped)
+                    elif stripped:
+                        break
+            if collected:
+                open_fields["Options"] = " ".join(collected)
         head = _head_element(entry)
         state = derived["state"]
         if derived["unparsed"]:

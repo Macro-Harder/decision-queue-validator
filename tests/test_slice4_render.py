@@ -465,6 +465,39 @@ class DocketVerbatimAndMarksTest(unittest.TestCase):
                 line.endswith(" [determining element]"), line)
 
 
+class S5OptionsStatedTest(unittest.TestCase):
+    """Render must not call S5's options absent (brief 5.5, 6.1).
+
+    Fixture S5's entry carries an "Options:" label followed by
+    two option lines. Validate recorded the field with an empty
+    value, and the render form printed "Options: absent" for it,
+    so the two views stated different facts about the entry's
+    options. The options fact is computed once, at the validate
+    boundary: the option lines under the label are the field's
+    value.
+    """
+
+    def test_render_states_the_options_present(self):
+        _model, output = h.cached_pipeline("S5")
+        text = h.render_text(output, "render")
+        self.assertNotIn("Options: absent", text)
+        options_lines = [line for line in text.splitlines()
+                         if line.startswith("Options:")]
+        self.assertEqual(len(options_lines), 1)
+        self.assertIn("keep one manifest layer", options_lines[0])
+        self.assertIn("add a machine readable companion layer",
+                      options_lines[0])
+
+    def test_validate_and_render_state_the_same_fact(self):
+        _model, output = h.cached_pipeline("S5")
+        entry = h.entries_of(output)[0]
+        fields = h.get(entry, "open_fields") or {}
+        value = h.text_of(h.get(fields, "Options"))
+        self.assertTrue(value)
+        self.assertIn("keep one manifest layer", value)
+        self.assertIn("add a machine readable companion layer", value)
+
+
 class CountsAndFiguresTest(unittest.TestCase):
 
     def test_counts_section_carries_the_glossary_line_set(self):
