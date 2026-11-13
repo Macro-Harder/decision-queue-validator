@@ -160,6 +160,13 @@ def _file_level_output(failure, subcommand):
     return "\n".join(lines) + "\n"
 
 
+def _close_stderr():
+    try:
+        sys.stderr.close()
+    except (OSError, AttributeError, ValueError):
+        pass
+
+
 def _usage_error(message):
     try:
         sys.stderr.write("usage error: {}\n".format(message))
@@ -167,8 +174,9 @@ def _usage_error(message):
             "usage: python3 -m decision_queue_validator "
             "{validate|render} INPUT [--output OUTPUT]\n"
         )
+        sys.stderr.flush()
     except (OSError, AttributeError, ValueError):
-        pass
+        _close_stderr()
     return 2
 
 
@@ -177,7 +185,7 @@ def _report_stderr(message):
         sys.stderr.write(message + "\n")
         sys.stderr.flush()
     except (OSError, AttributeError, ValueError):
-        pass
+        _close_stderr()
 
 
 def _deliver(text, output_path):

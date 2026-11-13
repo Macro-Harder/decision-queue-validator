@@ -79,6 +79,32 @@ class ExitTwoBranchesTest(unittest.TestCase):
             _sys.stderr = saved
         self.assertEqual(code, 2)
 
+    def test_usage_error_stderr_flush_failure_exits_two(self):
+        # Standard error is a regular file in a scratch directory,
+        # and its writes are made to fail at flush time by a file
+        # size limit of zero set on this test process for the run
+        # only, the same mechanism the standard output flush test
+        # uses, now aimed at the standard error channel. The limit
+        # is restored before any assertion runs. The assertion is
+        # on the finished process return code, because the defect
+        # lives past the return of the usage writer, at interpreter
+        # shutdown.
+        with tempfile.TemporaryDirectory() as tmp:
+            stderr_path = Path(tmp) / "stderr.txt"
+            soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+            resource.setrlimit(resource.RLIMIT_FSIZE, (0, hard))
+            try:
+                code, out = h.run_cli_stderr_redirect(
+                    ["bogus", "x.md"], stderr_path)
+            finally:
+                resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            self.assertNotIn(
+                "Exception ignored",
+                stderr_path.read_bytes().decode(
+                    "utf-8", errors="replace"))
+
     def test_missing_input_exits_two_with_input_not_read_form(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "no_such_input.md"
@@ -584,6 +610,55 @@ class WriteMechanismTest(unittest.TestCase):
                 "error: standard output was closed before the "
                 "output was delivered", message)
             self.assertNotIn("Exception ignored", message)
+
+    def test_named_output_failure_stderr_flush_failure_exits_two(self):
+        # A named output failure is reported on standard error, and
+        # that report is made to fail at flush time by the file size
+        # limit form used above, aimed at the standard error file.
+        # The named output names a directory, so the run creates
+        # nothing and the limit binds only the report channel.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "a_directory"
+            target.mkdir()
+            stderr_path = Path(tmp) / "stderr.txt"
+            soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+            resource.setrlimit(resource.RLIMIT_FSIZE, (0, hard))
+            try:
+                code, out = h.run_cli_stderr_redirect(
+                    ["validate", str(h.corpus_path("S5")),
+                     "--output", str(target)], stderr_path)
+            finally:
+                resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            self.assertTrue(target.is_dir())
+            self.assertNotIn(
+                "Exception ignored",
+                stderr_path.read_bytes().decode(
+                    "utf-8", errors="replace"))
+
+    def test_stdout_failure_stderr_flush_failure_exits_two(self):
+        # The standard output delivery failure form of the existing
+        # flush test, with the delivery report on standard error
+        # also redirected to a regular file, so the report write
+        # fails at flush time under the same limit. Both channels
+        # fail; the promised exit code is still 2.
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout_path = Path(tmp) / "stdout.txt"
+            stderr_path = Path(tmp) / "stderr.txt"
+            soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+            resource.setrlimit(resource.RLIMIT_FSIZE, (0, hard))
+            try:
+                code, _out = h.run_cli_stderr_redirect(
+                    ["validate", str(h.corpus_path("S5"))],
+                    stderr_path, stdout_path=stdout_path)
+            finally:
+                resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
+            self.assertEqual(code, 2)
+            self.assertNotIn(
+                "Exception ignored",
+                stderr_path.read_bytes().decode(
+                    "utf-8", errors="replace"))
 
     def test_report_stderr_with_none_stderr_in_process_survives(self):
         import sys as _sys

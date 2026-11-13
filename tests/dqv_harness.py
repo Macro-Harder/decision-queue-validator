@@ -215,6 +215,40 @@ def run_cli_stdout_redirect(subcommand, input_path, stdout_path,
     return proc.returncode, proc.stderr
 
 
+def run_cli_stderr_redirect(argv, stderr_path, stdout_path=None,
+                            seed=SEED_ONE):
+    """Run with standard error redirected to a regular file.
+
+    argv holds the module arguments after the module name, as plain
+    strings. Returns the process return code and the captured
+    standard output bytes, or empty standard output bytes where
+    stdout_path names a regular file to receive standard output
+    instead. The caller controls the state of the target files and
+    any resource limits in force around the run.
+    """
+    full_argv = [sys.executable, "-m", PACKAGE] + \
+        [str(item) for item in argv]
+    with open(stderr_path, "wb") as err_handle:
+        if stdout_path is not None:
+            with open(stdout_path, "wb") as out_handle:
+                proc = subprocess.run(
+                    full_argv,
+                    cwd=str(PRODUCT_ROOT),
+                    env=cli_env(seed),
+                    stdout=out_handle,
+                    stderr=err_handle,
+                )
+            return proc.returncode, b""
+        proc = subprocess.run(
+            full_argv,
+            cwd=str(PRODUCT_ROOT),
+            env=cli_env(seed),
+            stdout=subprocess.PIPE,
+            stderr=err_handle,
+        )
+    return proc.returncode, proc.stdout
+
+
 def run_cli_closed_pipe(subcommand, input_path, seed=SEED_ONE):
     """Run with standard output connected to a pipe with no reader."""
     argv = [sys.executable, "-m", PACKAGE, subcommand, str(input_path)]
