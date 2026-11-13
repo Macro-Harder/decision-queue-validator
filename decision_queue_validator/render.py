@@ -49,6 +49,19 @@ def _counted(count, singular, plural):
     return "%d %s" % (count, singular if count == 1 else plural)
 
 
+def _carried_number(value):
+    """The number a value carries, or None where it carries none.
+
+    A missing figure is not a zero. Callers that print a figure
+    test the result of this helper and show the figure as absent
+    where it is None, under the brief section 5.1 rule that
+    absence is shown as absence, a missing field as absent.
+    """
+    if value is None:
+        return None
+    return _number(value)
+
+
 def _number(value):
     if value is None:
         return 0
@@ -318,18 +331,26 @@ def _reconciliation_lines(output):
         return lines
     entry_total = _field(recon, "entry_total", "headed_entry_count",
                          "entry_count")
-    lines.append("Headed entries: %d" % _number(entry_total))
-    lines.append("DQ entries: %d" % _number(
-        _field(recon, "dq_entry_count")))
-    lines.append("Unnumbered entries: %d" % _number(
-        _field(recon, "unnumbered_entry_count")))
-    lines.append("Headed spans: %d" % _number(
-        _field(recon, "headed_span_count")))
-    lines.append("Orphan note segments: %d" % _number(
+
+    def _figure(label, value):
+        carried = _carried_number(value)
+        if carried is None:
+            return "%s: absent" % label
+        return "%s: %d" % (label, carried)
+
+    lines.append(_figure("Headed entries", entry_total))
+    lines.append(_figure("DQ entries",
+                         _field(recon, "dq_entry_count")))
+    lines.append(_figure("Unnumbered entries",
+                         _field(recon, "unnumbered_entry_count")))
+    lines.append(_figure("Headed spans",
+                         _field(recon, "headed_span_count")))
+    lines.append(_figure(
+        "Orphan note segments",
         _field(recon, "orphan_note_segment_count",
                "orphan_segment_count")))
-    lines.append("H4 sub headings: %d" % _number(
-        _field(recon, "h4_sub_heading_count")))
+    lines.append(_figure("H4 sub headings",
+                         _field(recon, "h4_sub_heading_count")))
     by_kind = _field(recon, "status_occurrences_by_kind",
                      "occurrences_by_kind") or {}
     if isinstance(by_kind, dict):
@@ -342,7 +363,8 @@ def _reconciliation_lines(output):
                 parts.append("%s %d" % (_text(kind),
                                         _number(by_kind[kind])))
         lines.append("Status occurrences by kind: " + ", ".join(parts))
-    lines.append("Status occurrence total: %d" % _number(
+    lines.append(_figure(
+        "Status occurrence total",
         _field(recon, "status_occurrence_total", "occurrence_total")))
     canonical = _field(recon, "canonical_counts",
                        "entries_per_canonical_state") or {}
@@ -355,9 +377,10 @@ def _reconciliation_lines(output):
             if state not in _CANONICAL_ORDER:
                 lines.append("Canonical %s: %d" % (
                     _text(state), _number(canonical[state])))
-    lines.append("Ambiguous: %d" % _number(
-        _field(recon, "ambiguous_count", "ambiguous")))
-    lines.append("Unparsed entries: %d" % _number(
+    lines.append(_figure("Ambiguous",
+                         _field(recon, "ambiguous_count", "ambiguous")))
+    lines.append(_figure(
+        "Unparsed entries",
         _field(recon, "unparsed_count", "unparsed_entries")))
     per_severity = _field(recon, "findings_per_severity",
                           "findings_by_severity") or {}
@@ -384,12 +407,20 @@ def _reconciliation_lines(output):
         lines.append("Findings per rule: " + ", ".join(
             "check %d: %d" % pair for pair in numbered))
     distinct = _field(recon, "distinct_phrasing_count")
-    lines.append("Distinct status phrasings: %s" %
-                 _counted(_number(distinct), "phrasing", "phrasings"))
+    distinct_carried = _carried_number(distinct)
+    if distinct_carried is None:
+        lines.append("Distinct status phrasings: absent")
+    else:
+        lines.append("Distinct status phrasings: %s" %
+                     _counted(distinct_carried, "phrasing",
+                              "phrasings"))
     check = _field(recon, "self_check", "self_check_result")
     ok = _field(check, "sums_agree", "ok", "passed", "agrees")
-    lines.append("Self check: sums agree" if ok else
-                 "Self check: sums do not agree")
+    if check is None or ok is None:
+        lines.append("Self check: absent")
+    else:
+        lines.append("Self check: sums agree" if ok else
+                     "Self check: sums do not agree")
     declarations = _items(_field(recon, "paired_total_declarations",
                                  "paired_totals"))
     for item in declarations:
@@ -399,20 +430,39 @@ def _reconciliation_lines(output):
     if isinstance(canonical, dict):
         canonical_sum = sum(_number(value) for value in
                             canonical.values())
-    lines.append(
-        "Paired totals: the entry total of %s "
-        "equals the canonical rows total of %d plus the Ambiguous "
-        "count of %d plus the unparsed row of %d, both views from "
-        "the one parse; the Status occurrence total of %d equals "
-        "the sum of the verbatim appendix rows, both views from "
-        "the one parse." % (
-            _counted(_number(entry_total), "headed entry",
-                     "headed entries"), canonical_sum,
-            _number(_field(recon, "ambiguous_count", "ambiguous")),
-            _number(_field(recon, "unparsed_count",
-                           "unparsed_entries")),
-            _number(_field(recon, "status_occurrence_total",
-                           "occurrence_total"))))
+    entry_carried = _carried_number(entry_total)
+    occurrence_carried = _carried_number(
+        _field(recon, "status_occurrence_total", "occurrence_total"))
+    if occurrence_carried is None:
+        occurrence_clause = "the Status occurrence total is absent"
+    else:
+        occurrence_clause = (
+            "the Status occurrence total of %d equals "
+            "the sum of the verbatim appendix rows, both views from "
+            "the one parse" % occurrence_carried)
+    if entry_carried is None:
+        lines.append(
+            "Paired totals: the entry total is absent and is not "
+            "stated as a number; the canonical rows total of %d "
+            "plus the Ambiguous count of %d plus the unparsed "
+            "row of %d, both views from the one parse; %s." % (
+                canonical_sum,
+                _number(_field(recon, "ambiguous_count", "ambiguous")),
+                _number(_field(recon, "unparsed_count",
+                               "unparsed_entries")),
+                occurrence_clause))
+    else:
+        lines.append(
+            "Paired totals: the entry total of %s "
+            "equals the canonical rows total of %d plus the "
+            "Ambiguous count of %d plus the unparsed row of %d, "
+            "both views from the one parse; %s." % (
+                _counted(entry_carried, "headed entry",
+                         "headed entries"), canonical_sum,
+                _number(_field(recon, "ambiguous_count", "ambiguous")),
+                _number(_field(recon, "unparsed_count",
+                               "unparsed_entries")),
+                occurrence_clause))
     return lines
 
 
@@ -818,6 +868,12 @@ def _appendix_lines(output):
 
 
 def _limbo_parts(output, entries):
+    # The limbo figures print only what the limbo data carries.
+    # Where the data, or one part of it, is missing, that part
+    # stands missing (count None) and the caller prints it as
+    # absent; the figures are never recomputed from the entry
+    # list, which is the rederivation brief sections 5.1 and 5.2
+    # forbid and section 6.4 forbids masking as a result.
     limbo = _field(output, "limbo_data", "limbo",
                    "limbo_sentence_data")
     result = {}
@@ -829,35 +885,32 @@ def _limbo_parts(output, entries):
         if isinstance(limbo, dict):
             raw = limbo.get(key)
             if isinstance(raw, dict):
-                ids = [_text(item) for item in _items(
-                    _field(raw, "entry_ids", "member_entry_ids",
-                           "ids", "members"))]
-                count = _number(_field(raw, "count", "total"))
+                raw_ids = _field(raw, "entry_ids",
+                                 "member_entry_ids", "ids", "members")
+                if raw_ids is not None:
+                    ids = [_text(item) for item in _items(raw_ids)]
+                count = _carried_number(
+                    _field(raw, "count", "total"))
             elif isinstance(raw, (list, tuple)):
                 ids = [_text(item) for item in raw]
                 count = len(ids)
             elif raw is not None:
                 count = _number(raw)
             if ids is None:
-                raw_ids = limbo.get(key + "_ids") or \
-                    limbo.get(key + "_entry_ids")
+                raw_ids = limbo.get(key + "_ids")
+                if raw_ids is None:
+                    raw_ids = limbo.get(key + "_entry_ids")
                 if raw_ids is not None:
                     ids = [_text(item) for item in _items(raw_ids)]
             if count is None:
                 raw_count = limbo.get(key + "_count")
                 if raw_count is not None:
                     count = _number(raw_count)
-        if ids is None:
-            if state is not None:
-                ids = [_entry_label(entry) for entry in entries
-                       if _entry_state(entry) == state]
-            else:
-                ids = [_entry_label(entry) for entry in entries
-                       if _field(entry, "unparsed")]
-            count = len(ids)
-        if count is None:
-            count = len(ids)
-        result[key] = (count, [item for item in ids if item])
+            if count is None and ids is not None:
+                count = len(ids)
+        result[key] = (count,
+                       [item for item in ids if item]
+                       if ids is not None else [])
     return result
 
 
@@ -873,48 +926,51 @@ def _figures_lines(output, entries):
         waiting = _field(figures, "waiting", "waiting_count")
     if blocking is None and figures is not None:
         blocking = _field(figures, "blocking", "blocking_count")
-    lines.append(
-        "Waiting: %d. The waiting figure is effective Open "
-        "entries plus Settled in part remainders." % _number(waiting))
-    blocking_count = _number(blocking)
-    lines.append("Blocking: %s that %s." % (
-        _counted(blocking_count, "entry", "entries"),
-        "blocks" if blocking_count == 1 else "block"))
+    waiting_carried = _carried_number(waiting)
+    if waiting_carried is None:
+        lines.append(
+            "Waiting: absent. The waiting figure is effective Open "
+            "entries plus Settled in part remainders.")
+    else:
+        lines.append(
+            "Waiting: %d. The waiting figure is effective Open "
+            "entries plus Settled in part remainders."
+            % waiting_carried)
+    blocking_carried = _carried_number(blocking)
+    if blocking_carried is None:
+        lines.append("Blocking: absent.")
+    else:
+        lines.append("Blocking: %s that %s." % (
+            _counted(blocking_carried, "entry", "entries"),
+            "blocks" if blocking_carried == 1 else "block"))
     coverage = _field(output, "blocks_coverage", "blocks_counts")
     blocks_with = None
     blocks_without = None
     if isinstance(coverage, dict):
-        blocks_with = _field(coverage, "with_blocks_field",
-                             "with_field")
-        blocks_without = _field(coverage, "without_blocks_field",
-                                "without_field")
+        blocks_with = _carried_number(_field(
+            coverage, "with_blocks_field", "with_field"))
+        blocks_without = _carried_number(_field(
+            coverage, "without_blocks_field", "without_field"))
     if blocks_with is None or blocks_without is None:
-        open_entries = [entry for entry in entries
-                        if _entry_state(entry) == "Open"]
-        blocks_with = 0
-        for entry in open_entries:
-            fields = _field(entry, "open_fields",
-                            "open_row_fields") or {}
-            keys = fields.keys() if isinstance(fields, dict) else []
-            if any("blocks" in str(key).lower() for key in keys):
-                blocks_with += 1
-        blocks_without = len(open_entries) - blocks_with
-    blocks_with = _number(blocks_with)
-    blocks_without = _number(blocks_without)
-    lines.append(
-        "Blocks coverage: %d effectively open %s a blocks field "
-        "and %d %s none." % (
-            blocks_with,
-            "entry records" if blocks_with == 1
-            else "entries record",
-            blocks_without,
-            "records" if blocks_without == 1 else "record"))
+        lines.append("Blocks coverage: absent.")
+    else:
+        lines.append(
+            "Blocks coverage: %d effectively open %s a blocks "
+            "field and %d %s none." % (
+                blocks_with,
+                "entry records" if blocks_with == 1
+                else "entries record",
+                blocks_without,
+                "records" if blocks_without == 1 else "record"))
     limbo = _limbo_parts(output, entries)
     parts = []
     for key, label in (("conditional", "Conditional"),
                        ("ambiguous", "Ambiguous"),
                        ("unparsed", "unparsed")):
         count, ids = limbo[key]
+        if count is None:
+            parts.append("%s absent" % label)
+            continue
         id_part = (": " + ", ".join(ids)) if ids else ""
         parts.append("%d %s %s%s" % (
             count, label,
@@ -923,8 +979,12 @@ def _figures_lines(output, entries):
         "Limbo: " + "; ".join(parts) + " stand outside both "
         "figures.")
     lines.append("Blocking list:")
-    blocking_list = _items(_field(output, "blocking_list"))
+    blocking_raw = _field(output, "blocking_list")
+    blocking_list = _items(blocking_raw)
     printed = False
+    if blocking_raw is None:
+        lines.append("- absent")
+        printed = True
     for item in blocking_list:
         if isinstance(item, str):
             lines.append("- %s" % item)
@@ -954,33 +1014,22 @@ def _figures_lines(output, entries):
     with_signal = None
     without_signal = None
     if isinstance(effort, dict):
-        with_signal = _number(_field(
+        with_signal = _carried_number(_field(
             effort, "with_effort_signal", "with_signal", "carrying"))
-        without_signal = _number(_field(
+        without_signal = _carried_number(_field(
             effort, "without_effort_signal", "without_signal",
             "carrying_none"))
-    if with_signal is None:
-        open_entries = [entry for entry in entries
-                        if _entry_state(entry) == "Open"]
-        with_signal = 0
-        for entry in open_entries:
-            fields = _field(entry, "open_fields",
-                            "open_row_fields") or {}
-            signal = _field(fields, "effort_signal", "effort") \
-                if fields else None
-            if _text(signal):
-                with_signal += 1
-        without_signal = len(open_entries) - with_signal
-    with_signal = _number(with_signal)
-    without_signal = _number(without_signal)
-    lines.append(
-        "Effort coverage: %d effectively open %s an effort signal "
-        "and %d %s none." % (
-            with_signal,
-            "entry carries" if with_signal == 1
-            else "entries carry",
-            without_signal,
-            "carries" if without_signal == 1 else "carry"))
+    if with_signal is None or without_signal is None:
+        lines.append("Effort coverage: absent.")
+    else:
+        lines.append(
+            "Effort coverage: %d effectively open %s an effort "
+            "signal and %d %s none." % (
+                with_signal,
+                "entry carries" if with_signal == 1
+                else "entries carry",
+                without_signal,
+                "carries" if without_signal == 1 else "carry"))
     fastest = _text(_field(output, "fastest_item",
                            "fastest_item_to_clear"))
     if fastest is None and figures is not None:

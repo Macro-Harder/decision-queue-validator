@@ -715,6 +715,73 @@ class FootAndClosingTest(unittest.TestCase):
                 self.assertIn(other, lines[-2])
 
 
+class RenderMissingFiguresTest(unittest.TestCase):
+    """Step 19 R-14: render prints only what its input carries.
+
+    Brief sections 5.1 and 5.2: render recounts nothing and
+    rederives nothing, and absence is shown as absence, a missing
+    field as absent. Brief section 6.4 forbids converting a
+    failure into a plausible looking result. A figure removed
+    from the Validate output therefore surfaces as absent in
+    the render, never recomputed from the entry list and never
+    as a plausible zero.
+    """
+
+    def test_removed_coverage_and_limbo_figures_print_absent(self):
+        _model, output = h.cached_pipeline("S5")
+        removed = h.deepcopy_value(output)
+        for name in ("limbo_data", "blocks_coverage",
+                     "effort_coverage"):
+            if hasattr(removed, name):
+                delattr(removed, name)
+        text = h.render_text(removed, "render")
+        self.assertIn("Blocks coverage: absent", text)
+        self.assertIn("Effort coverage: absent", text)
+        limbo_lines = [line for line in text.splitlines()
+                       if line.startswith("Limbo:")]
+        self.assertEqual(len(limbo_lines), 1)
+        self.assertIn("absent", limbo_lines[0])
+        self.assertNotIn(
+            "Blocks coverage: 1 effectively open entry records a "
+            "blocks field and 0 record none.", text)
+        self.assertNotIn(
+            "Effort coverage: 0 effectively open entries carry an "
+            "effort signal and 1 carries none.", text)
+
+    def test_removed_limbo_data_on_a_limbo_bearing_fixture(self):
+        _model, output = h.cached_pipeline("S17")
+        removed = h.deepcopy_value(output)
+        if hasattr(removed, "limbo_data"):
+            delattr(removed, "limbo_data")
+        text = h.render_text(removed, "render")
+        limbo_lines = [line for line in text.splitlines()
+                       if line.startswith("Limbo:")]
+        self.assertEqual(len(limbo_lines), 1)
+        self.assertIn("absent", limbo_lines[0])
+        self.assertNotIn("2 Ambiguous entries", limbo_lines[0])
+
+    def test_missing_entry_total_prints_absent_not_zero(self):
+        _model, output = h.cached_pipeline("S5")
+        changed = h.deepcopy_value(output)
+        changed.reconciliation.entry_total = None
+        text = h.render_text(changed, "render")
+        self.assertIn("Headed entries: absent", text)
+        self.assertNotIn("Headed entries: 0", text)
+        self.assertIn("the entry total is absent", text)
+        self.assertNotIn("entry total of 0 headed entries", text)
+
+    def test_missing_waiting_and_blocking_print_absent_not_zero(self):
+        _model, output = h.cached_pipeline("S5")
+        changed = h.deepcopy_value(output)
+        changed.waiting = None
+        changed.blocking = None
+        text = h.render_text(changed, "render")
+        self.assertIn("Waiting: absent", text)
+        self.assertIn("Blocking: absent", text)
+        self.assertNotIn("Waiting: 0", text)
+        self.assertNotIn("Blocking: 0 entries", text)
+
+
 class SegmentClaimsCarriageTest(unittest.TestCase):
     """Step 19 R-13, carriage limb: the segment claims carriage
     stands inside the declared Validate output shape.
