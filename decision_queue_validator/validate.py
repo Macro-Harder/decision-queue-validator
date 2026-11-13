@@ -1201,6 +1201,17 @@ _CLEARING_FORMS = {
         "heading, or take the heading out of the file.",
 }
 
+# The pin 5 unmatched heading finding is filed under rule id 5,
+# whose number amendment 3 of the plan rules as its first order
+# key, but check 5's clearing form cannot clear it: recording a
+# decider, ruling text, outcome or landing does nothing for a
+# heading that matches no recognised form. The finding therefore
+# carries its own clearing form, printed under its pin name, and
+# check 5's form is printed only where a check 5 finding fired.
+_PIN5_CLEARING_FORM = (
+    "Restate the heading in a recognised heading form, or take "
+    "the heading and the lines under it out of the file.")
+
 
 def _appendix_rows(entries, vocabulary):
     rows = {}
@@ -1563,6 +1574,19 @@ def validate_model(model, vocabulary, output_form_edition=None):
     fired_rules = sorted({f.rule_id for f in findings})
     clearing_forms = {rule: _CLEARING_FORMS[rule] for rule in fired_rules
                       if rule in _CLEARING_FORMS}
+    if 5 in clearing_forms:
+        check5_fired = any(
+            f.rule_id == 5 and (f.basis or "").startswith(
+                "decision evidence presence")
+            for f in findings)
+        pin5_fired = any(
+            f.rule_id == 5 and f.basis ==
+            "a heading matching no recognised heading form"
+            for f in findings)
+        if not check5_fired:
+            del clearing_forms[5]
+        if pin5_fired:
+            clearing_forms["pin 5"] = _PIN5_CLEARING_FORM
 
     file_facts = FileFactsData(
         input_name=_get(header_facts, "input_name")

@@ -288,6 +288,57 @@ class ValidateOutputFormTest(unittest.TestCase):
         self.assertEqual(citation[1], 5)
         self.assertGreaterEqual(citation[2][0], 0)
 
+class Pin5ClearingFormTest(unittest.TestCase):
+    """The unmatched heading Warning carries its own clearing form.
+
+    The pin 5 unmatched heading finding is filed under rule id 5,
+    whose first key amendment 3 of the plan rules, but the rule
+    list answered it with check 5's clearing form, "Record the
+    missing decider, ruling text, outcome or landing in one of its
+    recorded forms", an act that cannot clear a heading finding.
+    The finding stands answered with its own form, under its pin
+    name, and check 5's form answers check 5 findings only.
+    """
+
+    def _validate_text_for(self, data):
+        path = h.temp_input(data, "pin5.md")
+        code, out, _err = h.run_cli("validate", path)
+        return code, out.decode("utf-8", errors="replace")
+
+    def test_unmatched_heading_is_answered_with_its_own_form(self):
+        data, _facts = h.unmatched_heading_input("h5")
+        _code, text = self._validate_text_for(data)
+        self.assertIn("pin 5:", text)
+        pin_line = [line for line in text.splitlines()
+                    if line.startswith("pin 5:")][0]
+        self.assertIn("heading", pin_line.lower())
+        self.assertNotIn("decider", pin_line.lower())
+        self.assertNotIn(
+            "Record the missing decider, ruling text, outcome or "
+            "landing", text)
+
+    def test_check5_form_still_answers_a_check5_finding(self):
+        # A decided entry missing its evidence (the S4 shape)
+        # beside an unmatched heading: both forms print, each
+        # answering its own finding.
+        data = (
+            "# Decision queue\n"
+            "\n"
+            "### DQ-901: A ruled entry with no evidence recorded\n"
+            "\n"
+            "Status: RULED, closed\n"
+            "\n"
+            "##### A level five heading\n"
+            "\n"
+            "Prose under it.\n").encode("utf-8")
+        _code, text = self._validate_text_for(data)
+        self.assertIn(
+            "check 5: Record the missing decider, ruling text, "
+            "outcome or landing in one of its recorded forms.",
+            text)
+        self.assertIn("pin 5:", text)
+
+
     def test_index_carries_no_file_finding_line(self):
         # Only the index section is scanned: OQ-7 bounds FILE
         # findings out of the index only, and a FILE group line in

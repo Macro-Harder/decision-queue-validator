@@ -1052,49 +1052,61 @@ def render_validate(validate_output):
                    "clearing_forms", "rule_list")
     lines.append("Rule list")
     lines.append("")
-    rule_numbers = []
-    form_texts = {}
+    # Each clearing form prints under its own name: a numbered
+    # check under "check N", and a form keyed by a pin name (the
+    # pin 5 unmatched heading form) under that name, ordered after
+    # the check of the same number.
+    form_entries = []
+
+    def _form_entry(number, label, value):
+        text = None
+        if isinstance(value, str):
+            text = value
+        elif isinstance(value, dict):
+            text = _text(_field(value, "clearing_form", "form",
+                                "text", "statement"))
+        elif value is not None:
+            text = _text(_field(value, "clearing_form", "form",
+                                "text", "statement"))
+            if text is None:
+                text = _text(value)
+        form_entries.append((number, label, text))
+
     if isinstance(forms, dict):
         for key, value in forms.items():
             number = _rule_number(key)
             if number is None and isinstance(value, dict):
                 number = _finding_rule(value)
             if number is not None:
-                rule_numbers.append(number)
-                form_texts[number] = value
+                if isinstance(key, str) and not key.isdigit():
+                    label = key
+                else:
+                    label = "check %d" % number
+                _form_entry(number, label, value)
     elif forms:
         for item in _items(forms):
             number = _finding_rule(item)
             if number is not None:
-                rule_numbers.append(number)
-                form_texts[number] = item
-    if not rule_numbers:
+                _form_entry(number, "check %d" % number, item)
+    if not form_entries:
+        seen = set()
         for finding in findings:
             number = _finding_rule(finding)
-            if number is not None and number not in rule_numbers:
-                rule_numbers.append(number)
-    rule_numbers = sorted(set(rule_numbers))
-    if rule_numbers:
-        for number in rule_numbers:
-            value = form_texts.get(number)
-            text = None
-            if isinstance(value, str):
-                text = value
-            elif isinstance(value, dict):
-                text = _text(_field(value, "clearing_form", "form",
-                                    "text", "statement"))
-            elif value is not None:
-                text = _text(_field(value, "clearing_form", "form",
-                                    "text", "statement"))
-                if text is None:
-                    text = _text(value)
+            if number is not None and number not in seen:
+                seen.add(number)
+                _form_entry(number, "check %d" % number, None)
+    form_entries.sort(
+        key=lambda entry: (entry[0], 0 if entry[1].startswith(
+            "check") else 1, entry[1]))
+    if form_entries:
+        for _number_key, label, text in form_entries:
             if text:
-                lines.append("check %d: %s" % (number, text))
+                lines.append("%s: %s" % (label, text))
             else:
                 lines.append(
-                    "check %d: a finding of this rule clears when "
+                    "%s: a finding of this rule clears when "
                     "the recorded form for this check stands in "
-                    "the file." % number)
+                    "the file." % label)
     else:
         lines.append("No rule fired in this run.")
     lines.append("")
