@@ -253,7 +253,7 @@ def _decider_label(element):
             if "dq-141" in lowered and (
                     "fill in" in lowered or "fill-in" in lowered):
                 return "fill in under DQ-141"
-            if "dq-145" in lowered and "completion" in lowered:
+            if "dq-145" in lowered and ("completion" in lowered or "completed" in lowered):
                 return "completion under DQ-145"
             if "dq-143" in lowered and (
                     "settled" in lowered or "settlement" in lowered):
@@ -266,7 +266,7 @@ def _decider_label(element):
         return "under the pass 2 grant"
     if "dq-141" in lowered and ("fill in" in lowered or "fill-in" in lowered):
         return "fill in under DQ-141"
-    if "dq-145" in lowered and "completion" in lowered:
+    if "dq-145" in lowered and ("completion" in lowered or "completed" in lowered):
         return "completion under DQ-145"
     if "dq-143" in lowered and ("settled" in lowered or "settlement" in lowered):
         return "settled under DQ-143"
@@ -415,9 +415,13 @@ def _derive(entry):
     if disposition == "Settled":
         return finish("Settled")
     if disposition == "Closed":
-        statement = determining.statement or ""
-        if "Completed by" in statement or "completed by" in statement.lower():
-            return finish("Settled")
+        # A completion form does not convert the row: the mapping
+        # table's Closed row maps disposition Closed without a
+        # ruling or settlement form to Closed as decided, and the
+        # completion wording is already ruled as a decider label
+        # on Closed rows ("completion under DQ-145", brief section
+        # 5.4), which _decider_label supplies from the determining
+        # element. No table row reads it as a settlement.
         return finish("Closed as decided")
     if disposition == "Parked":
         return finish("Parked")

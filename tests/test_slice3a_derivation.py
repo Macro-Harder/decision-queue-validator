@@ -297,6 +297,40 @@ class DeciderLabelNoFallbackTest(unittest.TestCase):
         self.assertEqual(counts.get("Ruled by Captain JP", 0), 0)
 
 
+class CompletedByStaysClosedTest(unittest.TestCase):
+    """A completion form is a decider label on a Closed row, not a settlement.
+
+    The mapping table's Closed row is complete on this shape:
+    disposition Closed without a ruling or settlement form, scope
+    Whole, condition None, maps to Closed as decided, and brief
+    section 5.4's decider label list already provides "completion
+    under DQ-145" as a label carried on Closed rows. The shipped
+    _derive read a determining element of disposition Closed as
+    Settled where its statement contains "Completed by", so seat
+    2's rf18 shape rendered in the Settled group. Limb (a) of the
+    same register item, the closing prose re-reading, is a design
+    question (DQ-R8) and is not touched here.
+    """
+
+    RF18_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: An item closed by a completion form\n"
+        "\n"
+        "Status: Closed. Completed by the Manager under DQ-145.\n")
+
+    def test_rf18_completion_form_derives_closed_as_decided(self):
+        _model, output = h.run_pipeline(self.RF18_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertEqual(h.entry_state(entry), "Closed as decided")
+        self.assertEqual(
+            h.text_of(h.get(entry, "decider_label")),
+            "completion under DQ-145")
+        counts = h.canonical_counts(output)
+        self.assertEqual(counts.get("Settled"), 0)
+        self.assertEqual(counts.get("Closed as decided"), 1)
+
+
 class ConditionOnUnclassifiableTest(unittest.TestCase):
     """A Condition line never converts an unclassifiable element.
 
