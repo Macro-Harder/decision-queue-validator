@@ -244,6 +244,59 @@ class EffectiveElementsExceptionTest(unittest.TestCase):
         self.assertEqual(h.exit_code_of(output), 4)
 
 
+class DeciderLabelNoFallbackTest(unittest.TestCase):
+    """A decider label comes from the determining element alone.
+
+    Brief section 5.4 rules a row whose determining element names
+    no decider carries no label and counts in no decider subtotal,
+    with "decider not recorded" in its place; brief section 7.3
+    rules the render preserves that distinction. The constructed
+    entry is the rf19c shape: a head Status line naming Captain JP
+    and a determining element, a later Status line reading
+    "SETTLED, closed.", naming no decider. The shipped derivation
+    fell back to the head line and printed the label "Ruled by
+    Captain JP" on a Settled row, counting it in that subtotal.
+    """
+
+    RF19C_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: A question settled with no decider on its "
+        "determining element\n"
+        "\n"
+        "Status: Ruled by Captain JP\n"
+        "\n"
+        "Owner of record: Decision-queue Clerk\n"
+        "\n"
+        "The question: Should the item be settled now?\n"
+        "\n"
+        "Options:\n"
+        "- Option A: settle it now.\n"
+        "- Option B: wait.\n"
+        "\n"
+        "Cost of deciding late: moderate.\n"
+        "\n"
+        "What it blocks: the closing note.\n"
+        "\n"
+        "Status: SETTLED, closed.\n")
+
+    def test_rf19c_row_carries_no_label_and_counts_in_no_subtotal(self):
+        _model, output = h.run_pipeline(self.RF19C_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertIsNotNone(entry)
+        self.assertEqual(h.entry_state(entry), "Settled")
+        self.assertIsNone(
+            h.text_of(h.get(entry, "decider_label", "decider")))
+        annotation = h.text_of(h.get(
+            entry, "decider_annotation", "annotation"))
+        self.assertEqual(annotation, "decider not recorded")
+        subtotals = h.get(output, "decider_subtotals",
+                          "decider_counts")
+        counts = {h.text_of(key): h.int_of(value)
+                  for key, value in subtotals.items()}
+        self.assertEqual(counts.get("Ruled by Captain JP", 0), 0)
+
+
 class ReattachedEntryStateTest(unittest.TestCase):
 
     def test_s8_states_ruled_by_addition_and_open_beside_it(self):
@@ -291,21 +344,24 @@ class DeciderLabelCorrectionTest(unittest.TestCase):
         self.assertEqual(h.entry_state(entry), "Ruled")
         self.assertEqual(label, "Ruled by Captain JP")
 
-    def test_r5_status_line_deciders_carry_the_label(self):
-        # Brief section 5.3: the decider named in the Status line is
-        # a decider form. In fixture R5 the entries DQ-149 to DQ-152
+    def test_r5_status_line_deciders_carry_no_label(self):
+        # Brief section 5.4 rules the label off the determining
+        # element alone. In fixture R5 the entries DQ-149 to DQ-152
         # name their decider only in their head Status line, which
         # reads "Ruled by Captain JP"; their determining elements
-        # name no decider. The label is therefore the Status line
-        # form, and no "decider not recorded" annotation stands.
+        # name no decider. The entries therefore carry no label and
+        # the "decider not recorded" annotation stands. An earlier
+        # form of this test pinned the fallback to the Status line;
+        # that fallback was defect R-05, removed at Step 19, and
+        # this expectation now follows the brief text.
         for entry_id in ("DQ-149", "DQ-150", "DQ-151", "DQ-152"):
             with self.subTest(entry=entry_id):
                 entry, label = self._label("R5", entry_id)
                 self.assertEqual(h.entry_state(entry), "Ruled")
-                self.assertEqual(label, "Ruled by Captain JP")
+                self.assertIsNone(label)
                 annotation = h.text_of(h.get(
                     entry, "decider_annotation", "annotation"))
-                self.assertNotEqual(annotation, "decider not recorded")
+                self.assertEqual(annotation, "decider not recorded")
 
     def test_r5_entries_with_no_decider_form_stay_unlabelled(self):
         # DQ-154 and DQ-155 in R5 name no decider in any section 5.3
@@ -320,28 +376,33 @@ class DeciderLabelCorrectionTest(unittest.TestCase):
                 self.assertEqual(annotation, "decider not recorded")
 
     def test_r5_decider_subtotal_counts_the_status_line_deciders(self):
-        # Derived from the R5 fixture text: DQ-149 to DQ-152 name
-        # Captain JP in the Status line (4), DQ-153 carries the label
-        # through its closing prose (1), DQ-156 through its heading
-        # (1), and DQ-154 and DQ-155 name no decider (0). Total 6.
+        # Derived from the R5 fixture text under the brief section
+        # 5.4 rule as cured at Step 19 (defect R-05): DQ-149 to
+        # DQ-152 name Captain JP only in the Status line and count
+        # in no subtotal (0), DQ-153 carries the label through its
+        # determining closing prose (1), DQ-156 through its
+        # determining heading (1), and DQ-154 and DQ-155 name no
+        # decider (0). Total 2.
         _model, output = h.cached_pipeline("R5")
         subtotals = h.get(output, "decider_subtotals", "decider_counts")
         counts = {h.text_of(key): h.int_of(value)
                   for key, value in subtotals.items()}
-        self.assertEqual(counts["Ruled by Captain JP"], 6)
+        self.assertEqual(counts["Ruled by Captain JP"], 2)
 
-    def test_r1_status_line_deciders_carry_the_label(self):
+    def test_r1_status_line_deciders_carry_no_label(self):
         # Register D-09's dialect on R1: DQ-147 and DQ-148 name
         # their decider only in the head Status line, in the same
-        # form as the R5 entries above.
+        # form as the R5 entries above. Under the brief section 5.4
+        # rule as cured at Step 19 (defect R-05) they carry no
+        # label and the annotation stands.
         for entry_id in ("DQ-147", "DQ-148"):
             with self.subTest(entry=entry_id):
                 entry, label = self._label("R1", entry_id)
                 self.assertEqual(h.entry_state(entry), "Ruled")
-                self.assertEqual(label, "Ruled by Captain JP")
+                self.assertIsNone(label)
                 annotation = h.text_of(h.get(
                     entry, "decider_annotation", "annotation"))
-                self.assertNotEqual(annotation, "decider not recorded")
+                self.assertEqual(annotation, "decider not recorded")
 
 
 class CarriedFormDerivationTest(unittest.TestCase):

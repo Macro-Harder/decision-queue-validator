@@ -334,25 +334,12 @@ def _derive(entry):
         result["sub_label"] = sub_label
         primary = (label_element if label_element is not None
                    else determining)
-        label = _decider_label(primary)
-        if label is None:
-            # The determining element names no decider. The label
-            # then falls back to a decider named by another element
-            # of the same entry in a section 5.3 decider form, the
-            # head Status line first, then the remaining effective
-            # elements in their order. Where the determining element
-            # names a decider, that decider still governs alone.
-            ordered = [e for e in effective
-                       if e.kind == "head Status line"]
-            ordered.extend(e for e in effective
-                           if e.kind != "head Status line")
-            for candidate in ordered:
-                if candidate is primary:
-                    continue
-                label = _decider_label(candidate)
-                if label is not None:
-                    break
-        result["decider_label"] = label
+        # The label comes from the determining element alone.
+        # Brief section 5.4 rules a row whose determining element
+        # names no decider carries no label and counts in no
+        # decider subtotal, with "decider not recorded" in its
+        # place; no fallback to any other element stands.
+        result["decider_label"] = _decider_label(primary)
         result["condition"] = condition
         result["remainder"] = determining.remainder_text
         if state in DECIDED_STATES and result["decider_label"] is None:

@@ -425,13 +425,13 @@ class CountsAndFiguresTest(unittest.TestCase):
 
     def test_render_summary_output_preserved_on_the_scan_fixtures(self):
         expected = {
-            "R1": "271f58a5663869fbf5e4ec975df78d99aaa0f7cff110465110f38715643989fc",
-            "R2": "d167077dc3ae2aacb0597817fd3d40b566f03af7a8332a07ff90ad2cb4d47fb8",
+            "R1": "98c92a7896cdf93d3f8a39768968eb92974ddaf7057f54408b34d1c1ccb1e002",
+            "R2": "335f120aa950f97be4526481a9875bbf605660e570e719e81d8c093e1c168a65",
             "R3": "61ed884d01a92b2607fb72640404fd793294faf86001b7ba62a91d57de87b524",
             "R4": "295c916be2281e8d8407eaf871f12fbeb4c0d4cb50ad3f14e5a143ee2a2155fb",
-            "R5": "cf89623d8195ce92bc7c7d181af84761f758e9cf453332d9c4f4f133e45cedb3",
-            "R6": "e95c8626232103ded56f4e4fb8f84028ef2696bd7cffbbe111575542d47d452d",
-            "R7": "20a765086148b525b075c0b28b112880750dfd5bcba5ed7b86d94541258a9a4c",
+            "R5": "3229bde4db45bdbfe5fc6f0b6cc8d565a22c2c789f84f7e40f7aebc2aa729826",
+            "R6": "0ad03d5a52d963a53fcf34b0fbbd1492a5e133aa487fa63641e1d89f7e4972bf",
+            "R7": "077d3bbdcc2d3847e26e6ae921e50eed8375b5d8729cc8015444522eb33a43dd",
             "R8": "61fbbc60035cdaf760300a88bdc41603784a983e6ed8e4018ca1a6bd72d7d169",
             "R9": "4004401e4f3c9d0b41c78c15de5febe5306c399a040b77ed55f3e12b1f99f2bf",
             "S1": "59644939847087823e80b09e983d3af70260a4765f8267e10676928dc6ee6697",
