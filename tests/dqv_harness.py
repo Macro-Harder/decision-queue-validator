@@ -137,6 +137,84 @@ def run_cli(subcommand, input_path, seed=SEED_ONE, output_path=None,
     return proc.returncode, proc.stdout, proc.stderr
 
 
+_CLOSED_DESCRIPTOR_DRIVER = (
+    "import os, sys\n"
+    "fd = int(sys.argv[1])\n"
+    "args = sys.argv[2:]\n"
+    "try:\n"
+    "    os.close(fd)\n"
+    "except OSError:\n"
+    "    pass\n"
+    "os.execve(sys.executable, [sys.executable, '-m', "
+    "'decision_queue_validator'] + args, os.environ)\n"
+)
+
+
+def run_cli_closed_descriptor(argv, closed_descriptor, seed=SEED_ONE):
+    """Run the CLI with a standard descriptor closed before launch.
+
+    A small driver process closes the named descriptor and then execs
+    a fresh interpreter running the module, so the child interpreter
+    starts with the matching standard stream set to None, exactly the
+    descriptor closed before launch condition. argv holds the module
+    arguments after the module name, as plain strings.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c", _CLOSED_DESCRIPTOR_DRIVER,
+         str(closed_descriptor)] + [str(item) for item in argv],
+        cwd=str(PRODUCT_ROOT),
+        env=cli_env(seed),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def run_cli_with_timeout(subcommand, input_path, seed=SEED_ONE,
+                         output_path=None, timeout=30):
+    """Run the CLI under a timeout, in the run_cli argument form.
+
+    A run that exceeds the timeout raises TimeoutExpired, failing
+    the calling test rather than hanging the suite.
+    """
+    argv = [sys.executable, "-m", PACKAGE]
+    if subcommand is not None:
+        argv.append(subcommand)
+    if input_path is not None:
+        argv.append(str(input_path))
+    if output_path is not None:
+        argv.extend(["--output", str(output_path)])
+    proc = subprocess.run(
+        argv,
+        cwd=str(PRODUCT_ROOT),
+        env=cli_env(seed),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def run_cli_stdout_redirect(subcommand, input_path, stdout_path,
+                            seed=SEED_ONE):
+    """Run with standard output redirected to a regular file.
+
+    Returns the process return code and the captured standard error
+    bytes. The caller controls the state of the target file and any
+    resource limits in force around the run.
+    """
+    argv = [sys.executable, "-m", PACKAGE, subcommand, str(input_path)]
+    with open(stdout_path, "wb") as out_handle:
+        proc = subprocess.run(
+            argv,
+            cwd=str(PRODUCT_ROOT),
+            env=cli_env(seed),
+            stdout=out_handle,
+            stderr=subprocess.PIPE,
+        )
+    return proc.returncode, proc.stderr
+
+
 def run_cli_closed_pipe(subcommand, input_path, seed=SEED_ONE):
     """Run with standard output connected to a pipe with no reader."""
     argv = [sys.executable, "-m", PACKAGE, subcommand, str(input_path)]

@@ -87,7 +87,7 @@ def _not_read_output(input_name):
     """The input not read form: the name as given, and no measurements."""
     lines = _head_lines(
         "File facts: {}; input not read".format(input_name),
-        _limits_line(False),
+        _limits_line(True),
     )
     lines.append("")
     lines.append(
@@ -161,11 +161,14 @@ def _file_level_output(failure, subcommand):
 
 
 def _usage_error(message):
-    sys.stderr.write("usage error: {}\n".format(message))
-    sys.stderr.write(
-        "usage: python3 -m decision_queue_validator "
-        "{validate|render} INPUT [--output OUTPUT]\n"
-    )
+    try:
+        sys.stderr.write("usage error: {}\n".format(message))
+        sys.stderr.write(
+            "usage: python3 -m decision_queue_validator "
+            "{validate|render} INPUT [--output OUTPUT]\n"
+        )
+    except (OSError, AttributeError, ValueError):
+        pass
     return 2
 
 
@@ -173,7 +176,7 @@ def _report_stderr(message):
     try:
         sys.stderr.write(message + "\n")
         sys.stderr.flush()
-    except OSError:
+    except (OSError, AttributeError, ValueError):
         pass
 
 
@@ -184,13 +187,31 @@ def _deliver(text, output_path):
         try:
             sys.stdout.buffer.write(data)
             sys.stdout.buffer.flush()
-        except OSError as exc:
+        except (OSError, AttributeError, ValueError) as exc:
+            try:
+                sys.stdout.close()
+            except (OSError, AttributeError, ValueError):
+                pass
             _report_stderr(
                 "error: standard output was closed before the output was "
                 "delivered ({})".format(exc)
             )
             return 2
         return 0
+    try:
+        existing_stat = os.stat(output_path)
+    except OSError:
+        existing_stat = None
+    if existing_stat is not None and not stat.S_ISREG(
+            existing_stat.st_mode):
+        reason = "Is a directory" if stat.S_ISDIR(
+            existing_stat.st_mode) else "Not a regular file"
+        _report_stderr(
+            "error: could not write the output file {} ({})".format(
+                output_path, reason
+            )
+        )
+        return 2
     directory = os.path.dirname(os.path.abspath(output_path))
     handle = None
     temp_path = None

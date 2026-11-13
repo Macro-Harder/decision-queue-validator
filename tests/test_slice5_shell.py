@@ -55,6 +55,30 @@ class ExitTwoBranchesTest(unittest.TestCase):
         code, _out, _err = h.run_cli(None, None)
         self.assertEqual(code, 2)
 
+    def test_usage_error_closed_stderr_unknown_exits_two(self):
+        code, out, err = h.run_cli_closed_descriptor(
+            ["bogus", "x.md"], 2)
+        self.assertEqual(code, 2)
+        self.assertNotIn(b"Traceback", err)
+        self.assertNotIn(b"AttributeError", err)
+
+    def test_usage_error_closed_stderr_no_arguments_exits_two(self):
+        code, out, err = h.run_cli_closed_descriptor([], 2)
+        self.assertEqual(code, 2)
+        self.assertNotIn(b"Traceback", err)
+        self.assertNotIn(b"AttributeError", err)
+
+    def test_usage_error_with_none_stderr_in_process_returns_two(self):
+        import sys as _sys
+        shell = h.import_module("shell")
+        saved = _sys.stderr
+        _sys.stderr = None
+        try:
+            code = shell.main(["bogus", "x.md"])
+        finally:
+            _sys.stderr = saved
+        self.assertEqual(code, 2)
+
     def test_missing_input_exits_two_with_input_not_read_form(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "no_such_input.md"
@@ -65,6 +89,18 @@ class ExitTwoBranchesTest(unittest.TestCase):
             self.assertIn("no_such_input.md", text)
             self.assertNotIn("entry count:", text.replace(
                 "entry count: not parsed", ""))
+
+    def test_missing_input_limits_line_prints_the_unit_form(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "no_such_input.md"
+            code, out, _err = h.run_cli("validate", missing)
+            self.assertEqual(code, 2)
+            text = out.decode("utf-8", errors="replace")
+            self.assertIn(
+                "Limits in force: 2,000,000 bytes per file; "
+                "10,000 lines per file; 16,384 characters per "
+                "line; vocabulary version 1; output form "
+                "edition 1", text)
 
     def test_unreadable_input_exits_two(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -396,6 +432,184 @@ class WriteMechanismTest(unittest.TestCase):
         code, err = h.run_cli_closed_pipe("render",
                                           h.corpus_path("S5"))
         self.assertEqual(code, 2)
+
+    def test_closed_descriptor_standard_output_validate_exits_two(self):
+        code, out, err = h.run_cli_closed_descriptor(
+            ["validate", str(h.corpus_path("S5"))], 1)
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        message = err.decode("utf-8", errors="replace")
+        self.assertNotIn("Traceback", message)
+        self.assertNotIn("AttributeError", message)
+        self.assertIn(
+            "error: standard output was closed before the output "
+            "was delivered", message)
+
+    def test_closed_descriptor_standard_output_render_exits_two(self):
+        code, out, err = h.run_cli_closed_descriptor(
+            ["render", str(h.corpus_path("S5"))], 1)
+        self.assertEqual(code, 2)
+        message = err.decode("utf-8", errors="replace")
+        self.assertNotIn("Traceback", message)
+        self.assertNotIn("AttributeError", message)
+        self.assertIn(
+            "error: standard output was closed before the output "
+            "was delivered", message)
+
+    def test_closed_descriptor_standard_output_file_level_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "invalid.bin"
+            target.write_bytes(b"\xff\xfe\x80\x00\x01 not valid text")
+            code, out, err = h.run_cli_closed_descriptor(
+                ["validate", str(target)], 1)
+            self.assertEqual(code, 2)
+            message = err.decode("utf-8", errors="replace")
+            self.assertNotIn("Traceback", message)
+            self.assertNotIn("AttributeError", message)
+            self.assertIn(
+                "error: standard output was closed before the "
+                "output was delivered", message)
+
+    def test_closed_descriptor_stdout_not_read_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "no_such_input.md"
+            code, out, err = h.run_cli_closed_descriptor(
+                ["validate", str(missing)], 1)
+            self.assertEqual(code, 2)
+            message = err.decode("utf-8", errors="replace")
+            self.assertNotIn("Traceback", message)
+            self.assertNotIn("AttributeError", message)
+            self.assertIn(
+                "error: standard output was closed before the "
+                "output was delivered", message)
+
+    def test_named_output_failure_closed_stderr_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "a_directory"
+            target.mkdir()
+            code, out, err = h.run_cli_closed_descriptor(
+                ["validate", str(h.corpus_path("S5")),
+                 "--output", str(target)], 2)
+            self.assertEqual(code, 2)
+            self.assertNotIn(b"Traceback", err)
+            self.assertNotIn(b"AttributeError", err)
+            self.assertTrue(target.is_dir())
+
+    def test_clean_run_closed_stderr_is_unaffected(self):
+        code, out, err = h.run_cli_closed_descriptor(
+            ["validate", str(h.corpus_path("S5"))], 2)
+        self.assertEqual(code, 0)
+        text = out.decode("utf-8", errors="replace")
+        self.assertIn("exit 0", text)
+
+    def test_named_output_that_is_a_fifo_exits_two_and_is_preserved(self):
+        import stat as _stat
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo = Path(tmp) / "out_fifo"
+            os.mkfifo(fifo)
+            before = h.fixture_bytes("S5")
+            code, out, err = h.run_cli_with_timeout(
+                "validate", h.corpus_path("S5"), output_path=fifo)
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            message = err.decode("utf-8", errors="replace")
+            self.assertIn(str(fifo), message)
+            self.assertTrue(_stat.S_ISFIFO(os.stat(fifo).st_mode))
+            self.assertEqual(h.fixture_bytes("S5"), before)
+            self.assertEqual(sorted(os.listdir(tmp)), ["out_fifo"])
+
+    def test_named_output_link_to_a_fifo_exits_two_and_is_preserved(self):
+        import stat as _stat
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo = Path(tmp) / "real_fifo"
+            os.mkfifo(fifo)
+            link = Path(tmp) / "out_link"
+            os.symlink(fifo, link)
+            code, out, err = h.run_cli_with_timeout(
+                "validate", h.corpus_path("S5"), output_path=link)
+            self.assertEqual(code, 2)
+            message = err.decode("utf-8", errors="replace")
+            self.assertIn(str(link), message)
+            self.assertTrue(_stat.S_ISFIFO(os.stat(fifo).st_mode))
+            self.assertTrue(os.path.islink(link))
+
+    def test_named_output_link_to_third_file_still_replaces_the_link(self):
+        # The A-06 guard: a symbolic link named as output, resolving
+        # to a separate regular file, still delivers by replacing
+        # the link name whole, and the third file is untouched.
+        import stat as _stat
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "input.md"
+            source.write_bytes(h.fixture_bytes("S5"))
+            third = Path(tmp) / "third.md"
+            third.write_bytes(b"THIRD PARTY CONTENT\n")
+            link = Path(tmp) / "out_link.md"
+            os.symlink(third, link)
+            code, out, _err = h.run_cli_with_timeout(
+                "validate", source, output_path=link)
+            self.assertEqual(code, 0)
+            self.assertEqual(out, b"")
+            self.assertEqual(third.read_bytes(),
+                             b"THIRD PARTY CONTENT\n")
+            self.assertFalse(os.path.islink(link))
+            self.assertTrue(_stat.S_ISREG(os.stat(link).st_mode))
+            text = link.read_bytes().decode("utf-8",
+                                             errors="replace")
+            self.assertIn("exit 0", text)
+            self.assertEqual(source.read_bytes(),
+                             h.fixture_bytes("S5"))
+
+    def test_stdout_flush_failure_exits_two_without_shutdown_noise(self):
+        # Standard output is a regular file in a scratch directory,
+        # and its writes are made to fail by a file size limit of
+        # zero set on this test process for the run only, the same
+        # mechanism test_failed_write_leaves_a_preexisting_output_
+        # untouched uses, now aimed at standard output. The limit is
+        # restored before any assertion runs. The assertions are on
+        # the finished process return code and on the standard error
+        # bytes, because the defect lives past the return of the
+        # delivery function, at interpreter shutdown.
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout_path = Path(tmp) / "stdout.txt"
+            soft, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+            resource.setrlimit(resource.RLIMIT_FSIZE, (0, hard))
+            try:
+                code, err = h.run_cli_stdout_redirect(
+                    "validate", h.corpus_path("S5"), stdout_path)
+            finally:
+                resource.setrlimit(resource.RLIMIT_FSIZE, (soft, hard))
+            self.assertEqual(code, 2)
+            message = err.decode("utf-8", errors="replace")
+            self.assertIn(
+                "error: standard output was closed before the "
+                "output was delivered", message)
+            self.assertNotIn("Exception ignored", message)
+
+    def test_report_stderr_with_none_stderr_in_process_survives(self):
+        import sys as _sys
+        shell = h.import_module("shell")
+        saved = _sys.stderr
+        _sys.stderr = None
+        try:
+            shell._report_stderr("error: a delivery failure")
+        finally:
+            _sys.stderr = saved
+
+    def test_closed_descriptor_stdout_refusal_exits_two(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "input.md"
+            source.write_bytes(h.fixture_bytes("S5"))
+            code, out, err = h.run_cli_closed_descriptor(
+                ["validate", str(source), "--output", str(source)], 1)
+            self.assertEqual(code, 2)
+            message = err.decode("utf-8", errors="replace")
+            self.assertNotIn("Traceback", message)
+            self.assertNotIn("AttributeError", message)
+            self.assertIn(
+                "error: standard output was closed before the "
+                "output was delivered", message)
+            self.assertEqual(source.read_bytes(),
+                             h.fixture_bytes("S5"))
 
     def test_input_is_byte_identical_after_runs(self):
         for fixture_id in ("S5", "R5", "S13"):
