@@ -1,0 +1,25 @@
+### DQ-002: OQ-1, corpus gate strength
+
+Status: RULED, closed
+
+Ruled by: Captain JP
+
+Owner of record: Decision-queue Clerk
+
+Ruling text: "Hard gate: reject or re-rule"
+
+Source: Implementation Plan, Open questions section, OQ-1. Also Implementation Plan Step 3 and Step 4, corpus gate part of the standing procedure.
+
+The question that was open: Is the regression corpus a hard gate that rejects an amendment, or is it advisory?
+
+The two readings that were open:
+
+- Reject or re-rule: an amendment that would have allowed a corpus incident is rejected, unless Captain JP explicitly re-rules that incident through this queue. This is the reading the plan currently uses.
+- Advisory: the corpus warns, but an amendment may proceed without a re-ruling. The standing procedure becomes lighter for every document and the corpus stops being a gate.
+
+Ruling outcome: The reject or re-rule reading stands, and it is now ruled rather than assumed. An amendment that would have allowed a corpus incident is rejected, unless Captain JP explicitly re-rules that incident through this queue. A re-ruling names the corpus ID and the incident; a general approval is not a re-ruling. This confirms the reading the plan and the standing procedure have used throughout, so no gate decision already taken under it is reopened.
+
+
+- Standing procedure, Part (c): already states the hard form as operative procedure (a failed item has exactly two outcomes, rejected or re-ruled, and no third outcome exists). No wording change was needed.
+- Implementation Plan, OQ-1: marked ruled, with this queue entry named as the record.
+- This queue: the open item is closed and this entry is its record.
