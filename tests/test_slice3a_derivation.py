@@ -856,5 +856,37 @@ class CanonicalCountsRealFixturesTest(unittest.TestCase):
                         fixture_id + " entry without one state")
 
 
+class ManifestCanonicalSplitSumsTest(unittest.TestCase):
+    """Step 19 Wave 29 records fix: the JSON canonical splits sum.
+
+    Each split in manifest.json must sum to its headed entries:
+    the eight canonical states plus its Ambiguous count plus its
+    unparsed count equals headed_entries. The R-04 limb D fix
+    moved DQ-138, DQ-141, and DQ-145 to Ambiguous (5 in both R1
+    and R2), and the splits must carry that count, as MANIFEST.md
+    already states, so the splits sum.
+    """
+
+    _STATES = ("Open", "Presented", "Parked", "Ruled", "Settled",
+               "Settled in part", "Closed as decided", "Conditional")
+
+    def _assert_split_sums(self, split):
+        total = sum(split[state] for state in self._STATES)
+        total += split["Ambiguous"] + split["unparsed"]
+        self.assertEqual(total, split["headed_entries"])
+
+    def test_canonical_split_r1_sums_and_counts_five_ambiguous(self):
+        split = h.manifest()["corpus_structure_splits"][
+            "canonical_split_R1"]
+        self.assertEqual(split["Ambiguous"], 5)
+        self._assert_split_sums(split)
+
+    def test_canonical_split_r2_sums_and_counts_five_ambiguous(self):
+        split = h.manifest_entry("R2")["expected_counts"][
+            "canonical_split"]
+        self.assertEqual(split["Ambiguous"], 5)
+        self._assert_split_sums(split)
+
+
 if __name__ == "__main__":
     unittest.main()
