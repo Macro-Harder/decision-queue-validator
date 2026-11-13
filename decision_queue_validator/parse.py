@@ -362,10 +362,13 @@ def _failure(kinds, name, byte_count, line_count, digest,
     breached_limit = None
     measured = None
     breached_limits = []
+    breached_measured_values = {}
     if breached:
         breached_limits = [item[0] for item in breached]
         breached_limit = breached[0][0]
         measured = breached[0][1]
+        breached_measured_values = {
+            item[0]: item[1] for item in breached}
     decision = ExitDecision(code=3, reason_classes=list(kinds))
     return FileLevelFailure(
         failure_kinds=list(kinds),
@@ -376,6 +379,7 @@ def _failure(kinds, name, byte_count, line_count, digest,
         breached_limit=breached_limit,
         measured_value=measured,
         breached_limits=breached_limits,
+        breached_measured_values=breached_measured_values,
         missing_structure=missing,
         exit_decision=decision,
     )

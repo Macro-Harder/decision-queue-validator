@@ -414,6 +414,52 @@ class ExitThreeHeadFormTest(unittest.TestCase):
             self.assertIn("10000", text.replace("10,000", "10000"))
 
 
+class CoOccurringBreachMeasuredValuesTest(unittest.TestCase):
+    """Step 19 R-12: every breached limit named carries its value.
+
+    Brief section 5.3: a breach result names the breached limit
+    and its measured value. Where two breaches co-occur, the
+    second breach is not named bare.
+    """
+
+    def test_byte_and_per_line_breaches_each_carry_a_measured_value(self):
+        data = b"x" * 2000052 + b"\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "big.md"
+            target.write_bytes(data)
+            code, out, _err = h.run_cli("validate", target)
+            self.assertEqual(code, 3)
+            text = out.decode("utf-8", errors="replace")
+            self.assertIn(
+                "Breached limit: max bytes "
+                "(measured value 2000053)", text)
+            self.assertIn(
+                "Breached limit: max characters per line "
+                "(measured value 2000052)", text)
+
+    def test_byte_and_line_breaches_each_carry_a_measured_value(self):
+        lines = ["# Decision queue", ""]
+        while len(lines) < 10001:
+            lines.append("A valid queue shaped prose line.")
+        filler = "Filler line of plain queue prose.\n"
+        repeats = (2000000 // len(filler)) + 2
+        data = ("\n".join(lines) + "\n" + filler * repeats).encode(
+            "utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "big.md"
+            target.write_bytes(data)
+            code, out, _err = h.run_cli("validate", target)
+            self.assertEqual(code, 3)
+            text = out.decode("utf-8", errors="replace")
+            self.assertIn(
+                "Breached limit: max bytes (measured value %d)"
+                % len(data), text)
+            line_count = h.count_lines_formula(data)
+            self.assertIn(
+                "Breached limit: max lines (measured value %d)"
+                % line_count, text)
+
+
 class WriteMechanismTest(unittest.TestCase):
 
     def test_named_output_file_receives_the_composed_output(self):

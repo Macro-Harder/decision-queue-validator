@@ -383,7 +383,8 @@ class FileLevelFailure:
     or absent under the per kind rules, absent winning over present
     where kinds co-occur), the digest (present in every case where
     the file was read), the breached limit and its measured value
-    where a limit breach kind is present, a statement of what
+    where a limit breach kind is present, the measured value of
+    every breached limit where more than one breach stands, a statement of what
     recognisable queue structure is missing where a structure kind is
     present, and the Exit decision for the run.
     """
@@ -396,6 +397,7 @@ class FileLevelFailure:
     breached_limit: Optional[str] = None
     measured_value: Optional[int] = None
     breached_limits: list = field(default_factory=list)
+    breached_measured_values: dict = field(default_factory=dict)
     missing_structure: Optional[str] = None
     exit_decision: Optional[ExitDecision] = None
 

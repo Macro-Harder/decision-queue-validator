@@ -132,14 +132,27 @@ def _file_level_output(failure, subcommand):
     lines.append("File level failure: this file was not parsed.")
     for kind in failure.failure_kinds or []:
         lines.append("Failure kind: {}".format(kind))
-    if failure.breached_limit:
-        lines.append(
-            "Breached limit: {} (measured value {})".format(
-                failure.breached_limit, failure.measured_value
+    # Every breached limit named carries its measured value
+    # (brief section 5.3). The measured values travel on the
+    # failure result for every breach, not only the primary one.
+    measured_values = dict(
+        getattr(failure, "breached_measured_values", None) or {})
+    if failure.breached_limit and \
+            failure.breached_limit not in measured_values and \
+            failure.measured_value is not None:
+        measured_values[failure.breached_limit] = failure.measured_value
+    named_limits = list(failure.breached_limits or [])
+    if failure.breached_limit and \
+            failure.breached_limit not in named_limits:
+        named_limits.insert(0, failure.breached_limit)
+    for name in named_limits:
+        if name in measured_values:
+            lines.append(
+                "Breached limit: {} (measured value {})".format(
+                    name, measured_values[name]
+                )
             )
-        )
-    for name in failure.breached_limits or []:
-        if name != failure.breached_limit:
+        else:
             lines.append("Breached limit: {}".format(name))
     if failure.missing_structure:
         lines.append(
