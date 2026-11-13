@@ -173,7 +173,10 @@ def _effective_elements(entry, elements):
     "Closing line for" likewise stands in element order: it is
     in form a ruling paragraph where it states a ruling, and the
     mapping table's last element rule is the brief's instrument
-    for it (the Step 19 fix register records the set asides that
+    for it. An element that notes another question stays banked,
+    with a not decided clause, likewise stands in element order:
+    brief section 5.4 names no exception that sets it aside
+    either (the Step 19 fix register records the set asides that
     stand, and the design questions split out for them, in the
     open).
     """
@@ -181,12 +184,6 @@ def _effective_elements(entry, elements):
     for element in elements:
         statement = (element.statement or "").lstrip()
         if element.kind in _BLOCK_KINDS and statement.startswith("Remainder:"):
-            continue
-        lowered = statement.lower()
-        if "stays banked" in lowered and (
-                "not decided by this ruling" in lowered
-                or "not finished under this ruling" in lowered
-                or "not completed by this ruling" in lowered):
             continue
         kept.append(element)
     while (kept and kept[-1].kind == "closing prose"

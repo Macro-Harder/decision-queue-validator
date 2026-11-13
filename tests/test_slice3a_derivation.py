@@ -312,6 +312,68 @@ class ClosingLineForDeterminationTest(unittest.TestCase):
         self.assertEqual(counts.get("Settled"), 0)
 
 
+class StaysBankedDeterminationTest(unittest.TestCase):
+    """An element noting another question stays banked determines.
+
+    Brief section 5.4 states the determining element is the last
+    element in element order subject to the exceptions named in
+    that sentence and nowhere else, and that no other exception
+    exists. The constructed entry below is a ruled entry whose
+    last status bearing element is its ruling outcome paragraph,
+    which records that another entry's question stays banked and
+    is not decided by this ruling. That paragraph carries the
+    Banked disposition on its own statement, and under the
+    mapping table an entry carrying decision evidence whose last
+    element stands undecided reaches the totality row and
+    reports Ambiguous. The shipped derivation set the element
+    aside for containing "stays banked" with a not decided
+    clause, and reported Ruled. This is register item R-04
+    limb D, reopened by the Step 19 re-audit of the first fix
+    performance: no brief pinned expectation rests on the set
+    aside, and every expectation it moves is labelled derived.
+    The shape mirrors fixture R1's DQ-138 entry in form.
+    """
+
+    STAYS_BANKED_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: A ruled entry whose outcome notes another "
+        "question stays banked\n"
+        "\n"
+        "Status: RULED, closed\n"
+        "\n"
+        "Ruled by: Captain JP\n"
+        "\n"
+        "Owner of record: Decision-queue Clerk\n"
+        "\n"
+        "Ruling text: \"Yes, the gate always wins.\"\n"
+        "\n"
+        "Source: a banked run. The run recorded one open "
+        "principle at DQ-070.\n"
+        "\n"
+        "The question that was open: Which governs?\n"
+        "\n"
+        "Ruling outcome: The corpus gate governs. This settles "
+        "the open principle recorded at DQ-070; DQ-070's own "
+        "question stays banked and is not decided by this "
+        "ruling.\n"
+        "\n"
+        "Where the ruling landed:\n"
+        "\n"
+        "- This queue: this entry is the record of the ruling.\n")
+
+    def test_stays_banked_outcome_element_is_the_determining_element(self):
+        _model, output = h.run_pipeline(
+            self.STAYS_BANKED_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertIsNotNone(entry)
+        self.assertTrue(h.is_ambiguous(entry))
+        self.assertEqual(h.ambiguous_count(output), 1)
+        counts = h.canonical_counts(output)
+        self.assertEqual(counts.get("Ruled"), 0)
+        self.assertEqual(h.exit_code_of(output), 4)
+
+
 class DeciderLabelNoFallbackTest(unittest.TestCase):
     """A decider label comes from the determining element alone.
 
@@ -742,7 +804,9 @@ class CanonicalCountsRealFixturesTest(unittest.TestCase):
                       "Settled in part", "Closed as decided",
                       "Conditional"):
             self.assertEqual(counts.get(state), split[state], state)
-        self.assertEqual(h.ambiguous_count(output), 2)
+        # 5 since the Step 19 R-04 limb D fix: DQ-138, DQ-141, and
+        # DQ-145 report Ambiguous, as the fix register records.
+        self.assertEqual(h.ambiguous_count(output), 5)
         self.assertEqual(h.unparsed_count(output), 0)
         self.assertEqual(h.int_of(h.entry_total(output)), 157)
 
@@ -755,7 +819,9 @@ class CanonicalCountsRealFixturesTest(unittest.TestCase):
                       "Settled in part", "Closed as decided",
                       "Conditional"):
             self.assertEqual(counts.get(state), expected[state], state)
-        self.assertEqual(h.ambiguous_count(output), 2)
+        # 5 since the Step 19 R-04 limb D fix, on the same entries
+        # as R1, as the fix register records.
+        self.assertEqual(h.ambiguous_count(output), 5)
         self.assertEqual(h.int_of(h.entry_total(output)), 156)
 
     def test_r7_states_ruled_four_conditional_two(self):

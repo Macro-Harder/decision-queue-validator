@@ -335,7 +335,11 @@ class WaitingBlockingTest(unittest.TestCase):
         ambiguous = h.get(limbo, "ambiguous_count", "ambiguous")
         unparsed = h.get(limbo, "unparsed_count", "unparsed")
         self.assertEqual(h.int_of(conditional), 3)
-        self.assertEqual(h.int_of(ambiguous), 2)
+        # 5 since the Step 19 R-04 limb D fix: DQ-138, DQ-141, and
+        # DQ-145 report Ambiguous now that their last elements
+        # noting another question stays banked stand in element
+        # order, as the fix register records.
+        self.assertEqual(h.int_of(ambiguous), 5)
         self.assertEqual(h.int_of(unparsed), 0)
 
     def test_effort_coverage_counts_stand_on_an_open_fixture(self):

@@ -578,8 +578,8 @@ class CountsAndFiguresTest(unittest.TestCase):
 
     def test_render_summary_output_preserved_on_the_scan_fixtures(self):
         expected = {
-            "R1": "c930fcb070f0b7f2dcee56586a854d8fb5f1ac5f888d3b9ed1098fe74b00d8fa",
-            "R2": "d552b3ce333d01953ae309178d1d0cdcd2d6f81da7c7ab37b866a375f2726cbe",
+            "R1": "5b2de9013de1fc775d63afe14f5ffc612af89a6f4f2ccee156e4cc50ef60923a",
+            "R2": "5276ce3c9f93b95bca9afe7afb36c869b72282d324f2e443c8e84c696ffa62c0",
             "R3": "61ed884d01a92b2607fb72640404fd793294faf86001b7ba62a91d57de87b524",
             "R4": "c4b5358bd8a42f543d598e55df40377c7d963841bbe0d4a11cc0a61a2b347261",
             "R5": "9f6391b8c04222a11fa05fc3856cdef96c94091a6753613586bae1c18a119fa4",
