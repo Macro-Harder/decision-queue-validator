@@ -91,6 +91,47 @@ class ExitTwoBranchesTest(unittest.TestCase):
                 "0 bytes", ""))
 
 
+class UnknownSubcommandOrderingTest(unittest.TestCase):
+    """An unknown first token is named as what it is.
+
+    The subcommand is recognised before the arity of the whole
+    command is judged: a user who typed a wrong subcommand word is
+    told that, and a user who typed a known subcommand with no
+    input, or nothing at all, keeps the present report.
+    """
+
+    def _run_argv(self, argv):
+        import subprocess
+        import sys as _sys
+        proc = subprocess.run(
+            [_sys.executable, "-m", h.PACKAGE] + argv,
+            cwd=str(h.PRODUCT_ROOT), env=h.cli_env(h.SEED_ONE),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def test_lone_unknown_token_reports_unknown_subcommand(self):
+        code, out, err = self._run_argv(["bogus"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        message = err.decode("utf-8", errors="replace")
+        self.assertIn("unknown subcommand: bogus", message)
+        self.assertNotIn("are required", message)
+
+    def test_known_subcommand_with_no_input_keeps_its_report(self):
+        code, out, err = self._run_argv(["validate"])
+        self.assertEqual(code, 2)
+        message = err.decode("utf-8", errors="replace")
+        self.assertIn("a subcommand and an input file are "
+                      "required", message)
+
+    def test_no_arguments_at_all_keeps_its_report(self):
+        code, out, err = self._run_argv([])
+        self.assertEqual(code, 2)
+        message = err.decode("utf-8", errors="replace")
+        self.assertIn("a subcommand and an input file are "
+                      "required", message)
+
+
 class OutputEqualsInputRefusalTest(unittest.TestCase):
 
     def _assert_refusal_form(self, code, out, input_path):
@@ -137,6 +178,57 @@ class OutputEqualsInputRefusalTest(unittest.TestCase):
             self.assertEqual(source.read_bytes(), before)
 
 
+class NotReadOutputDeliveryTest(unittest.TestCase):
+    """The not read report honours a named --output file.
+
+    The README's --output promise is unqualified, and the not read
+    form is a composed output like the file level form, which does
+    honour the flag. The refusal form is outside this class: its
+    named output is the input file itself, and it stays on standard
+    output as designed.
+    """
+
+    def test_missing_input_with_output_writes_the_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "no_such_input.md"
+            named = Path(tmp) / "report.txt"
+            code, out, err = h.run_cli("validate", missing,
+                                       output_path=named)
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            self.assertEqual(err, b"")
+            self.assertTrue(named.exists())
+            text = named.read_bytes().decode("utf-8",
+                                             errors="replace")
+            self.assertIn("input not read", text)
+            self.assertIn("no_such_input.md", text)
+
+    def test_directory_input_with_output_writes_the_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            named = Path(tmp) / "report.txt"
+            code, out, err = h.run_cli("validate", tmp,
+                                       output_path=named)
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            self.assertEqual(err, b"")
+            self.assertTrue(named.exists())
+            text = named.read_bytes().decode("utf-8",
+                                             errors="replace")
+            self.assertIn("input not read", text)
+
+    def test_missing_input_with_output_in_a_missing_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "no_such_input.md"
+            named = Path(tmp) / "no_such_dir" / "report.txt"
+            code, out, err = h.run_cli("validate", missing,
+                                       output_path=named)
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            self.assertTrue(err)
+            self.assertFalse(named.exists())
+            self.assertEqual(sorted(os.listdir(tmp)), [])
+
+
 class ExitThreeHeadFormTest(unittest.TestCase):
 
     def test_exit3_file_facts_form(self):
@@ -147,6 +239,36 @@ class ExitThreeHeadFormTest(unittest.TestCase):
         self.assertIn("entry count: not parsed", text)
         digest_fragment = h.sha256_hex(h.fixture_bytes("S10"))[:12]
         self.assertIn(digest_fragment, text)
+
+    def test_no_structure_sentence_names_what_was_looked_for(self):
+        # Brief section 6.2: the file level result states what
+        # recognisable queue structure is missing, in words the user
+        # holds. S10 is a structured Markdown file with no queue
+        # structure. The sentence names the two things looked for, a
+        # queue header and an entry heading, in plain words.
+        for subcommand in ("validate", "render"):
+            with self.subTest(subcommand=subcommand):
+                code, out, _err = h.cached_run("S10", subcommand)
+                self.assertEqual(code, 3)
+                text = out.decode("utf-8", errors="replace")
+                self.assertIn(
+                    "Missing structure: no queue header and no "
+                    "entry heading is present", text)
+                self.assertNotIn("measured header form", text)
+
+    def test_prose_file_missing_structure_sentence_is_plain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "prose.md"
+            target.write_bytes(
+                b"# Notes on a rota\n\nSome prose about the rota, "
+                b"with no queue forms in it.\n")
+            code, out, _err = h.run_cli("validate", target)
+            self.assertEqual(code, 3)
+            text = out.decode("utf-8", errors="replace")
+            self.assertIn(
+                "Missing structure: no queue header and no entry "
+                "heading is present", text)
+            self.assertNotIn("measured header form", text)
 
     def test_byte_breach_head_omits_the_line_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,6 +355,42 @@ class WriteMechanismTest(unittest.TestCase):
             self.assertTrue(err)
             self.assertEqual(named.read_bytes(), b"previous content\n")
             self.assertEqual(sorted(os.listdir(tmp)), ["out.txt"])
+
+    def test_failed_write_message_names_the_target_in_plain_words(self):
+        # Brief section 6.2: a failed write to a named output file is
+        # reported on the standard error channel, naming the output
+        # path and the failure. The temporary file of the write
+        # mechanism is an internal name, and the raw errno bracket is
+        # not a plain word failure, so neither stands in the message.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "no_such_dir" / "out.txt"
+            code, out, err = h.run_cli("render",
+                                       h.corpus_path("R5"),
+                                       output_path=target)
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            message = err.decode("utf-8", errors="replace")
+            self.assertIn(str(target), message)
+            self.assertIn("No such file or directory", message)
+            self.assertNotIn(".dqv-output-", message)
+            self.assertNotIn("Errno", message)
+            self.assertFalse(target.exists())
+
+    def test_failed_write_to_a_directory_target_names_it_plainly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "a_directory"
+            target.mkdir()
+            code, out, err = h.run_cli("validate",
+                                       h.corpus_path("S5"),
+                                       output_path=target)
+            self.assertEqual(code, 2)
+            self.assertEqual(out, b"")
+            message = err.decode("utf-8", errors="replace")
+            self.assertIn(str(target), message)
+            self.assertIn("Is a directory", message)
+            self.assertNotIn(".dqv-output-", message)
+            self.assertNotIn("Errno", message)
+            self.assertEqual(sorted(os.listdir(tmp)), ["a_directory"])
 
     def test_closed_pipe_standard_output_exits_two(self):
         code, err = h.run_cli_closed_pipe("render",

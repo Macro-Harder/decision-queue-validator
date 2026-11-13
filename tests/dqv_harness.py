@@ -380,7 +380,10 @@ def run_pipeline(data, name="input.md"):
         return result, None
     validate_module = import_module("validate")
     vocabulary = build_vocabulary(validate_module)
-    output = validate_function(validate_module)(result, vocabulary)
+    shell_module = import_module("shell")
+    edition = getattr(shell_module, "OUTPUT_FORM_EDITION", None)
+    output = validate_function(validate_module)(result, vocabulary,
+                                                edition)
     return result, output
 
 

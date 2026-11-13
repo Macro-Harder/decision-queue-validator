@@ -329,8 +329,27 @@ def _derive(entry):
     def finish(state, sub_label=None, label_element=None):
         result["state"] = state
         result["sub_label"] = sub_label
-        result["decider_label"] = _decider_label(
-            label_element if label_element is not None else determining)
+        primary = (label_element if label_element is not None
+                   else determining)
+        label = _decider_label(primary)
+        if label is None:
+            # The determining element names no decider. The label
+            # then falls back to a decider named by another element
+            # of the same entry in a section 5.3 decider form, the
+            # head Status line first, then the remaining effective
+            # elements in their order. Where the determining element
+            # names a decider, that decider still governs alone.
+            ordered = [e for e in effective
+                       if e.kind == "head Status line"]
+            ordered.extend(e for e in effective
+                           if e.kind != "head Status line")
+            for candidate in ordered:
+                if candidate is primary:
+                    continue
+                label = _decider_label(candidate)
+                if label is not None:
+                    break
+        result["decider_label"] = label
         result["condition"] = condition
         result["remainder"] = determining.remainder_text
         if state in DECIDED_STATES and result["decider_label"] is None:
@@ -1250,9 +1269,9 @@ def _exit_decision(findings, ambiguous_count, unparsed_count,
     reasons = []
     if ambiguous_count or conditional_count:
         reasons.append(
-            "ambiguous or conditional entries govern the exit (pin 9)")
+            "ambiguous or conditional entries govern the exit")
     if unparsed_count:
-        reasons.append("an unparsed entry stands in the file (pin 12)")
+        reasons.append("an unparsed entry stands in the file")
     if reasons:
         return ExitDecision(code=4, reason_classes=reasons)
     if any(f.severity in ("Error", "Warning") for f in findings):
@@ -1266,7 +1285,11 @@ def _exit_decision(findings, ambiguous_count, unparsed_count,
 # The validate boundary
 # ---------------------------------------------------------------------
 
-def validate_model(model, vocabulary):
+def validate_model(model, vocabulary, output_form_edition=None):
+    # The output form edition is a shell held constant of the tool
+    # version. It arrives here as a received value beside the
+    # Vocabulary, and it is copied verbatim into the Validate output
+    # below. Validate holds no copy of the value itself.
     if vocabulary is None:
         vocabulary = Vocabulary.shipped()
     entries = list(_get(model, "entries") or [])
@@ -1447,8 +1470,9 @@ def validate_model(model, vocabulary):
             distinct_phrasings),
         self_check=self_check,
         paired_total_declarations=[
-            "Headed entries: %d = %d canonical rows + %d Ambiguous "
+            "Headed entries: %d = %d canonical %s + %d Ambiguous "
             "+ %d unparsed" % (entry_total, canonical_sum,
+                               "row" if canonical_sum == 1 else "rows",
                                ambiguous_count, unparsed_count),
             "Status occurrences: %d = %d counted in the verbatim "
             "appendix" % (occurrence_total, occurrence_total),
@@ -1478,6 +1502,16 @@ def validate_model(model, vocabulary):
                 "what_it_blocks": blocks,
                 "blocks": blocks,
             })
+    blocks_with = 0
+    blocks_without = 0
+    for entry, result in open_results:
+        # The blocks field stands recorded where its label stands on
+        # the entry, the same test check 9 applies. The coverage
+        # counts state what the blocking figure rests on.
+        if "What it blocks" in _field_labels(entry):
+            blocks_with += 1
+        else:
+            blocks_without += 1
     effort_with = 0
     effort_without = 0
     for entry, result in open_results:
@@ -1557,7 +1591,7 @@ def validate_model(model, vocabulary):
         file_facts=file_facts,
         limits=limits,
         vocabulary_version=vocabulary.version,
-        output_form_edition=None,
+        output_form_edition=output_form_edition,
         verbatim_appendix_rows=appendix_rows,
         per_rule_clearing_forms=clearing_forms,
         crosswalk_counts=_crosswalk(entries, derived_list, vocabulary),
@@ -1565,6 +1599,12 @@ def validate_model(model, vocabulary):
         waiting=waiting,
         blocking=blocking,
         blocking_list=blocking_list,
+        blocks_coverage={
+            "with_blocks_field": blocks_with,
+            "without_blocks_field": blocks_without,
+            "with_field": blocks_with,
+            "without_field": blocks_without,
+        },
         effort_coverage={
             "with_signal": effort_with,
             "without_signal": effort_without,

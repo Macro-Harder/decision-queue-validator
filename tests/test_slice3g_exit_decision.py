@@ -75,6 +75,50 @@ class ExitFourCausesTest(unittest.TestCase):
         self.assertLess(pin9_index, pin12_index)
 
 
+class ExitFourReasonWordingTest(unittest.TestCase):
+    """The exit 4 reason classes stand in plain words alone.
+
+    OP-Q11 rules the closing line as stating the exit code and, in
+    plain words, every reason class present. The brief's pin numbers
+    are the classes' homes in the brief, not words the shipped
+    surface defines, so no reason string and no closing line carries
+    a pin citation. Expectations are the reason classes in their
+    plain words, with no other word changed.
+    """
+
+    def test_r1_reason_class_stands_without_a_pin_citation(self):
+        output = _output("R1")
+        reasons = h.reason_classes_of(output)
+        self.assertEqual(
+            reasons, ["ambiguous or conditional entries govern "
+                      "the exit"])
+        code, out, _err = h.cached_run("R1", "validate")
+        self.assertEqual(code, 4)
+        closing = [line for line in
+                   out.decode("utf-8", errors="replace")
+                   .strip().splitlines() if line][-1]
+        self.assertIn(
+            "exit 4: ambiguous or conditional entries govern "
+            "the exit;", closing)
+        self.assertNotIn("pin", closing)
+
+    def test_s13_both_reason_classes_stand_without_pin_citations(self):
+        output = _output("S13")
+        reasons = h.reason_classes_of(output)
+        self.assertEqual(
+            reasons,
+            ["ambiguous or conditional entries govern the exit",
+             "an unparsed entry stands in the file"])
+        code, out, _err = h.cached_run("S13", "validate")
+        self.assertEqual(code, 4)
+        closing = [line for line in
+                   out.decode("utf-8", errors="replace")
+                   .strip().splitlines() if line][-1]
+        self.assertIn("an unparsed entry stands in the file;",
+                      closing)
+        self.assertNotIn("pin", closing)
+
+
 class ExitOneAndZeroTest(unittest.TestCase):
 
     def test_warning_only_and_error_runs_exit_one(self):

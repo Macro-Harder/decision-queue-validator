@@ -530,7 +530,8 @@ class ValidateOutput:
     verbatim appendix rows, the per rule clearing forms, the findings
     list, the census, the reconciliation block, the crosswalk counts,
     the decider subtotals, the waiting and blocking figures, the
-    effort coverage counts, the limbo sentence data, the fastest item
+    blocks coverage counts, the effort coverage counts, the limbo
+    sentence data, the fastest item
     value, and the Exit decision.
     """
 
@@ -550,6 +551,7 @@ class ValidateOutput:
     waiting: object = None
     blocking: object = None
     blocking_list: list = field(default_factory=list)
+    blocks_coverage: dict = field(default_factory=dict)
     effort_coverage: dict = field(default_factory=dict)
     limbo_data: dict = field(default_factory=dict)
     fastest_item: str = "not derivable from the file"

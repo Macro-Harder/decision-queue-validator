@@ -291,6 +291,27 @@ class WaitingBlockingTest(unittest.TestCase):
         self.assertEqual(h.int_of(waiting), 1)
         self.assertEqual(h.int_of(blocking), 1)
 
+    def test_blocks_coverage_counts_stand_on_open_fixtures(self):
+        # Derived from the fixture texts. S5b holds two effectively
+        # open entries: DQ-901 carries a "What it blocks" field and
+        # DQ-902 carries no blocks field, so 1 records a blocks field
+        # and 1 records none. S5 holds one effectively open entry,
+        # DQ-001, carrying the field, so 1 records and 0 record none.
+        for fixture_id, expected_with, expected_without in (
+                ("S5b", 1, 1), ("S5", 1, 0)):
+            with self.subTest(fixture=fixture_id):
+                output = _output(fixture_id)
+                coverage = h.get(output, "blocks_coverage",
+                                 "blocks_counts")
+                self.assertIsNotNone(coverage)
+                with_field = h.get(coverage, "with_blocks_field",
+                                   "with_field")
+                without_field = h.get(coverage, "without_blocks_field",
+                                      "without_field")
+                self.assertEqual(h.int_of(with_field), expected_with)
+                self.assertEqual(h.int_of(without_field),
+                                 expected_without)
+
     def test_limbo_sentence_data_covers_the_three_classes(self):
         output = _output("R1")
         limbo = h.get(output, "limbo", "limbo_sentence_data",

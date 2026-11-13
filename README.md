@@ -26,10 +26,18 @@ file in the same way; they differ only in the output they print.
   entries.
 - `render` prints the readable summary: the reconciliation block, the
   census, the open and decided entry groups, the docket of entries
-  whose state could not be determined, the counts, the verbatim
-  appendix of Status phrasings as written, and the summary figures for
-  the queue (how many entries are waiting, how many block other work,
-  and the fastest item to clear).
+  whose state could not be determined and of entries carrying a
+  status disagreement finding, the counts, the verbatim appendix of
+  Status phrasings as written, and the summary figures for the queue
+  (how many entries are waiting, how many block other work, and the
+  blocks and effort coverage the file carries). The summary also
+  reports whether the fastest item to clear is derivable from the
+  file: in this version it is always reported as not derivable from
+  the file. An entry carries an effort signal where it records an
+  effort field or an Effort line.
+
+In the census, member lists name one identifier per member entry, so
+a number that heads two entries appears twice.
 
 By default the output goes to standard output. To write it to a file
 instead, add `--output`:
@@ -53,6 +61,16 @@ the tool recognises: a queue header, entry headings, Status lines and
 the decision evidence recorded inside entries. A file with no
 recognisable queue structure is refused as a whole, as described
 under exit code 3 below.
+
+A minimal example of a queue file in those forms:
+
+```
+# Decision queue
+
+### DQ-001: A sample open question
+
+Status: Banked
+```
 
 Three size limits apply, and a file that breaches one is refused as a
 whole:

@@ -45,6 +45,26 @@ class SharedHeadTest(unittest.TestCase):
         digest_fragment = h.sha256_hex(h.fixture_bytes("S5"))[:12]
         self.assertIn(digest_fragment, text)
 
+    def test_parse_run_heads_carry_the_shell_held_edition(self):
+        # Brief section 10 criterion 16 and section 5.5: the output
+        # form edition held by the shell prints beside the limits in
+        # every output head, and plan item 3 states it reaches a parse
+        # run head as a validate owned pass through field. The
+        # expectation is the shell constant itself, the fact owner,
+        # read from the shell module, never from a run of the tool.
+        shell = h.import_module("shell")
+        edition = h.get(shell, "OUTPUT_FORM_EDITION",
+                        "output_form_edition", "EDITION")
+        self.assertIsNotNone(edition)
+        for subcommand in ("validate", "render"):
+            with self.subTest(subcommand=subcommand):
+                _code, text = _cli("S5", subcommand)
+                self.assertIn("output form edition %s" % edition, text)
+                self.assertNotIn("edition None", text)
+        _model, output = h.cached_pipeline("S5")
+        carried = h.get(output, "output_form_edition")
+        self.assertEqual(h.text_of(carried), h.text_of(edition))
+
     def test_both_subcommand_heads_share_the_file_facts_line(self):
         validate_text = _validate_text("R5")
         render_text = _render_text("R5")
@@ -356,6 +376,24 @@ class CountsAndFiguresTest(unittest.TestCase):
         self.assertIn("stand outside both", text)
         self.assertIn("not derivable from the file", text)
 
+    def test_blocks_coverage_line_on_a_partial_coverage_fixture(self):
+        # S5b, derived from its text in the Slice 3f carriage test:
+        # one of its two effectively open entries records a blocks
+        # field and one records none. The line stands beside the
+        # blocking figure, in the effort coverage form, so a reader
+        # of the figures can tell what the blocking figure rests on.
+        text = _render_text("S5b")
+        self.assertIn(
+            "Blocks coverage: 1 effectively open entry records a "
+            "blocks field and 1 records none.", text)
+
+    def test_blocks_coverage_line_on_a_full_coverage_fixture(self):
+        # S5: its one effectively open entry records a blocks field.
+        text = _render_text("S5")
+        self.assertIn(
+            "Blocks coverage: 1 effectively open entry records a "
+            "blocks field and 0 record none.", text)
+
     def test_blocking_list_gathers_the_s5_blocking_entry(self):
         text = _render_text("S5")
         self.assertIn("DQ-001", text)
@@ -387,30 +425,30 @@ class CountsAndFiguresTest(unittest.TestCase):
 
     def test_render_summary_output_preserved_on_the_scan_fixtures(self):
         expected = {
-            "R1": "3aabf37c6dc6793805227a520793df54c26245adc0b1c53ebb9519c53bb7a826",
-            "R2": "dc9b85228cd89ab007c296ea4f469b93a8a8592f83bab5aa190261b89824c03e",
-            "R3": "92cd88f7f357e695d6c611ce25421af9935d313e203fe6340bc6118725706ee1",
-            "R4": "06ab8affbb53f16b1f0e75be9dcc6e9c585da7f7485e41f8340bfc7894b9037a",
-            "R5": "151d32c6c5cbe28c5cff880ad6e2eb0dbed0448a07e7b3b66ca22b406382a9af",
-            "R6": "94bbc44e9afc7beaa41f42b74155f187b952b7168afbe6b6cefea8269564e049",
-            "R7": "bdb85cc1e931cf967f2f9c64eb48428e45de6082d0c567fdaeccb76018294782",
-            "R8": "0214f6cb795fcbb43e67926b9bccaa99da1c0c135f1ad4f3ca6f424ec591d7c1",
-            "R9": "82b1f1e3158c965b6fb7a4f168e4c9685dbe8a682691440c56d8ff99bae9c63a",
-            "S1": "d4eb66b413cb8ba48fd2afd6292b046405e26d5180c7efd8ce4f2f1e5803645c",
-            "S2": "4bcec22ea31ae552f4b18b854aa729ad899c000ec35c6440d7184078677982ff",
-            "S3a": "398edb3d00881136ed09d784a395dcdcf6b20bde3404f02d76bae862770ac0e2",
-            "S3c": "86b1f33168209874f86c938d02709b0ca282f41fe9a1c13441c1521045a47cfe",
-            "S4": "4e52d0d80e0de0583c113fdea138142dfa6c3b946410c976d0878a0f1a50f9a2",
-            "S4b": "2189c38f1ec66eac3537dbc66d58522f3336a88d8f83ad784c93f370fe155d30",
-            "S6": "a6447b769e03cb08b718c0f703f6c0e671c50b0974fdf764342dbd9bf8a89865",
-            "S7c": "a1b76c365242d39818203e10c0a26c03062e5bbbe03a4ec4425908ec73606c60",
-            "S11": "446258ecd6732b4d0cb47e277cc00fd3764a1baa7be96077f6a4328ea712bce1",
-            "S12": "beaca6b1936d635786aec1ac958eca0ba0b6ff0abf1ceae49365c84bd3f3f502",
-            "S13": "638dec84ef6061dbf6996051c98533174d3a341357e7e37cac76a6fb549c7842",
-            "S17": "38bdee87d42295c2b06ce0c96832680de424dad81d5c89123045f719c66d4a92",
-            "S18": "4e3f19d11297e6d425ba820afbde8dc4047fe9dac45982a6eec30cd00a0070af",
-            "S19": "a61744fbd0ecdef1f48fbe0631ffd99e4db989ce856166100646d6154059518d",
-            "S20": "6ea8a6bb0bf688c2d3ba35b5193abe50b3c63413fe0ec5a04467895729d35b5d",
+            "R1": "d37773899c5f62eb86d334ea6b191b201b9d8c01c7e7a7f6d0afd30b83809898",
+            "R2": "1db39c8514815c38ecf7ddeba65d6b799779d5f86ccdac383b193f424121ef2b",
+            "R3": "61ed884d01a92b2607fb72640404fd793294faf86001b7ba62a91d57de87b524",
+            "R4": "295c916be2281e8d8407eaf871f12fbeb4c0d4cb50ad3f14e5a143ee2a2155fb",
+            "R5": "cf89623d8195ce92bc7c7d181af84761f758e9cf453332d9c4f4f133e45cedb3",
+            "R6": "e95c8626232103ded56f4e4fb8f84028ef2696bd7cffbbe111575542d47d452d",
+            "R7": "20a765086148b525b075c0b28b112880750dfd5bcba5ed7b86d94541258a9a4c",
+            "R8": "61fbbc60035cdaf760300a88bdc41603784a983e6ed8e4018ca1a6bd72d7d169",
+            "R9": "4004401e4f3c9d0b41c78c15de5febe5306c399a040b77ed55f3e12b1f99f2bf",
+            "S1": "59644939847087823e80b09e983d3af70260a4765f8267e10676928dc6ee6697",
+            "S2": "a25b03e02086791456e51e20f7e3dc9763aa1a1761fd6c680106689faec07642",
+            "S3a": "b3392592667efc0e10a37c0a9ef02474877865f6bef5800b09b49583765b7a6c",
+            "S3c": "e632c78032db7b825b77618c2a41d2e62a75a643c876950cb69e7c3604b7594e",
+            "S4": "3469f2bfc13a9e9356767549568746640f39651b9d5411beee51e3bbc21035ba",
+            "S4b": "023306dee311c15475b2929f6a7b054e19560906c951de003689bc175f18b46e",
+            "S6": "3681b76ca791b70b99c97be8c44fb5382fe7f4b54feef24199559b240a9e61d9",
+            "S7c": "6fae01b6a0b8e1f4553a0e0348fef3e69b717cf167d06e9afac55b1df72072cf",
+            "S11": "a7750615c1cfc3fb4d935cae3e3eedddf22bec5d1ca64cbc2a0323ae92f75921",
+            "S12": "2bf8de7d3de1ec64c64ec959630f136ee28d6de57fbcf8459dde6ae4db0eac2f",
+            "S13": "15d7c84553f86e02553c7fd674338da71b36f16793fc8830b582d8ea5c72b563",
+            "S17": "126a46a35043ce611067676038d44c56da335ded7b06fe8c7b6e181654dccf61",
+            "S18": "cd04fe7004c4d2b20f135051b0f81d9b85bc64382c427d12e035f03ab5e5e7bb",
+            "S19": "1b186a9296c1561acb2b3c3cdba824b448657a3a2c057bc2593fd1754d54e1c2",
+            "S20": "daf6129561a872be444c2b26f091d46f2e15a668d07d2fbea57a078c0d1645e5",
         }
         for fixture_id, digest in expected.items():
             with self.subTest(fixture=fixture_id):
@@ -428,6 +466,63 @@ class CountsAndFiguresTest(unittest.TestCase):
         text = _render_text("S5")
         self.assertIn("it blocks the current step, so it sits early",
                       text)
+
+
+class PluralGrammarTest(unittest.TestCase):
+    """Count 1 takes the singular at every count template site.
+
+    Expectations are the ordinary grammar of the printed units, on
+    fixtures whose counts are derived from their texts elsewhere in
+    this suite: S5 carries one headed entry, one phrasing, one
+    appendix occurrence and one blocking entry; S13 carries one
+    Ambiguous entry and one unparsed entry; R9 carries one headed
+    entry. No expectation is sourced from a run.
+    """
+
+    def test_s5_head_and_reconciliation_singulars(self):
+        text = _render_text("S5")
+        self.assertIn("entry count: 1 headed entry;", text)
+        self.assertIn("Distinct status phrasings: 1 phrasing", text)
+        self.assertIn("the entry total of 1 headed entry equals",
+                      text)
+        self.assertNotIn("1 headed entries", text)
+        self.assertNotIn("1 phrasings", text)
+
+    def test_r9_validate_head_singular(self):
+        text = _validate_text("R9")
+        self.assertIn("entry count: 1 headed entry;", text)
+
+    def test_s5_appendix_and_blocking_singulars(self):
+        text = _render_text("S5")
+        self.assertIn("Banked | line start | 1 occurrence", text)
+        self.assertNotIn("1 occurrences", text)
+        self.assertIn("Blocking: 1 entry that blocks.", text)
+        self.assertNotIn("1 entries that block", text)
+
+    def test_s5_effort_coverage_singular_verb(self):
+        text = _render_text("S5")
+        self.assertIn(
+            "Effort coverage: 0 effectively open entries carry an "
+            "effort signal and 1 carries none.", text)
+
+    def test_s5_paired_declaration_singular(self):
+        # The validate owned paired declaration printed in the
+        # reconciliation block: on S5 the canonical rows total is 1.
+        text = _render_text("S5")
+        self.assertIn(
+            "Headed entries: 1 = 1 canonical row + 0 Ambiguous + "
+            "0 unparsed", text)
+        self.assertNotIn("1 canonical rows", text)
+
+    def test_s13_banner_and_limbo_singulars(self):
+        validate_text = _validate_text("S13")
+        self.assertIn(
+            "Banner: 1 entry is Ambiguous and 0 entries are "
+            "Conditional", validate_text)
+        self.assertNotIn("1 entries are Ambiguous", validate_text)
+        render_text = _render_text("S13")
+        self.assertIn("1 Ambiguous entry: DQ-901", render_text)
+        self.assertIn("1 unparsed entry: DQ-902", render_text)
 
 
 class RenderModulePurityTest(unittest.TestCase):

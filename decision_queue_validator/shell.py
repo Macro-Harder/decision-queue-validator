@@ -215,9 +215,11 @@ def _deliver(text, output_path):
                 os.unlink(temp_path)
             except OSError:
                 pass
+        reason = getattr(exc, "strerror", None) or \
+            "the write could not be completed"
         _report_stderr(
             "error: could not write the output file {} ({})".format(
-                output_path, exc
+                output_path, reason
             )
         )
         return 2
@@ -241,11 +243,11 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
     argv = list(argv)
+    if argv and argv[0] not in ("validate", "render"):
+        return _usage_error("unknown subcommand: {}".format(argv[0]))
     if len(argv) < 2:
         return _usage_error("a subcommand and an input file are required")
     subcommand = argv[0]
-    if subcommand not in ("validate", "render"):
-        return _usage_error("unknown subcommand: {}".format(subcommand))
     input_name = argv[1]
     output_name = None
     rest = argv[2:]
@@ -273,10 +275,10 @@ def main(argv=None):
     try:
         input_stat = os.stat(input_name)
     except OSError:
-        delivered = _deliver(_not_read_output(input_name), None)
+        delivered = _deliver(_not_read_output(input_name), output_name)
         return delivered if delivered != 0 else 2
     if stat.S_ISDIR(input_stat.st_mode) or not stat.S_ISREG(input_stat.st_mode):
-        delivered = _deliver(_not_read_output(input_name), None)
+        delivered = _deliver(_not_read_output(input_name), output_name)
         return delivered if delivered != 0 else 2
 
     # Output equals input is refused on file identity, before any
@@ -290,7 +292,7 @@ def main(argv=None):
         with open(input_name, "rb") as stream:
             raw_bytes = stream.read()
     except OSError:
-        delivered = _deliver(_not_read_output(input_name), None)
+        delivered = _deliver(_not_read_output(input_name), output_name)
         return delivered if delivered != 0 else 2
 
     vocabulary = build_vocabulary()
@@ -303,7 +305,7 @@ def main(argv=None):
             return delivered
         return result.exit_decision.code
 
-    output = validate_model(result, vocabulary)
+    output = validate_model(result, vocabulary, OUTPUT_FORM_EDITION)
     if subcommand == "validate":
         text = render_validate(output)
     else:

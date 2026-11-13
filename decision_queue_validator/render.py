@@ -44,6 +44,11 @@ def _text(value):
     return str(value)
 
 
+def _counted(count, singular, plural):
+    """A count with its unit noun, singular exactly at count 1."""
+    return "%d %s" % (count, singular if count == 1 else plural)
+
+
 def _number(value):
     if value is None:
         return 0
@@ -174,11 +179,12 @@ def _head_lines(output):
         digest = _text(_field(facts, "digest")) or ""
         entry_count = _field(facts, "entry_count", "entry_total")
         lines.append(
-            "File facts: %s; %d bytes; %d lines; entry count: %d "
-            "headed entries; digest %s" % (
+            "File facts: %s; %d bytes; %d lines; entry count: %s; "
+            "digest %s" % (
                 name, _number(_field(facts, "byte_count")),
                 _number(_field(facts, "line_count")),
-                _number(entry_count), digest[:12]))
+                _counted(_number(entry_count), "headed entry",
+                         "headed entries"), digest[:12]))
     if limits is not None:
         lines.append(
             "Limits in force: %s bytes per file; %s lines per file; "
@@ -224,9 +230,13 @@ def _banner_lines(output):
     if ambiguous == 0 and conditional == 0:
         return []
     return [
-        "Banner: %d entries are Ambiguous and %d entries are "
-        "Conditional, and totals depending on entry states are "
-        "reported under that condition." % (ambiguous, conditional),
+        "Banner: %s %s Ambiguous and %s %s Conditional, and totals "
+        "depending on entry states are reported under that "
+        "condition." % (
+            _counted(ambiguous, "entry", "entries"),
+            "is" if ambiguous == 1 else "are",
+            _counted(conditional, "entry", "entries"),
+            "is" if conditional == 1 else "are"),
         "",
     ]
 
@@ -374,8 +384,8 @@ def _reconciliation_lines(output):
         lines.append("Findings per rule: " + ", ".join(
             "check %d: %d" % pair for pair in numbered))
     distinct = _field(recon, "distinct_phrasing_count")
-    lines.append("Distinct status phrasings: %d phrasings" %
-                 _number(distinct))
+    lines.append("Distinct status phrasings: %s" %
+                 _counted(_number(distinct), "phrasing", "phrasings"))
     check = _field(recon, "self_check", "self_check_result")
     ok = _field(check, "sums_agree", "ok", "passed", "agrees")
     lines.append("Self check: sums agree" if ok else
@@ -390,13 +400,14 @@ def _reconciliation_lines(output):
         canonical_sum = sum(_number(value) for value in
                             canonical.values())
     lines.append(
-        "Paired totals: the entry total of %d headed entries "
+        "Paired totals: the entry total of %s "
         "equals the canonical rows total of %d plus the Ambiguous "
         "count of %d plus the unparsed row of %d, both views from "
         "the one parse; the Status occurrence total of %d equals "
         "the sum of the verbatim appendix rows, both views from "
         "the one parse." % (
-            _number(entry_total), canonical_sum,
+            _counted(_number(entry_total), "headed entry",
+                     "headed entries"), canonical_sum,
             _number(_field(recon, "ambiguous_count", "ambiguous")),
             _number(_field(recon, "unparsed_count",
                            "unparsed_entries")),
@@ -748,7 +759,9 @@ def _appendix_lines(output):
         members = [_text(item) for item in _items(
             _field(row, "member_entry_ids", "members", "entry_ids",
                    "entries"))]
-        line = "%s | %s | %d occurrences" % (phrasing, kind, count)
+        line = "%s | %s | %s" % (
+            phrasing, kind,
+            _counted(count, "occurrence", "occurrences"))
         if members:
             line += " | entries: " + ", ".join(
                 item for item in members if item is not None)
@@ -817,8 +830,39 @@ def _figures_lines(output, entries):
     lines.append(
         "Waiting: %d. The waiting figure is effective Open "
         "entries plus Settled in part remainders." % _number(waiting))
-    lines.append("Blocking: %d entries that block." %
-                 _number(blocking))
+    blocking_count = _number(blocking)
+    lines.append("Blocking: %s that %s." % (
+        _counted(blocking_count, "entry", "entries"),
+        "blocks" if blocking_count == 1 else "block"))
+    coverage = _field(output, "blocks_coverage", "blocks_counts")
+    blocks_with = None
+    blocks_without = None
+    if isinstance(coverage, dict):
+        blocks_with = _field(coverage, "with_blocks_field",
+                             "with_field")
+        blocks_without = _field(coverage, "without_blocks_field",
+                                "without_field")
+    if blocks_with is None or blocks_without is None:
+        open_entries = [entry for entry in entries
+                        if _entry_state(entry) == "Open"]
+        blocks_with = 0
+        for entry in open_entries:
+            fields = _field(entry, "open_fields",
+                            "open_row_fields") or {}
+            keys = fields.keys() if isinstance(fields, dict) else []
+            if any("blocks" in str(key).lower() for key in keys):
+                blocks_with += 1
+        blocks_without = len(open_entries) - blocks_with
+    blocks_with = _number(blocks_with)
+    blocks_without = _number(blocks_without)
+    lines.append(
+        "Blocks coverage: %d effectively open %s a blocks field "
+        "and %d %s none." % (
+            blocks_with,
+            "entry records" if blocks_with == 1
+            else "entries record",
+            blocks_without,
+            "records" if blocks_without == 1 else "record"))
     limbo = _limbo_parts(output, entries)
     parts = []
     for key, label in (("conditional", "Conditional"),
@@ -826,7 +870,9 @@ def _figures_lines(output, entries):
                        ("unparsed", "unparsed")):
         count, ids = limbo[key]
         id_part = (": " + ", ".join(ids)) if ids else ""
-        parts.append("%d %s entries%s" % (count, label, id_part))
+        parts.append("%d %s %s%s" % (
+            count, label,
+            "entry" if count == 1 else "entries", id_part))
     lines.append(
         "Limbo: " + "; ".join(parts) + " stand outside both "
         "figures.")
@@ -879,10 +925,16 @@ def _figures_lines(output, entries):
             if _text(signal):
                 with_signal += 1
         without_signal = len(open_entries) - with_signal
+    with_signal = _number(with_signal)
+    without_signal = _number(without_signal)
     lines.append(
-        "Effort coverage: %d effectively open entries carry an "
-        "effort signal and %d carry none." % (
-            _number(with_signal), _number(without_signal)))
+        "Effort coverage: %d effectively open %s an effort signal "
+        "and %d %s none." % (
+            with_signal,
+            "entry carries" if with_signal == 1
+            else "entries carry",
+            without_signal,
+            "carries" if without_signal == 1 else "carry"))
     fastest = _text(_field(output, "fastest_item",
                            "fastest_item_to_clear"))
     if fastest is None and figures is not None:

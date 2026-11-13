@@ -915,9 +915,8 @@ def parse_queue(input_value, limits):
         return _failure(
             ["no recognisable queue structure"], name, byte_count,
             line_count, digest,
-            missing="no queue header in the measured header form and "
-                    "no entry heading in a numbered or unnumbered "
-                    "entry heading form is present")
+            missing="no queue header and no entry heading "
+                    "is present")
     if not has_entry_heading and queue_header_present:
         return _failure(
             ["header only"], name, byte_count, line_count, digest,
