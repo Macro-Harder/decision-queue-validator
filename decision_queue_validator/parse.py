@@ -892,9 +892,11 @@ def parse_queue(input_value, limits):
             headings.append((index + 1, info[0], info[1]))
 
     first_heading = headings[0] if headings else None
+    # Brief section 5.3: the file header test is level and first
+    # position only, with its text not tested. Any first heading at
+    # level 1 is the queue header, whatever words it carries.
     queue_header_present = bool(
-        first_heading and first_heading[1] == 1 and
-        "decision queue" in first_heading[2].lower())
+        first_heading and first_heading[1] == 1)
 
     def entry_form(level, heading_text):
         if level in (2, 3):

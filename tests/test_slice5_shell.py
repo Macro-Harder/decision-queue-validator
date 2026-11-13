@@ -305,20 +305,40 @@ class ExitThreeHeadFormTest(unittest.TestCase):
     def test_no_structure_sentence_names_what_was_looked_for(self):
         # Brief section 6.2: the file level result states what
         # recognisable queue structure is missing, in words the user
-        # holds. S10 is a structured Markdown file with no queue
-        # structure. The sentence names the two things looked for, a
-        # queue header and an entry heading, in plain words.
+        # holds, and never the "measured header form" wording.
+        # S10's first heading is a level 1 heading. Under the
+        # Step 19 R-02 cure the file header test is level and first
+        # position only (brief section 5.3, its text not tested), so
+        # S10 now stands as a header only file and its sentence
+        # states that a queue header is present; the earlier form
+        # of this test expected the "no queue header" sentence on
+        # S10, which rested on the text tested reading the cure
+        # removes. S10's pinned expectations stand preserved: exit
+        # 3 and no entry report. The tension between the brief's
+        # S10 prose and its own header test is recorded in the
+        # Step 19 fix register.
         for subcommand in ("validate", "render"):
             with self.subTest(subcommand=subcommand):
                 code, out, _err = h.cached_run("S10", subcommand)
                 self.assertEqual(code, 3)
                 text = out.decode("utf-8", errors="replace")
                 self.assertIn(
-                    "Missing structure: no queue header and no "
-                    "entry heading is present", text)
+                    "Missing structure: a queue header is present "
+                    "but no entry heading", text)
+                self.assertNotIn("no queue header", text)
                 self.assertNotIn("measured header form", text)
 
     def test_prose_file_missing_structure_sentence_is_plain(self):
+        # This construction holds a first H1 and prose only. Under
+        # the Step 19 R-02 cure it is a header only file: brief
+        # section 5.3 tests the file header by level and first
+        # position only, its text not tested, so the statement must
+        # not say no queue header is present about a file holding
+        # an H1. The earlier form of this test expected the "no
+        # queue header" sentence on this shape; that expectation
+        # encoded the R-02 defect and stands corrected here. The
+        # plain words requirement stands: no "measured header
+        # form" wording may appear.
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "prose.md"
             target.write_bytes(
@@ -328,8 +348,9 @@ class ExitThreeHeadFormTest(unittest.TestCase):
             self.assertEqual(code, 3)
             text = out.decode("utf-8", errors="replace")
             self.assertIn(
-                "Missing structure: no queue header and no entry "
-                "heading is present", text)
+                "Missing structure: a queue header is present but "
+                "no entry heading", text)
+            self.assertNotIn("no queue header", text)
             self.assertNotIn("measured header form", text)
 
     def test_byte_breach_head_omits_the_line_count(self):

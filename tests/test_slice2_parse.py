@@ -500,6 +500,52 @@ def _tuple_of(element):
     return tuple(tup)
 
 
+class HeaderTextNotTestedTest(unittest.TestCase):
+    """The file header test is level and first position only.
+
+    Brief section 5.3 rules the file header is a level 1 heading
+    that is the first heading in the file, and level and first
+    position are the whole test, with its text not tested. A file
+    holding only a first H1 of any wording therefore stands as a
+    header only file, and the missing structure statement must not
+    say no queue header is present about a file holding an H1.
+    """
+
+    def _assert_header_only(self, data):
+        result = h.run_parse(data, "any_title.md")
+        self.assertTrue(h.is_failure_result(result))
+        self.assertIn("header only", _failure_kinds(result))
+        missing = h.text_of(h.get(result, "missing_structure")) or ""
+        self.assertIn("a queue header is present", missing)
+        self.assertNotIn("no queue header", missing)
+        decision = h.get(result, "exit_decision")
+        self.assertEqual(
+            h.int_of(h.get(decision, "code", "exit_code")), 3)
+        return result
+
+    def test_first_h1_with_another_wording_is_header_only(self):
+        self._assert_header_only(b"# My own queue title\n")
+
+    def test_first_h1_reading_queue_is_header_only(self):
+        self._assert_header_only(b"# Queue\n\nSome prose.\n")
+
+    def test_first_h1_reading_weekly_notes_is_header_only(self):
+        self._assert_header_only(b"# Weekly notes\n")
+
+    def test_heading_free_file_keeps_the_no_structure_statement(self):
+        # The guard side: a file with no heading of any level holds
+        # no H1, so the "no queue header" statement stays true of
+        # it and its kind stays case one.
+        result = h.run_parse(b"prose only, no headings\n",
+                             "prose.md")
+        self.assertTrue(h.is_failure_result(result))
+        self.assertIn("no recognisable queue structure",
+                      _failure_kinds(result))
+        missing = h.text_of(h.get(result, "missing_structure")) or ""
+        self.assertIn("no queue header and no entry heading",
+                      missing)
+
+
 class AssessmentClosureElementTest(unittest.TestCase):
     """Pin 14 assessment closure elements for the D-1 entries."""
 
