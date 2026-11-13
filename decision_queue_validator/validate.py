@@ -169,16 +169,18 @@ def _effective_elements(entry, elements):
     decision, not a further state. An element stating what
     remains open stands in element order like any other: brief
     section 5.4 names no exception that sets it aside, and under
-    the mapping table it determines the state (the Step 19 fix
-    register records the set asides that stand, and the design
-    questions split out for them, in the open).
+    the mapping table it determines the state. An element opening
+    "Closing line for" likewise stands in element order: it is
+    in form a ruling paragraph where it states a ruling, and the
+    mapping table's last element rule is the brief's instrument
+    for it (the Step 19 fix register records the set asides that
+    stand, and the design questions split out for them, in the
+    open).
     """
     kept = []
     for element in elements:
         statement = (element.statement or "").lstrip()
         if element.kind in _BLOCK_KINDS and statement.startswith("Remainder:"):
-            continue
-        if statement.startswith("Closing line for"):
             continue
         lowered = statement.lower()
         if "stays banked" in lowered and (

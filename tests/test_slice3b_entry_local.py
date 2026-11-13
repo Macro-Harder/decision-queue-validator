@@ -64,17 +64,20 @@ class Check3DisagreementTest(unittest.TestCase):
     def test_r1_banked_head_disagreements_are_census_only(self):
         # The Banked head normal form stays census only: no check 3
         # finding on R1 rests on a Banked head over a decided body.
-        # Since the Step 19 R-04 fix, the eleven check 3 Warnings on
-        # R1 rest on the tail record entries whose last element
-        # states what remains open: that element now stands in
-        # element order, and the disagreement between the state it
-        # denotes and the state its entry derives is a pin 6 Warning
-        # where the determining element is unambiguous. The count
-        # stands recomputed under that fix and is recorded in the
-        # Step 19 fix register.
+        # Since the Step 19 R-04 fix, the check 3 Warnings on R1
+        # rest on the tail record entries whose last element states
+        # what remains open: that element now stands in element
+        # order, and the disagreement between the state it denotes
+        # and the state its entry derives is a pin 6 Warning where
+        # the determining element is unambiguous. One further
+        # Warning stands since the Step 19 R-04 limb C fix, on
+        # DQ-023, whose last element opening "Closing line for"
+        # now stands in element order and states Ruled. The count
+        # stands recomputed under those fixes and is recorded in
+        # the Step 19 fix register.
         output = _output("R1")
         warnings = h.findings_for(output, rule=3)
-        self.assertEqual(len(warnings), 11)
+        self.assertEqual(len(warnings), 12)
         for warning in warnings:
             self.assertNotIn("Banked",
                              h.finding_evidence_text(warning) or "")

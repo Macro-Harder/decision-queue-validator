@@ -168,9 +168,9 @@ class RenderOrderTest(unittest.TestCase):
         closing = last_lines[-1]
         self.assertIn("4", closing)
         self.assertIn("Warning", closing)
-        # The Warning count is 53 since the Step 19 R-08 fix, as
-        # the fix register records.
-        self.assertIn("53", closing)
+        # The Warning count is 54 since the Step 19 R-04 limb C
+        # fix, as the fix register records.
+        self.assertIn("54", closing)
 
     def test_r1_ambiguous_group_carries_sub_label_marker_and_elements(self):
         text = _render_text("R1")
@@ -578,8 +578,8 @@ class CountsAndFiguresTest(unittest.TestCase):
 
     def test_render_summary_output_preserved_on_the_scan_fixtures(self):
         expected = {
-            "R1": "6d8084b3e2fa38d1d2675d17a7af7c59ff26cf14ad8c29750e61fac39df8ea64",
-            "R2": "633d9584a35b3c32cbc29283e71e597697945fa5b18bd56fa2bb9e8918ac71af",
+            "R1": "c930fcb070f0b7f2dcee56586a854d8fb5f1ac5f888d3b9ed1098fe74b00d8fa",
+            "R2": "d552b3ce333d01953ae309178d1d0cdcd2d6f81da7c7ab37b866a375f2726cbe",
             "R3": "61ed884d01a92b2607fb72640404fd793294faf86001b7ba62a91d57de87b524",
             "R4": "c4b5358bd8a42f543d598e55df40377c7d963841bbe0d4a11cc0a61a2b347261",
             "R5": "9f6391b8c04222a11fa05fc3856cdef96c94091a6753613586bae1c18a119fa4",

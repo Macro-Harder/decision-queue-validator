@@ -244,6 +244,74 @@ class EffectiveElementsExceptionTest(unittest.TestCase):
         self.assertEqual(h.exit_code_of(output), 4)
 
 
+class ClosingLineForDeterminationTest(unittest.TestCase):
+    """An element opening "Closing line for" determines the state.
+
+    Brief section 5.4 states the determining element is the last
+    element in element order subject to the exceptions named in
+    that sentence and nowhere else, and that no other exception
+    exists. The constructed entry below is a settled entry whose
+    last element is a paragraph opening "Closing line for" that
+    states a ruling in full. That paragraph is in form a ruling
+    paragraph, and under the mapping table the entry derives
+    Ruled on it. The shipped derivation set the element aside
+    under its opening words alone and reported Settled. This is
+    register item R-04 limb C, reopened by the Step 19 re-audit
+    of the first fix performance: no brief pinned expectation
+    rests on the set aside, and every expectation it moves is
+    labelled derived.
+    """
+
+    CLOSING_LINE_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: A settled entry whose last element is a "
+        "ruling paragraph\n"
+        "\n"
+        "Status: Banked\n"
+        "\n"
+        "Owner of record: Decision-queue Clerk\n"
+        "\n"
+        "The question: Should the whole item be settled now?\n"
+        "\n"
+        "Options:\n"
+        "- Option A: settle the whole item.\n"
+        "- Option B: settle part of it.\n"
+        "\n"
+        "Cost of deciding late: moderate.\n"
+        "\n"
+        "What it blocks: the closing note.\n"
+        "\n"
+        "#### Settlement by the Manager\n"
+        "\n"
+        "Settled by: The Manager (Muse), under the grant.\n"
+        "\n"
+        "Ruling text: \"The main limb is settled.\"\n"
+        "\n"
+        "Decision: The main limb is settled and takes effect at "
+        "once.\n"
+        "\n"
+        "Landing: the closing note.\n"
+        "\n"
+        "Status: SETTLED by the Manager under the grant. The item "
+        "is settled.\n"
+        "\n"
+        "Closing line for the held bundle: the last held item is "
+        "RULED by Captain JP and closed. Her answer: \"No, only "
+        "the failing one.\" Outcome: the estate wide drop is "
+        "declined.\n")
+
+    def test_closing_line_paragraph_is_the_determining_element(self):
+        _model, output = h.run_pipeline(
+            self.CLOSING_LINE_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertIsNotNone(entry)
+        self.assertEqual(h.entry_state(entry), "Ruled")
+        counts = h.canonical_counts(output)
+        self.assertEqual(counts.get("Ruled"), 1)
+        self.assertEqual(counts.get("Settled"), 0)
+
+
 class DeciderLabelNoFallbackTest(unittest.TestCase):
     """A decider label comes from the determining element alone.
 

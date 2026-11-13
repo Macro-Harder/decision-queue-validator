@@ -197,10 +197,13 @@ class ExitOneAndZeroTest(unittest.TestCase):
         self.assertEqual(h.exit_code_of(output), 4)
         warnings = [finding for finding in h.findings_of(output)
                     if h.finding_severity(finding) == "Warning"]
-        # 53 since the Step 19 R-08 fix: the R1 block settlements
-        # that record no landing in a recorded form draw the
-        # check 5 landing Warning, as the fix register records.
-        self.assertEqual(len(warnings), 53)
+        # 54 since the Step 19 R-04 limb C fix: the R1 block
+        # settlements that record no landing in a recorded form
+        # draw the check 5 landing Warning under the R-08 fix, and
+        # DQ-023 draws one further check 3 Warning since its last
+        # element opening "Closing line for" stands in element
+        # order, as the fix register records.
+        self.assertEqual(len(warnings), 54)
 
 
 class FileLevelExitThreeTest(unittest.TestCase):

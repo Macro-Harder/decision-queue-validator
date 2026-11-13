@@ -32,14 +32,16 @@ class ReconciliationSumsTest(unittest.TestCase):
     def test_r1_findings_views_sum_to_the_findings_list(self):
         # The R1 totals stand recomputed at Step 19 under the R-04
         # fix (an element stating what remains open stands in
-        # element order) and again under the R-08 fix (check 5's
+        # element order), again under the R-08 fix (check 5's
         # landing and outcome tests brought back to the recorded
         # forms, so the block settlements that record no landing
-        # now draw the landing Warning), as the corpus manifest
-        # header records.
+        # now draw the landing Warning), and again under the R-04
+        # limb C fix (an element opening "Closing line for" stands
+        # in element order, so DQ-023 draws one further check 3
+        # Warning), as the corpus manifest header records.
         output = _output("R1")
         findings = h.findings_of(output)
-        self.assertEqual(len(findings), 59)
+        self.assertEqual(len(findings), 60)
         per_severity = {}
         per_rule = {}
         for finding in findings:
@@ -48,17 +50,17 @@ class ReconciliationSumsTest(unittest.TestCase):
             rule = h.finding_rule_number(finding)
             per_rule[rule] = per_rule.get(rule, 0) + 1
         self.assertEqual(per_severity,
-                         {"Error": 0, "Warning": 53, "Note": 6}
+                         {"Error": 0, "Warning": 54, "Note": 6}
                          if per_severity.get("Error") else
-                         {"Warning": 53, "Note": 6})
+                         {"Warning": 54, "Note": 6})
         recon = h.reconciliation_of(output)
         by_severity = h.get(recon, "findings_per_severity",
                             "findings_by_severity")
         if isinstance(by_severity, dict):
             stated = {h.text_of(key): h.int_of(value)
                       for key, value in by_severity.items()}
-            self.assertEqual(sum(stated.values()), 59)
-            self.assertEqual(stated.get("Warning"), 53)
+            self.assertEqual(sum(stated.values()), 60)
+            self.assertEqual(stated.get("Warning"), 54)
             self.assertEqual(stated.get("Note"), 6)
         by_rule = h.get(recon, "findings_per_rule",
                         "findings_by_rule")
@@ -71,8 +73,8 @@ class ReconciliationSumsTest(unittest.TestCase):
                 else:
                     stated_rules[h.finding_rule_number({"rule_id": key})] = \
                         h.int_of(value)
-            self.assertEqual(sum(stated_rules.values()), 59)
-            self.assertEqual(stated_rules.get(3), 11)
+            self.assertEqual(sum(stated_rules.values()), 60)
+            self.assertEqual(stated_rules.get(3), 12)
             self.assertEqual(stated_rules.get(4), 3)
             self.assertEqual(stated_rules.get(5), 39)
             self.assertEqual(stated_rules.get(6), 2)
@@ -80,10 +82,10 @@ class ReconciliationSumsTest(unittest.TestCase):
 
     def test_derived_finding_totals_for_r2_r6_and_r9(self):
         r2 = _output("R2")
-        self.assertEqual(len(h.findings_of(r2)), 57)
+        self.assertEqual(len(h.findings_of(r2)), 58)
         severities = [h.finding_severity(finding)
                       for finding in h.findings_of(r2)]
-        self.assertEqual(severities.count("Warning"), 51)
+        self.assertEqual(severities.count("Warning"), 52)
         self.assertEqual(severities.count("Note"), 6)
         r6 = _output("R6")
         self.assertEqual(len(h.findings_of(r6)), 2)
