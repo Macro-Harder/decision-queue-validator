@@ -460,6 +460,32 @@ class CoOccurringBreachMeasuredValuesTest(unittest.TestCase):
                 % line_count, text)
 
 
+class ReadmeCacheStatementTest(unittest.TestCase):
+    """Step 19 R-18: the README states the truth about the cache.
+
+    The tool itself writes no log file and no run record. In a
+    default environment, though, one run leaves the interpreter
+    bytecode cache, decision_queue_validator/__pycache__
+    holding .pyc files, inside the tool own directory; a run
+    under PYTHONDONTWRITEBYTECODE=1 leaves no cache. The README
+    sentence must state both halves, not claim no cache at all.
+    """
+
+    def _readme(self):
+        with open(h.PRODUCT_ROOT / "README.md", "r",
+                  encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_readme_states_the_cache_truth_in_both_environments(self):
+        text = self._readme()
+        self.assertNotIn(
+            "no log file, no cache, and no run record", text)
+        self.assertIn("__pycache__", text)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1", text)
+        self.assertIn("no log file", text)
+        self.assertIn("no run record", text)
+
+
 class WriteMechanismTest(unittest.TestCase):
 
     def test_named_output_file_receives_the_composed_output(self):
