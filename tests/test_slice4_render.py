@@ -9,6 +9,7 @@ absence, and the foot and closing lines. No output carries a verdict
 word for the file or language inviting gate use.
 """
 
+import hashlib
 import re
 import unittest
 
@@ -359,6 +360,65 @@ class CountsAndFiguresTest(unittest.TestCase):
         text = _render_text("S5")
         self.assertIn("DQ-001", text)
         self.assertIn("the Step 13 manifest act", text)
+
+    def test_blocking_scan_in_its_own_key_dialect_prints_no_row(self):
+        types = h.import_module("types")
+        entry = types.EntryResult(
+            identifier="DQ-901", heading="DQ-901: T", title="T",
+            effective_state="Open",
+            open_fields={"what_it_blocks": "the next step"})
+        output = types.ValidateOutput(
+            entries=[entry],
+            blocking_list=[],
+            effort_coverage={"with_effort_signal": 0,
+                             "without_effort_signal": 1,
+                             "with_signal": 0,
+                             "without_signal": 1},
+            limbo_data={"conditional": [], "ambiguous": [],
+                        "unparsed": []})
+        text = h.render_text(output, "render")
+        start = text.find("Blocking list:")
+        end = text.find("Effort coverage:", start)
+        self.assertGreaterEqual(start, 0)
+        self.assertGreater(end, start)
+        section = text[start:end]
+        self.assertIn("- none", section)
+        self.assertNotIn("the next step", section)
+
+    def test_render_summary_output_preserved_on_the_scan_fixtures(self):
+        expected = {
+            "R1": "3aabf37c6dc6793805227a520793df54c26245adc0b1c53ebb9519c53bb7a826",
+            "R2": "dc9b85228cd89ab007c296ea4f469b93a8a8592f83bab5aa190261b89824c03e",
+            "R3": "92cd88f7f357e695d6c611ce25421af9935d313e203fe6340bc6118725706ee1",
+            "R4": "06ab8affbb53f16b1f0e75be9dcc6e9c585da7f7485e41f8340bfc7894b9037a",
+            "R5": "151d32c6c5cbe28c5cff880ad6e2eb0dbed0448a07e7b3b66ca22b406382a9af",
+            "R6": "94bbc44e9afc7beaa41f42b74155f187b952b7168afbe6b6cefea8269564e049",
+            "R7": "bdb85cc1e931cf967f2f9c64eb48428e45de6082d0c567fdaeccb76018294782",
+            "R8": "0214f6cb795fcbb43e67926b9bccaa99da1c0c135f1ad4f3ca6f424ec591d7c1",
+            "R9": "82b1f1e3158c965b6fb7a4f168e4c9685dbe8a682691440c56d8ff99bae9c63a",
+            "S1": "d4eb66b413cb8ba48fd2afd6292b046405e26d5180c7efd8ce4f2f1e5803645c",
+            "S2": "4bcec22ea31ae552f4b18b854aa729ad899c000ec35c6440d7184078677982ff",
+            "S3a": "398edb3d00881136ed09d784a395dcdcf6b20bde3404f02d76bae862770ac0e2",
+            "S3c": "86b1f33168209874f86c938d02709b0ca282f41fe9a1c13441c1521045a47cfe",
+            "S4": "4e52d0d80e0de0583c113fdea138142dfa6c3b946410c976d0878a0f1a50f9a2",
+            "S4b": "2189c38f1ec66eac3537dbc66d58522f3336a88d8f83ad784c93f370fe155d30",
+            "S6": "a6447b769e03cb08b718c0f703f6c0e671c50b0974fdf764342dbd9bf8a89865",
+            "S7c": "a1b76c365242d39818203e10c0a26c03062e5bbbe03a4ec4425908ec73606c60",
+            "S11": "446258ecd6732b4d0cb47e277cc00fd3764a1baa7be96077f6a4328ea712bce1",
+            "S12": "beaca6b1936d635786aec1ac958eca0ba0b6ff0abf1ceae49365c84bd3f3f502",
+            "S13": "638dec84ef6061dbf6996051c98533174d3a341357e7e37cac76a6fb549c7842",
+            "S17": "38bdee87d42295c2b06ce0c96832680de424dad81d5c89123045f719c66d4a92",
+            "S18": "4e3f19d11297e6d425ba820afbde8dc4047fe9dac45982a6eec30cd00a0070af",
+            "S19": "a61744fbd0ecdef1f48fbe0631ffd99e4db989ce856166100646d6154059518d",
+            "S20": "6ea8a6bb0bf688c2d3ba35b5193abe50b3c63413fe0ec5a04467895729d35b5d",
+        }
+        for fixture_id, digest in expected.items():
+            with self.subTest(fixture=fixture_id):
+                _model, output = h.cached_pipeline(fixture_id)
+                text = h.render_text(output, "render")
+                actual = hashlib.sha256(
+                    text.encode("utf-8")).hexdigest()
+                self.assertEqual(actual, digest)
 
     def test_absence_shows_as_absence(self):
         text = _render_text("R1")

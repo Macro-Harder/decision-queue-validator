@@ -857,19 +857,6 @@ def _figures_lines(output, entries):
         lines.append(row)
         printed = True
     if not printed:
-        for entry in entries:
-            if _entry_state(entry) != "Open":
-                continue
-            fields = _field(entry, "open_fields",
-                            "open_row_fields") or {}
-            blocks = _text(_field(fields, "what_it_blocks",
-                                  "blocks")) if fields else None
-            if blocks:
-                lines.append("- %s: %s. What it blocks: %s" % (
-                    _entry_label(entry),
-                    _text(_field(entry, "title")) or "", blocks))
-                printed = True
-    if not printed:
         lines.append("- none")
     effort = _field(output, "effort_coverage", "effort_counts")
     with_signal = None

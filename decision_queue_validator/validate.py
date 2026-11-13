@@ -276,26 +276,6 @@ def _decider_label(element):
     return None
 
 
-def _closing_condition(entry, after_line):
-    """A condition stated in a closing paragraph of the entry body,
-    after the determining element: the paragraph that closes the
-    entry subject to a stated condition."""
-    for line_number, text in _body_lines(entry):
-        if line_number <= after_line:
-            continue
-        if not (text.strip().startswith("Item closed")
-                or "closed, subject to" in text):
-            continue
-        index = text.find("subject to")
-        if index < 0:
-            continue
-        condition = text[index + len("subject to"):].strip()
-        condition = condition.split(";")[0].strip().rstrip(".")
-        if condition:
-            return condition
-    return None
-
-
 def _denoted_state(entry, element, elements):
     disposition = _effective_disposition(entry, element, elements)
     if disposition is None:
@@ -345,14 +325,6 @@ def _derive(entry):
     disposition = _effective_disposition(entry, determining, elements)
     scope = determining.scope or ""
     condition = determining.condition
-
-    if not any(_effective_disposition(entry, e, elements)
-               in _DECIDED_DISPOSITIONS for e in effective):
-        if "Closed as decided under DQ-148" in _body_text(entry):
-            result["state"] = "Closed as decided"
-            result["decider_label"] = "decided by assessment under DQ-148"
-            result["condition"] = None
-            return result
 
     def finish(state, sub_label=None, label_element=None):
         result["state"] = state
@@ -438,23 +410,6 @@ def _derive(entry):
         if _effective_disposition(entry, e, elements) in _DECIDED_DISPOSITIONS]
     result["condition"] = condition
     return result
-
-
-def _apply_closing_condition(entry, derived):
-    """A decided entry whose closing paragraph states a condition
-    reports Conditional, the condition carried verbatim."""
-    if derived["state"] not in ("Ruled", "Settled", "Settled in part",
-                                "Closed as decided"):
-        return derived
-    if derived["condition"]:
-        return derived
-    determining = derived["determining"]
-    after = determining.line if determining is not None else 0
-    condition = _closing_condition(entry, after)
-    if condition:
-        derived["state"] = "Conditional"
-        derived["condition"] = condition
-    return derived
 
 
 # ---------------------------------------------------------------------
@@ -1321,7 +1276,6 @@ def validate_model(model, vocabulary):
     derived_list = []
     for entry in entries:
         derived = _derive(entry)
-        derived = _apply_closing_condition(entry, derived)
         derived_list.append(derived)
     derived_by_id = {}
     for entry, derived in zip(entries, derived_list):

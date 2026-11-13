@@ -39,15 +39,18 @@ class LinePartitionTest(unittest.TestCase):
         self.assertEqual(h.int_of(h.get(facts, "byte_count")), 379560)
 
     def test_line_feed_and_crlf_count_as_terminators(self):
-        model = h.run_parse(b"one\ntwo\r\nthree\n", "lines.md")
-        self.assertFalse(h.is_failure_result(model))
-        facts = h.get(model, "header_facts", "file_header_facts")
-        self.assertEqual(h.int_of(h.get(facts, "line_count")), 3)
+        result = h.run_parse(b"one\ntwo\r\nthree\n", "lines.md")
+        self.assertTrue(h.is_failure_result(result))
+        self.assertIn("no recognisable queue structure",
+                      _failure_kinds(result))
+        self.assertEqual(h.int_of(_failure_line_count(result)), 3)
 
     def test_final_line_without_terminator_counts(self):
-        model = h.run_parse(b"one\ntwo", "lines.md")
-        facts = h.get(model, "header_facts", "file_header_facts")
-        self.assertEqual(h.int_of(h.get(facts, "line_count")), 2)
+        result = h.run_parse(b"one\ntwo", "lines.md")
+        self.assertTrue(h.is_failure_result(result))
+        self.assertIn("no recognisable queue structure",
+                      _failure_kinds(result))
+        self.assertEqual(h.int_of(_failure_line_count(result)), 2)
 
     def test_trailing_terminator_adds_no_line_but_two_add_a_blank(self):
         data, _facts = h.terminator_lines_input(4)
@@ -236,13 +239,22 @@ class HeadingRecognitionTest(unittest.TestCase):
                     h.as_list(h.get(model, "unassigned_lines")), [])
                 self.assertEqual(h.exit_code_of(output), 1)
 
-    def test_bare_token_heading_without_title_is_unmatched(self):
+    def test_bare_token_heading_is_unmatched_beside_a_genuine_entry(self):
         data = (h._header_block() +
-                "### DQ-901\n\nProse under a bare token heading.\n"
+                "### DQ-901\n\nProse under a bare token heading.\n\n"
+                "### DQ-902: A genuine entry\n\nStatus: Banked\n\n"
+                "The question: A generated question.\n"
                 ).encode("utf-8")
         model, output = h.run_pipeline(data, "bare.md")
         self.assertFalse(h.is_failure_result(model))
-        self.assertEqual(h.entries_of(model), [])
+        entries = h.entries_of(model)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(h.entry_identifier(entries[0]), "DQ-902")
+        orphans = h.as_list(h.get(model, "orphan_segments"))
+        self.assertTrue(any(
+            "DQ-901" in (h.text_of(h.get(segment, "heading_text",
+                                         "heading")) or "")
+            for segment in orphans))
         warnings = [finding for finding in h.findings_of(output)
                     if h.finding_rule_number(finding) == 5]
         self.assertEqual(len(warnings), 1)
@@ -375,6 +387,190 @@ class ParseModulePurityTest(unittest.TestCase):
         source = h.module_source("parse")
         for token in banned:
             self.assertNotIn(token, source, "parse uses " + token)
+
+
+class BriefFailureClassTest(unittest.TestCase):
+    """The two brief failure classes of sections 5.3 and 6.2.
+
+    Pins are written against the brief behaviour and fail on the
+    code that returns a model for these classes. Guards pass before
+    and after the repair and protect the model side of each class.
+    """
+
+    def _assert_failure(self, data, kind_part, line_count):
+        result = h.run_parse(data, "brief_class.md")
+        self.assertTrue(h.is_failure_result(result))
+        self.assertIn(kind_part, _failure_kinds(result))
+        if line_count is not None:
+            self.assertEqual(h.int_of(_failure_line_count(result)),
+                             line_count)
+        decision = h.get(result, "exit_decision")
+        self.assertEqual(
+            h.int_of(h.get(decision, "code", "exit_code")), 3)
+        return result
+
+    def test_heading_free_bytes_have_no_recognisable_structure(self):
+        self._assert_failure(b"one\ntwo\r\nthree\n",
+                             "no recognisable queue structure", 3)
+
+    def test_heading_free_final_line_without_terminator(self):
+        self._assert_failure(b"one\ntwo",
+                             "no recognisable queue structure", 2)
+
+    def test_blank_lines_only_file_is_not_the_empty_file_kind(self):
+        result = self._assert_failure(
+            b"\n\n", "no recognisable queue structure", 2)
+        self.assertNotIn("empty", _failure_kinds(result))
+
+    def test_entry_heading_without_queue_header_returns_a_model(self):
+        model = h.run_parse(
+            b"### DQ-901: Lone entry\n\nStatus: Banked\n", "lone.md")
+        self.assertFalse(h.is_failure_result(model))
+        self.assertEqual(len(h.entries_of(model)), 1)
+
+    def test_header_with_only_an_h3_heading_is_header_only(self):
+        data = (h._header_block() +
+                "### A deep heading\n\nProse under it.\n"
+                ).encode("utf-8")
+        self._assert_failure(data, "header only", None)
+
+    def test_header_with_only_a_deep_heading_is_header_only(self):
+        for marks in ("####", "#####", "######"):
+            with self.subTest(marks=marks):
+                data = (h._header_block() +
+                        marks + " A deep heading\n\nProse under it.\n"
+                        ).encode("utf-8")
+                self._assert_failure(data, "header only", None)
+
+    def test_header_with_only_a_note_section_is_header_only(self):
+        for heading in ("## Note on this file", "## Notes",
+                        "## Amendment note"):
+            with self.subTest(heading=heading):
+                data = (h._header_block() +
+                        heading + "\n\nProse under it.\n"
+                        ).encode("utf-8")
+                self._assert_failure(data, "header only", None)
+
+    def test_bare_token_input_is_header_only(self):
+        data = (h._header_block() +
+                "### DQ-901\n\nProse under a bare token heading.\n"
+                ).encode("utf-8")
+        self._assert_failure(data, "header only", None)
+
+    def test_note_section_stands_beside_a_genuine_entry(self):
+        data = (h._header_block() +
+                "## Notes\n\nA note section standing in the file.\n\n"
+                "### DQ-901: A genuine entry\n\nStatus: Banked\n\n"
+                "The question: A generated question.\n"
+                ).encode("utf-8")
+        model = h.run_parse(data, "note_beside.md")
+        self.assertFalse(h.is_failure_result(model))
+        self.assertEqual(len(h.entries_of(model)), 1)
+        orphans = h.as_list(h.get(model, "orphan_segments"))
+        self.assertTrue(any(
+            (h.text_of(h.get(segment, "kind")) or "")
+            == "file level note section"
+            for segment in orphans))
+
+
+def _fixture_entry_lines(fixture_id, entry_id):
+    """The raw fixture lines of one entry, heading line first.
+
+    Line numbers are the 1 based positions of the lines in the
+    fixture text as written, read from the fixture itself.
+    """
+    lines = h.fixture_text(fixture_id).split("\n")
+    start = None
+    for index, text in enumerate(lines):
+        if text.startswith("### " + entry_id + ":"):
+            start = index
+            break
+    if start is None:
+        raise AssertionError("no heading for " + entry_id)
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].startswith("### "):
+            end = index
+            break
+    return [(index + 1, lines[index]) for index in range(start, end)]
+
+
+def _tuple_of(element):
+    tup = h.get(element, "tuple", "element_tuple", "core_tuple")
+    return tuple(tup)
+
+
+class AssessmentClosureElementTest(unittest.TestCase):
+    """Pin 14 assessment closure elements for the D-1 entries."""
+
+    def test_r1_assessment_closures_are_elements(self):
+        model, _output = h.cached_pipeline("R1")
+        for entry_id in ("DQ-053", "DQ-061", "DQ-064", "DQ-067",
+                         "DQ-109", "DQ-110"):
+            with self.subTest(entry=entry_id):
+                raw = _fixture_entry_lines("R1", entry_id)
+                closure_lines = [number for number, text in raw
+                                 if "Closed as decided under DQ-148"
+                                 in text]
+                self.assertEqual(len(closure_lines), 1)
+                entry = h.entry_by_id(model, entry_id)
+                self.assertIsNotNone(entry)
+                elements = h.as_list(
+                    h.get(entry, "status_elements", "elements"))
+                self.assertGreaterEqual(len(elements), 2)
+                closures = [element for element in elements
+                            if _tuple_of(element)[0] == "Closed"]
+                self.assertEqual(len(closures), 1)
+                element = closures[0]
+                tup = _tuple_of(element)
+                self.assertEqual(tup[1], "Whole")
+                self.assertIsNone(tup[2])
+                self.assertEqual(tup[3],
+                                 "assessment by cross reference")
+                self.assertEqual(
+                    h.text_of(h.get(element, "kind", "element_kind")),
+                    "closing prose")
+                self.assertEqual(h.int_of(h.get(element, "line")),
+                                 closure_lines[0])
+
+
+class ClosingConditionAttachmentTest(unittest.TestCase):
+    """The D-2 closing condition carried on the determining tuple."""
+
+    def test_dq059_condition_is_carried_at_parse(self):
+        for fixture_id in ("R1", "R7"):
+            with self.subTest(fixture=fixture_id):
+                raw = _fixture_entry_lines(fixture_id, "DQ-059")
+                closed_lines = [number for number, text in raw
+                                if text.strip().startswith("Item closed")
+                                or "closed, subject to" in text]
+                self.assertTrue(closed_lines)
+                model, _output = h.cached_pipeline(fixture_id)
+                entry = h.entry_by_id(model, "DQ-059")
+                self.assertIsNotNone(entry)
+                elements = h.as_list(
+                    h.get(entry, "status_elements", "elements"))
+                before = [element for element in elements
+                          if h.int_of(h.get(element, "line"))
+                          < closed_lines[0]]
+                self.assertTrue(before)
+                target = before[-1]
+                self.assertEqual(_tuple_of(target)[2],
+                                 "the five landings completing")
+
+    def test_dq073_contrast_condition_stands_as_carried(self):
+        _model, output = h.cached_pipeline("R1")
+        for entry_id, expected in (
+                ("DQ-059", "the five landings completing"),
+                ("DQ-073", "the landings recorded at DQ-142 standing "
+                           "verified in tier-ruling-trace.md")):
+            with self.subTest(entry=entry_id):
+                result = h.entry_by_id(output, entry_id)
+                self.assertIsNotNone(result)
+                determining = h.get(result, "determining_element")
+                self.assertIsNotNone(determining)
+                self.assertEqual(_tuple_of(determining)[2], expected)
+                self.assertEqual(h.entry_state(result), "Conditional")
 
 
 class FileLevelFailureParseTest(unittest.TestCase):

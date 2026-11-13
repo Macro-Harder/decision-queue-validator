@@ -191,6 +191,166 @@ class ReattachedEntryStateTest(unittest.TestCase):
         self.assertEqual(h.entry_state(second), "Open")
 
 
+class DeciderLabelCorrectionTest(unittest.TestCase):
+    """The carried decider label itself, for the corrected classes.
+
+    Expectations are sourced from the tuple rule of brief section
+    5.4 (where the determining element tuple names a decider, that
+    decider governs the label, and statement text never outranks
+    the tuple) and from the Step 14 correction record (the
+    correction figure of 84: 79 Manager grant tuple results at
+    disposition Settled, 3 DQ-117 results, 2 DQ-108 results). No
+    expectation is sourced from a run of the tool. Each assertion
+    reads the carried decider_label on the Validate output entry
+    result, never rendered text, and is unconditional.
+    """
+
+    def _label(self, fixture_id, entry_id):
+        entry = _state(fixture_id, entry_id)
+        return entry, h.text_of(h.get(entry, "decider_label", "decider"))
+
+    def test_r8_dq130_carries_the_manager_grant_label(self):
+        entry, label = self._label("R8", "DQ-130")
+        self.assertEqual(h.entry_state(entry), "Settled")
+        self.assertEqual(label, "Settled by the Manager under the grant")
+
+    def test_s18_plain_grant_form_carries_the_manager_grant_label(self):
+        entry, label = self._label("S18", "DQ-901")
+        self.assertEqual(h.entry_state(entry), "Settled")
+        self.assertEqual(label, "Settled by the Manager under the grant")
+
+    def test_r1_dq117_manager_grant_tuple_at_ruled_disposition(self):
+        entry, label = self._label("R1", "DQ-117")
+        self.assertEqual(h.entry_state(entry), "Ruled")
+        self.assertEqual(label, "Settled by the Manager under the grant")
+
+    def test_r1_dq108_captain_jp_tuple_carries_the_ruled_label(self):
+        entry, label = self._label("R1", "DQ-108")
+        self.assertEqual(h.entry_state(entry), "Ruled")
+        self.assertEqual(label, "Ruled by Captain JP")
+
+
+class CarriedFormDerivationTest(unittest.TestCase):
+    """Derivation reads carried forms only, with body lines empty.
+
+    The hand built entries carry the D-1 assessment closure fact
+    and the D-2 closing condition fact in their element tuples
+    alone. The corpus invariant then strips body lines from every
+    pinned fixture model and asserts that no entry state, decider
+    label, condition text or remainder text moves.
+    """
+
+    def _hand_model(self):
+        types = h.import_module("types")
+        tuple_type = types.ElementTuple
+        element_type = types.StatusBearingElement
+        record_type = types.EntryRecord
+
+        def element(kind, verbatim, tup, line):
+            return element_type(
+                kind=kind, verbatim=verbatim, tuple=tuple_type(*tup),
+                line=line, position_in_line=0, occurrence_kind=None,
+                statement=verbatim,
+                decider_text=None)
+
+        d1 = record_type(
+            identifier="DQ-901", heading="DQ-901: Hand built closure",
+            heading_level=3, heading_line=1,
+            title="Hand built closure",
+            status_elements=[
+                element("head Status line", "Banked",
+                        ("Banked", "Whole", None, None, 2), 2),
+                element("closing prose",
+                        "Closed as decided under DQ-148.",
+                        ("Closed", "Whole", None,
+                         "assessment by cross reference", 5), 5)],
+            body_lines=[])
+        d1.status_elements[1].decider_text = "assessment under DQ-148"
+        d2 = record_type(
+            identifier="DQ-902", heading="DQ-902: Hand built condition",
+            heading_level=3, heading_line=10,
+            title="Hand built condition",
+            status_elements=[
+                element("head Status line", "Banked",
+                        ("Banked", "Whole", None, None, 11), 11),
+                element("closing prose", "Ruled in full.",
+                        ("Ruled", "Whole",
+                         "the five landings completing", "Captain JP",
+                         14), 14)],
+            body_lines=[])
+        d2.status_elements[1].decider_text = "Captain JP"
+        return h.ParseModelDouble(entries=[d1, d2])
+
+    def test_hand_built_carried_forms_derive_without_body_text(self):
+        validate_module = h.import_module("validate")
+        vocabulary = h.build_vocabulary(validate_module)
+        output = h.validate_function(validate_module)(
+            self._hand_model(), vocabulary)
+        d1 = h.entry_by_id(output, "DQ-901")
+        self.assertEqual(h.entry_state(d1), "Closed as decided")
+        self.assertEqual(
+            h.text_of(h.get(d1, "decider_label", "decider")),
+            "decided by assessment under DQ-148")
+        d2 = h.entry_by_id(output, "DQ-902")
+        self.assertEqual(h.entry_state(d2), "Conditional")
+        self.assertEqual(
+            h.text_of(h.get(d2, "condition_text", "condition")),
+            "the five landings completing")
+
+    def _carried_facts(self, output):
+        facts = {}
+        for entry in h.entries_of(output):
+            ident = h.entry_identifier(entry)
+            facts[ident] = (
+                h.entry_state(entry),
+                h.text_of(h.get(entry, "decider_label", "decider")),
+                h.text_of(h.get(entry, "condition_text", "condition")),
+                h.text_of(h.get(entry, "remainder_text", "remainder")))
+        return facts
+
+    def test_corpus_derivation_is_invariant_under_body_line_stripping(self):
+        validate_module = h.import_module("validate")
+        vocabulary = h.build_vocabulary(validate_module)
+        for fixture_id in h.FIXTURE_IDS:
+            with self.subTest(fixture=fixture_id):
+                model, output = h.cached_pipeline(fixture_id)
+                if h.is_failure_result(model):
+                    continue
+                stripped = h.deepcopy_value(model)
+                for entry in h.entries_of(stripped):
+                    entry.body_lines = []
+                stripped_output = h.validate_function(
+                    validate_module)(stripped, vocabulary)
+                self.assertEqual(self._carried_facts(stripped_output),
+                                 self._carried_facts(output))
+
+    def test_r1_blast_radius_of_the_parse_repair(self):
+        model, output = h.cached_pipeline("R1")
+        recon = h.reconciliation_of(output)
+        total = h.int_of(h.get(recon, "status_occurrence_total"))
+        expected = h.manifest_value(
+            h.manifest_entry("R1"), "expected_counts",
+            "status_occurrences")
+        self.assertEqual(total, expected)
+        check3 = [finding for finding in h.findings_for(output, rule=3)
+                  if h.finding_entry_id(finding) in (
+                      "DQ-053", "DQ-061", "DQ-064", "DQ-067",
+                      "DQ-109", "DQ-110")]
+        self.assertEqual(check3, [])
+        for entry_id in ("DQ-053", "DQ-061", "DQ-064", "DQ-067",
+                         "DQ-109", "DQ-110"):
+            with self.subTest(entry=entry_id):
+                record = h.entry_by_id(model, entry_id)
+                elements = h.as_list(
+                    h.get(record, "status_elements", "elements"))
+                result = h.entry_by_id(output, entry_id)
+                summary = h.as_list(
+                    h.get(result, "element_summary"))
+                self.assertEqual(len(summary), len(elements))
+                self.assertIn("closing prose", summary[-1])
+                self.assertIn("Closed", summary[-1])
+
+
 class CanonicalCountsRealFixturesTest(unittest.TestCase):
 
     def test_r1_canonical_counts_match_the_manifest(self):

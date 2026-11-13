@@ -545,6 +545,7 @@ class _EntryBuilder:
         """Process one plain paragraph outside any block segment."""
         if not paragraph:
             return
+        self.assessment_closure_element(paragraph, decision_block)
         first_number, first_text = paragraph[0]
         if self.closing_status_line is not None and \
                 first_number > self.closing_status_line and \
@@ -677,6 +678,7 @@ class _EntryBuilder:
         def flush_segment(run):
             if not run:
                 return
+            self.assessment_closure_element(run, block_index)
             if self.closing_status_line is not None and \
                     self.closing_status_block == block_index:
                 for number, text in run:
@@ -730,6 +732,46 @@ class _EntryBuilder:
                     if element not in block.elements else None
         return block
 
+    def assessment_closure_element(self, numbered_lines,
+                                   decision_block=None):
+        """The pin 14 assessment closure element of a paragraph.
+
+        A paragraph carrying an explicit statement of closure in
+        the form Closed as decided under DQ-148 bears that closure
+        as an element of its entry: disposition Closed, decider
+        assessment by cross reference, at the closure line.
+        """
+        for number, text in numbered_lines:
+            at = text.find("Closed as decided under DQ-148")
+            if at < 0:
+                continue
+            for element in self.elements:
+                if element.line == number and \
+                        element.tuple[0] == "Closed":
+                    return
+            core = ElementTuple(
+                disposition="Closed",
+                scope="Whole",
+                condition=None,
+                decider="assessment by cross reference",
+                line=number,
+            )
+            self.elements.append(StatusBearingElement(
+                kind="closing prose",
+                verbatim=text,
+                tuple=core,
+                line=number,
+                position_in_line=at,
+                occurrence_kind=None,
+                remainder_text=None,
+                decider_text="assessment under DQ-148",
+                statement=text,
+                decision_block=decision_block,
+                line_span=Span(number, number, "heading cut"),
+            ))
+            self.closed_seen = True
+            return
+
     def attach_remainders_and_conditions(self, numbered_lines):
         """Attach Remainder and Condition label lines to an element."""
         ordered = sorted(
@@ -744,6 +786,16 @@ class _EntryBuilder:
             elif text.startswith("Condition:"):
                 kind = "condition"
                 value = text[len("Condition:"):].strip()
+            elif text.strip().startswith("Item closed") or \
+                    "closed, subject to" in text:
+                index = text.find("subject to")
+                if index < 0:
+                    continue
+                value = text[index + len("subject to"):].strip()
+                value = value.split(";")[0].strip().rstrip(".")
+                if not value:
+                    continue
+                kind = "condition"
             if kind is None:
                 continue
             target = None
@@ -859,7 +911,7 @@ def parse_queue(input_value, limits):
         entry_form(level, heading_text)
         for _number, level, heading_text in headings)
 
-    if not has_entry_heading and not queue_header_present and headings:
+    if not has_entry_heading and not queue_header_present:
         return _failure(
             ["no recognisable queue structure"], name, byte_count,
             line_count, digest,
@@ -867,15 +919,11 @@ def parse_queue(input_value, limits):
                     "no entry heading in a numbered or unnumbered "
                     "entry heading form is present")
     if not has_entry_heading and queue_header_present:
-        beyond_header = any(
-            level >= 3 or (level == 2 and _is_note_section(heading_text))
-            for _number, level, heading_text in headings)
-        if not beyond_header:
-            return _failure(
-                ["header only"], name, byte_count, line_count, digest,
-                missing="a queue header is present but no entry heading "
-                        "in a numbered or unnumbered entry heading form "
-                        "is present")
+        return _failure(
+            ["header only"], name, byte_count, line_count, digest,
+            missing="a queue header is present but no entry heading "
+                    "in a numbered or unnumbered entry heading form "
+                    "is present")
 
     def is_section_introduction(position):
         number, level, heading_text = headings[position]
