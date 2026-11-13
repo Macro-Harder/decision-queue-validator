@@ -346,9 +346,18 @@ def _derive(entry):
             result["annotation"] = "decider not recorded"
         return result
 
-    if condition:
-        return finish("Conditional")
     if disposition is None:
+        # An unclassifiable value is never assigned a disposition
+        # (brief section 5.3), and pin 2 governs it: shape A, the
+        # entry's only element with no decision evidence anywhere,
+        # reports Open under the exception row, and shape B reports
+        # Ambiguous, with pin 8 barring check 5 on it. A Condition
+        # line attached to such an element does not convert it:
+        # the Conditional row of the mapping table quantifies over
+        # the dispositions the brief enumerates, and an element
+        # with no disposition is not one of them. The condition
+        # test below therefore stands after this branch, where it
+        # governs every disposition bearing element.
         if len(elements) == 1 and not _decision_evidence(elements):
             return finish("Open")
         result["state"] = "Ambiguous"
@@ -356,6 +365,8 @@ def _derive(entry):
         result["competing"] = [determining]
         result["condition"] = condition
         return result
+    if condition:
+        return finish("Conditional")
     if scope.startswith("Part"):
         if not determining.remainder_text:
             result["state"] = "Ambiguous"

@@ -297,6 +297,109 @@ class DeciderLabelNoFallbackTest(unittest.TestCase):
         self.assertEqual(counts.get("Ruled by Captain JP", 0), 0)
 
 
+class ConditionOnUnclassifiableTest(unittest.TestCase):
+    """A Condition line never converts an unclassifiable element.
+
+    Pin 2 governs an unclassifiable value: it is never assigned a
+    disposition, shape B (the only Status line of an entry carrying
+    decision evidence, or the last element after classifiable
+    elements) reports as Ambiguous, and pin 8 bars check 5 on an
+    Ambiguous entry. A Condition label line attaches to the tuple
+    of the disposition None element, and the shipped derivation
+    tested the condition before the disposition None branch, so
+    the entry reported Conditional and collected check 5 Errors.
+    Classifiable dispositions carrying a Condition line keep
+    reporting Conditional under the mapping table row, which the
+    two control tests pin.
+    """
+
+    EVIDENCE_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: An entry with decision evidence and one "
+        "unclassifiable Status line\n"
+        "\n"
+        "Owner of record: Decision-queue Clerk\n"
+        "\n"
+        "The question: What does derivation do when the only "
+        "Status line is unclassifiable and decision evidence "
+        "stands in a block?\n"
+        "\n"
+        "#### Assessment and settlement record\n"
+        "\n"
+        "Ruled by: Captain JP\n"
+        "\n"
+        "Ruling text: \"The block records a ruling on this "
+        "item.\"\n"
+        "\n"
+        "Status: To be classified\n"
+        "\n"
+        "Condition: the budget is approved\n")
+
+    LITERAL_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: An entry whose only Status line is "
+        "unclassifiable\n"
+        "\n"
+        "Status: To be classified\n"
+        "\n"
+        "Condition: the budget is approved\n")
+
+    BANKED_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: A banked entry carrying a Condition line\n"
+        "\n"
+        "Status: Banked\n"
+        "\n"
+        "The question: Should this item wait on the budget?\n"
+        "\n"
+        "Options:\n"
+        "- Option A: wait.\n"
+        "- Option B: proceed.\n"
+        "\n"
+        "Cost of deciding late: low.\n"
+        "\n"
+        "What it blocks: the closing note.\n"
+        "\n"
+        "Condition: the budget is approved\n")
+
+    PARKED_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: A parked entry carrying a Condition line\n"
+        "\n"
+        "Status: Parked\n"
+        "\n"
+        "Reopening trigger: the budget round opens.\n"
+        "\n"
+        "Condition: the budget is approved\n")
+
+    def test_evidence_shape_reports_ambiguous_with_no_check5(self):
+        _model, output = h.run_pipeline(self.EVIDENCE_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertEqual(h.entry_state(entry), "Ambiguous")
+        self.assertEqual(h.findings_for(output, rule=5), [])
+        self.assertEqual(h.exit_code_of(output), 4)
+
+    def test_literal_shape_reports_open_not_conditional(self):
+        _model, output = h.run_pipeline(self.LITERAL_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertEqual(h.entry_state(entry), "Open")
+        self.assertEqual(h.findings_for(output, rule=5), [])
+
+    def test_banked_with_condition_stays_conditional(self):
+        _model, output = h.run_pipeline(self.BANKED_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertEqual(h.entry_state(entry), "Conditional")
+
+    def test_parked_with_condition_stays_conditional(self):
+        _model, output = h.run_pipeline(self.PARKED_TEXT.encode())
+        entry = h.entry_by_id(output, "DQ-901")
+        self.assertEqual(h.entry_state(entry), "Conditional")
+
+
 class ReattachedEntryStateTest(unittest.TestCase):
 
     def test_s8_states_ruled_by_addition_and_open_beside_it(self):
