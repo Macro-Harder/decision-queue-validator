@@ -150,6 +150,47 @@ class Check5EvidencePresenceTest(unittest.TestCase):
         self.assertEqual(h.findings_for(output, rule=5), [])
 
 
+class Check5RecordedFormsTest(unittest.TestCase):
+    """Check 5's tests are satisfied by the recorded label forms only.
+
+    Pin 8 and brief section 5.5 rule check 5 over the recorded
+    label forms of section 5.3. The shipped landing test was also
+    satisfied by a body wide search for the word "landed", by any
+    later Status line in the entry, and by any field label
+    beginning "Decision"; the outcome test likewise by any
+    "Decision" field label. The constructed entry below is seat
+    2's rf20 shape: a Ruled entry with decider, ruling text and
+    outcome in recorded forms, whose only landing-like text is
+    the narrative sentence "the change landed somewhere last
+    week" inside its ruling text. It must draw the landing
+    Warning.
+    """
+
+    RF20_TEXT = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-901: A ruled entry whose landing stands only in "
+        "narrative\n"
+        "\n"
+        "Status: RULED, closed\n"
+        "\n"
+        "Ruled by: Captain JP\n"
+        "\n"
+        "Ruling text: \"The change landed somewhere last week, "
+        "and the item is closed.\"\n"
+        "\n"
+        "Ruling outcome: The item stands ruled and closed.\n")
+
+    def test_rf20_draws_the_landing_warning(self):
+        _model, output = h.run_pipeline(self.RF20_TEXT.encode())
+        findings = h.findings_for(output, rule=5)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(h.finding_severity(findings[0]), "Warning")
+        self.assertIn("landing",
+                      (h.finding_statement(findings[0]) or "").lower())
+        self.assertEqual(h.exit_code_of(output), 1)
+
+
 class Check7UnclassifiedCensusTest(unittest.TestCase):
 
     def test_s20_unclassified_values_are_census_notes_not_findings(self):

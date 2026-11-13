@@ -182,8 +182,12 @@ class ExitOneAndZeroTest(unittest.TestCase):
         self.assertEqual(h.exit_code_of(output), 0)
 
     def test_clean_runs_exit_zero(self):
-        for fixture_id in ("S3a", "S3b", "S3c", "S5", "S11", "S12",
-                           "R8"):
+        # R8 stood in this list until the Step 19 R-08 fix: its
+        # DQ-130 settlement block records no landing in a recorded
+        # form, so the entry now draws the check 5 landing Warning
+        # and R8 exits 1, as its derived manifest expectation
+        # records.
+        for fixture_id in ("S3a", "S3b", "S3c", "S5", "S11", "S12"):
             with self.subTest(fixture=fixture_id):
                 output = _output(fixture_id)
                 self.assertEqual(h.exit_code_of(output), 0, fixture_id)
@@ -193,7 +197,10 @@ class ExitOneAndZeroTest(unittest.TestCase):
         self.assertEqual(h.exit_code_of(output), 4)
         warnings = [finding for finding in h.findings_of(output)
                     if h.finding_severity(finding) == "Warning"]
-        self.assertEqual(len(warnings), 14)
+        # 53 since the Step 19 R-08 fix: the R1 block settlements
+        # that record no landing in a recorded form draw the
+        # check 5 landing Warning, as the fix register records.
+        self.assertEqual(len(warnings), 53)
 
 
 class FileLevelExitThreeTest(unittest.TestCase):

@@ -600,7 +600,7 @@ def _check5(entry, display_id, derived, elements):
         for label in labels:
             if (label.startswith("Ruling outcome")
                     or label.startswith("Form outcome")
-                    or label.startswith("Decision")
+                    or label == "Decision"
                     or label in ("Outcome", "Outcome of this decision")):
                 outcome = True
                 break
@@ -642,18 +642,19 @@ def _check5(entry, display_id, derived, elements):
                 landing = True
                 break
     if not landing:
-        landing = bool(re.search(r"\blanded\b", body, re.IGNORECASE))
-    if not landing:
-        landing = bool(re.search(
-            r"\blandings? recorded\b", body, re.IGNORECASE))
-    if not landing:
-        landing = any(element.kind == "later Status line"
-                      for element in elements)
-    if not landing:
-        for label in labels:
-            if label.startswith("Decision") or label == "Ruled":
-                landing = True
-                break
+        # The one further recorded form: a landing statement, a
+        # statement in the entry body that a named thing landed in,
+        # at, or as a named place, or that it is landed, as the
+        # DQ-147 family carries its landing inside its Ruled
+        # paragraph and the form decision entries carry theirs in
+        # their outcome paragraph. Pin 8 and brief section 5.5 rule
+        # the test over the recorded forms: a narrative use of the
+        # word "landed" naming no place (for example "the change
+        # landed somewhere last week"), a later Status line, or a
+        # Decision label does not satisfy it.
+        landing = bool(
+            re.search(r"\blanded (in|at|as)\b", body, re.IGNORECASE)
+            or re.search(r"\bis landed\b", body, re.IGNORECASE))
     findings = []
     determining = derived["determining"]
     span = (Span(determining.line, determining.line)

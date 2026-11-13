@@ -44,8 +44,12 @@ class CitationTest(unittest.TestCase):
     def test_r8_check8_citation_count_is_zero(self):
         output = _output("R8")
         self.assertEqual(h.findings_for(output, rule=8), [])
-        self.assertEqual(h.expected_exit("R8"), 0)
-        self.assertEqual(h.exit_code_of(output), 0)
+        # The exit is the derived manifest expectation: 1 since
+        # the Step 19 R-08 fix, on DQ-130's check 5 landing
+        # Warning; the check 8 citation count this test names
+        # stands at 0.
+        self.assertEqual(h.exit_code_of(output),
+                         h.expected_exit("R8"))
 
 
 class MentionAndClaimTest(unittest.TestCase):
