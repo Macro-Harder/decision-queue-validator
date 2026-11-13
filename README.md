@@ -78,6 +78,12 @@ A minimal example of a queue file in those forms:
 Status: Banked
 ```
 
+Running `validate` on that example exits 1, with 4 check 9 Warnings
+for DQ-001, because the entry records no question, no options, no
+cost of deciding late, and no blocks field. That result is the
+expected one for the example as written; recording those four
+fields on the entry clears the warnings.
+
 Three size limits apply, and a file that breaches one is refused as a
 whole:
 

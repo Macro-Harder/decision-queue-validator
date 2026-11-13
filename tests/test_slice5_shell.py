@@ -486,6 +486,33 @@ class ReadmeCacheStatementTest(unittest.TestCase):
         self.assertIn("no run record", text)
 
 
+class ReadmeMinimalExampleResultTest(unittest.TestCase):
+    """Step 19 R-20: the README states the minimal example result.
+
+    The minimal example (queue header plus one DQ-001 entry with
+    Status: Banked and no other fields) exits 1 with 4 check 9
+    Warnings when run, because the entry records no question, no
+    options, no cost of deciding late, and no blocks field. The
+    passage following the example must state that expected
+    result, so a first operator is not met by warnings the
+    document never mentions.
+    """
+
+    def _readme(self):
+        with open(h.PRODUCT_ROOT / "README.md", "r",
+                  encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_readme_states_the_minimal_example_expected_result(self):
+        text = self._readme()
+        start = text.index("A minimal example")
+        end = text.index("Three size limits apply")
+        passage = text[start:end]
+        self.assertIn("exits 1", passage)
+        self.assertIn("4 check 9 Warnings", passage)
+        self.assertIn("expected", passage)
+
+
 class WriteMechanismTest(unittest.TestCase):
 
     def test_named_output_file_receives_the_composed_output(self):
