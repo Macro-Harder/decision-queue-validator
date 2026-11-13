@@ -167,6 +167,30 @@ def _close_stderr():
         pass
 
 
+def _help():
+    """Answer a help request as help: usage on standard output, 0.
+
+    A --help or -h invocation is a request for the usage text,
+    not a malformed invocation, so it is never answered with the
+    unknown subcommand error. Where the usage text cannot be
+    delivered, the delivery failure is reported on standard
+    error and the run exits 2, as every delivery failure does.
+    """
+    try:
+        sys.stdout.write(
+            "usage: python3 -m decision_queue_validator "
+            "{validate|render} INPUT [--output OUTPUT]\n"
+        )
+        sys.stdout.flush()
+    except (OSError, AttributeError, ValueError) as exc:
+        _report_stderr(
+            "error: standard output was closed before the output was "
+            "delivered ({})".format(exc)
+        )
+        return 2
+    return 0
+
+
 def _usage_error(message):
     try:
         sys.stderr.write("usage error: {}\n".format(message))
@@ -272,6 +296,8 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
     argv = list(argv)
+    if argv and argv[0] in ("--help", "-h"):
+        return _help()
     if argv and argv[0] not in ("validate", "render"):
         return _usage_error("unknown subcommand: {}".format(argv[0]))
     if len(argv) < 2:

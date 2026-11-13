@@ -194,6 +194,45 @@ class UnknownSubcommandOrderingTest(unittest.TestCase):
                       "required", message)
 
 
+class HelpFormTest(unittest.TestCase):
+    """Step 19 R-17 and the R-19 wording limb: a help request is
+    answered as help.
+
+    A first operator whose first act is to ask for help, with
+    --help or -h, is answered with the usage text on standard
+    output and exit 0. The request is never answered with the
+    unknown subcommand error: that wording misdescribes a help
+    request as a malformed invocation.
+    """
+
+    def _run_argv(self, argv):
+        import subprocess
+        import sys as _sys
+        proc = subprocess.run(
+            [_sys.executable, "-m", h.PACKAGE] + argv,
+            cwd=str(h.PRODUCT_ROOT), env=h.cli_env(h.SEED_ONE),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return proc.returncode, proc.stdout, proc.stderr
+
+    def test_help_long_form_prints_usage_to_stdout_and_exits_zero(self):
+        code, out, err = self._run_argv(["--help"])
+        self.assertEqual(code, 0)
+        text = out.decode("utf-8", errors="replace")
+        self.assertIn("usage:", text)
+        self.assertIn("validate", text)
+        self.assertIn("render", text)
+        self.assertEqual(err, b"")
+        self.assertNotIn("unknown subcommand", text)
+
+    def test_help_short_form_prints_usage_to_stdout_and_exits_zero(self):
+        code, out, err = self._run_argv(["-h"])
+        self.assertEqual(code, 0)
+        text = out.decode("utf-8", errors="replace")
+        self.assertIn("usage:", text)
+        self.assertEqual(err, b"")
+        self.assertNotIn("unknown subcommand", text)
+
+
 class OutputEqualsInputRefusalTest(unittest.TestCase):
 
     def _assert_refusal_form(self, code, out, input_path):
