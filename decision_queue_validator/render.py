@@ -641,6 +641,26 @@ def _group_lines(entries, wanted, title, row_fn):
     return lines
 
 
+def _summary_text(element):
+    """The ordered element summary form of one element object.
+
+    Mirrors the summary validate builds (brief section 5.5): line
+    number, kind, verbatim value in full, disposition.
+    """
+    line = _field(element, "line", "line_number")
+    kind = _text(_field(element, "kind", "element_kind"))
+    verbatim = _text(_field(element, "verbatim", "verbatim_value",
+                            "value"))
+    raw_disposition = _field(element, "disposition")
+    disposition = _text(raw_disposition)
+    if raw_disposition is None:
+        disposition = "None"
+    if verbatim:
+        return "line %s: %s: %s: %s" % (line, kind, verbatim,
+                                        disposition)
+    return "line %s: %s: %s" % (line, kind, disposition)
+
+
 def _docket_lines(output, entries):
     findings = _items(_field(output, "findings", "findings_list"))
     disagreement_ids = []
@@ -672,12 +692,38 @@ def _docket_lines(output, entries):
                                          "competing_elements")))
         det = _field(entry, "determining_element")
         competing = _items(_field(entry, "competing_elements"))
+        det_summary = _summary_text(det) if det is not None else None
+        competing_summaries = set(
+            _summary_text(element) for element in competing)
         for element in summary:
             mark = ""
-            if det is not None and element == det:
-                mark = " [determining element]"
-            elif element in competing:
-                mark = " [competing element]"
+            if isinstance(element, str):
+                # The summary strings are matched against the same
+                # summary form built from the determining and
+                # competing element objects; comparing a string
+                # against the objects themselves can never hold,
+                # which is why no mark printed before this fix.
+                # For an Ambiguous entry the competing mark is the
+                # brief's mark, so it is tested first there: the
+                # derivation also names a candidate element as
+                # determining on such an entry, and the competing
+                # mark is the one section 5.5 rules for it.
+                if _entry_state(entry) == "Ambiguous":
+                    if element in competing_summaries:
+                        mark = " [competing element]"
+                    elif det_summary is not None and \
+                            element == det_summary:
+                        mark = " [determining element]"
+                elif det_summary is not None and \
+                        element == det_summary:
+                    mark = " [determining element]"
+                elif element in competing_summaries:
+                    mark = " [competing element]"
+            else:
+                if det is not None and element == det:
+                    mark = " [determining element]"
+                elif element in competing:
+                    mark = " [competing element]"
             lines.append("- %s%s" % (_element_text(element), mark))
         lines.append("")
     return lines

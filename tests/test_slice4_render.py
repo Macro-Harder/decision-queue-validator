@@ -398,6 +398,73 @@ class GroupsAndDocketTest(unittest.TestCase):
         self.assertIn("Settled in part", text)
 
 
+class DocketVerbatimAndMarksTest(unittest.TestCase):
+    """The docket prints verbatim values and the element marks.
+
+    Brief section 5.5 rules the ordered element summary as every
+    status bearing element with kind, line number, verbatim value
+    in full, and a mark on the determining element or, for an
+    Ambiguous entry, on each competing element. The shipped
+    summary carried kind, line, and disposition only, and the
+    render compared its summary strings against element objects,
+    a comparison that can never hold, so no mark ever printed.
+    """
+
+    def _docket_block(self, text, ident):
+        lines = text.splitlines()
+        start = lines.index("Docket for %s" % ident)
+        block = []
+        for line in lines[start + 1:]:
+            if not line:
+                break
+            block.append(line)
+        return block
+
+    def test_docket_shows_verbatim_in_full_and_the_determining_mark(self):
+        _model, output = h.cached_pipeline("R1")
+        entry = h.entry_by_id(output, "DQ-001")
+        det = h.get(entry, "determining_element")
+        self.assertIsNotNone(det)
+        det_verbatim = h.text_of(h.get(det, "verbatim"))
+        self.assertTrue(det_verbatim)
+        block = self._docket_block(
+            h.render_text(output, "render"), "DQ-001")
+        marked = [line for line in block
+                  if line.endswith(" [determining element]")]
+        self.assertEqual(len(marked), 1)
+        self.assertIn(det_verbatim, marked[0])
+        for line in block:
+            if line is not marked[0]:
+                self.assertFalse(line.endswith("]"), line)
+
+    def test_docket_marks_each_competing_element_of_an_ambiguous_entry(self):
+        # S20 DQ-902 (pin 2 shape B): the derivation records the
+        # unclassifiable Status line as the competing element; the
+        # docket must mark it as competing, not as determining,
+        # and must show its verbatim value in full.
+        _model, output = h.cached_pipeline("S20")
+        block = self._docket_block(
+            h.render_text(output, "render"), "DQ-902")
+        self.assertEqual(len(block), 2)
+        competing = [line for line in block
+                     if line.endswith(" [competing element]")]
+        self.assertEqual(len(competing), 1)
+        self.assertIn("To be classified", competing[0])
+        for line in block:
+            self.assertFalse(
+                line.endswith(" [determining element]"), line)
+        # S13 DQ-901: two recorded competing elements, both marked.
+        _model, output = h.cached_pipeline("S13")
+        block = self._docket_block(
+            h.render_text(output, "render"), "DQ-901")
+        competing = [line for line in block
+                     if line.endswith(" [competing element]")]
+        self.assertEqual(len(competing), 2)
+        for line in block:
+            self.assertFalse(
+                line.endswith(" [determining element]"), line)
+
+
 class CountsAndFiguresTest(unittest.TestCase):
 
     def test_counts_section_carries_the_glossary_line_set(self):
@@ -478,10 +545,10 @@ class CountsAndFiguresTest(unittest.TestCase):
 
     def test_render_summary_output_preserved_on_the_scan_fixtures(self):
         expected = {
-            "R1": "c6f375a28f9129b3c26e9a3fba80692c5b23e955edb5c884d9eeea50109758fa",
-            "R2": "2f95c0f9377be7ba391497eff2d19a4459fa2e863be55bfdd03641bc3e3da117",
+            "R1": "6d8084b3e2fa38d1d2675d17a7af7c59ff26cf14ad8c29750e61fac39df8ea64",
+            "R2": "633d9584a35b3c32cbc29283e71e597697945fa5b18bd56fa2bb9e8918ac71af",
             "R3": "61ed884d01a92b2607fb72640404fd793294faf86001b7ba62a91d57de87b524",
-            "R4": "295c916be2281e8d8407eaf871f12fbeb4c0d4cb50ad3f14e5a143ee2a2155fb",
+            "R4": "c4b5358bd8a42f543d598e55df40377c7d963841bbe0d4a11cc0a61a2b347261",
             "R5": "9f6391b8c04222a11fa05fc3856cdef96c94091a6753613586bae1c18a119fa4",
             "R6": "0ad03d5a52d963a53fcf34b0fbbd1492a5e133aa487fa63641e1d89f7e4972bf",
             "R7": "48b3539ab5fcaa34441377d135bb9003d2551f7376bb7a81e848c64855e7813f",
@@ -497,11 +564,11 @@ class CountsAndFiguresTest(unittest.TestCase):
             "S7c": "ffca55b895417078e003ee39c2d732772392ee598f74032314db92d0ba3be405",
             "S11": "a7750615c1cfc3fb4d935cae3e3eedddf22bec5d1ca64cbc2a0323ae92f75921",
             "S12": "2bf8de7d3de1ec64c64ec959630f136ee28d6de57fbcf8459dde6ae4db0eac2f",
-            "S13": "7c914f910b198ccd3849050292288eb1bdd63b8e252b5c4959ae81ad4c25cd39",
-            "S17": "126a46a35043ce611067676038d44c56da335ded7b06fe8c7b6e181654dccf61",
-            "S18": "cd04fe7004c4d2b20f135051b0f81d9b85bc64382c427d12e035f03ab5e5e7bb",
-            "S19": "1b186a9296c1561acb2b3c3cdba824b448657a3a2c057bc2593fd1754d54e1c2",
-            "S20": "daf6129561a872be444c2b26f091d46f2e15a668d07d2fbea57a078c0d1645e5",
+            "S13": "461c211c22ecb4f851d296479276cb4bd1a672095b39782f89f001fd96178b52",
+            "S17": "add7d6cd657c6245926f5b9248327851dd2d643b4759f73900a0b5a9d3f38cb9",
+            "S18": "6933430c8d1c0c8e069663dfb3bb6644315deca05e7793fb291171c7121d1143",
+            "S19": "34531512b94e8d3046c7c1feee5ae970d95959c2253c9f5585d75013e85e8ad6",
+            "S20": "d20c8c6d646027c4748d4348b99b8318118b1d964e436ccfcb0de918e6b94382",
         }
         for fixture_id, digest in expected.items():
             with self.subTest(fixture=fixture_id):

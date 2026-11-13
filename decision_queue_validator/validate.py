@@ -1363,6 +1363,12 @@ def validate_model(model, vocabulary, output_form_edition=None):
             determining_element=derived["determining"],
             competing_elements=list(derived["competing"]),
             element_summary=[
+                # Brief section 5.5: the ordered element summary
+                # carries kind, line number, and the verbatim value
+                # in full; the disposition stands after it.
+                "line %s: %s: %s: %s" % (
+                    e.line, e.kind, e.verbatim, e.disposition)
+                if e.verbatim else
                 "line %s: %s: %s" % (e.line, e.kind, e.disposition)
                 for e in elements],
             decider_label=derived["decider_label"],
