@@ -531,7 +531,7 @@ class ValidateOutput:
     list, the census, the reconciliation block, the crosswalk counts,
     the decider subtotals, the waiting and blocking figures, the
     blocks coverage counts, the effort coverage counts, the limbo
-    sentence data, the fastest item
+    sentence data, the segment claim reports, the fastest item
     value, and the Exit decision.
     """
 
@@ -554,6 +554,7 @@ class ValidateOutput:
     blocks_coverage: dict = field(default_factory=dict)
     effort_coverage: dict = field(default_factory=dict)
     limbo_data: dict = field(default_factory=dict)
+    segment_claim_reports: list = field(default_factory=list)
     fastest_item: str = "not derivable from the file"
 
 

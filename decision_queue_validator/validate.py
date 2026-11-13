@@ -1696,6 +1696,13 @@ def validate_model(model, vocabulary, output_form_edition=None):
             "without_effort_signal": effort_without,
         },
         limbo_data=limbo_data,
+        # The segment claim reports are a declared field of the
+        # Validate output shape (brief section 5.5: the output is
+        # the sole validate to render handoff, and every field
+        # render prints has its named source inside it). They are
+        # handed over at construction, never attached afterwards,
+        # so a consumer building an output from the declared
+        # fields alone carries the Segment claims section.
+        segment_claim_reports=segment_claim_reports,
         fastest_item="not derivable from the file")
-    output.segment_claim_reports = segment_claim_reports
     return output

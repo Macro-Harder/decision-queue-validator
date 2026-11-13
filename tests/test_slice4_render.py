@@ -715,5 +715,55 @@ class FootAndClosingTest(unittest.TestCase):
                 self.assertIn(other, lines[-2])
 
 
+class SegmentClaimsCarriageTest(unittest.TestCase):
+    """Step 19 R-13, carriage limb: the segment claims carriage
+    stands inside the declared Validate output shape.
+
+    Brief section 5.5 names the Validate output, with its field
+    list, as the sole validate to render handoff, and every field
+    render prints has its named source inside it. The segment
+    claim reports render prints in its Segment claims section
+    must therefore be a declared field of that shape: a consumer
+    building a Validate output from the declared fields alone
+    must carry the section into the render output, exactly as a
+    consumer carrying an unparsed entry through the declared
+    entry fields carries the Unparsed entries section.
+    """
+
+    def _declared_field_names(self):
+        import dataclasses
+        types_module = h.import_module("types")
+        return {field.name for field in
+                dataclasses.fields(types_module.ValidateOutput)}
+
+    def _rebuild_from_declared_fields(self, output):
+        import dataclasses
+        types_module = h.import_module("types")
+        values = {}
+        for field in dataclasses.fields(types_module.ValidateOutput):
+            values[field.name] = getattr(output, field.name)
+        return types_module.ValidateOutput(**values)
+
+    def test_segment_claim_reports_is_a_declared_field(self):
+        self.assertIn("segment_claim_reports",
+                      self._declared_field_names())
+
+    def test_rebuilt_output_keeps_the_segment_claims_section(self):
+        _model, output = h.cached_pipeline("R8")
+        rebuilt = self._rebuild_from_declared_fields(output)
+        text = h.render_text(rebuilt, "render")
+        self.assertIn("Segment claims", text)
+        self.assertIn("Reported as a claim only", text)
+
+    def test_rebuilt_output_keeps_the_unparsed_entries_section(self):
+        _model, output = h.cached_pipeline("S13")
+        rebuilt = self._rebuild_from_declared_fields(output)
+        text = h.render_text(rebuilt, "render")
+        self.assertIn("Unparsed entries", text)
+        self.assertIn(
+            "This entry is carried as unparsed and is assigned "
+            "no state.", text)
+
+
 if __name__ == "__main__":
     unittest.main()
