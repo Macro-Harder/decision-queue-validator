@@ -163,6 +163,18 @@ class FileGroupOrderTest(unittest.TestCase):
                          if h.finding_entry_id(finding) != "FILE"]
         if file_indices and entry_indices:
             self.assertLess(max(file_indices), min(entry_indices))
+        data, _facts = h.combined_defects_input()
+        _model, combined = h.run_pipeline(data, "combined.md")
+        combined_findings = h.findings_of(combined)
+        file_indices = [index for index, finding
+                        in enumerate(combined_findings)
+                        if h.finding_entry_id(finding) == "FILE"]
+        entry_indices = [index for index, finding
+                         in enumerate(combined_findings)
+                         if h.finding_entry_id(finding) != "FILE"]
+        self.assertTrue(file_indices)
+        self.assertTrue(entry_indices)
+        self.assertLess(max(file_indices), min(entry_indices))
 
 
 class CombinedDefectsTest(unittest.TestCase):
