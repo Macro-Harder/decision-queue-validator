@@ -119,6 +119,52 @@ class ExitFourReasonWordingTest(unittest.TestCase):
         self.assertNotIn("pin", closing)
 
 
+class UnparsedErrorFindingTest(unittest.TestCase):
+    """Pin 12: an unparsed entry carries an Error finding.
+
+    Brief pin 12 rules the unparsed entry's finding grade as Error;
+    criterion 5 and the shipped corpus manifest state the same
+    expectation for fixtures S7c and S13 (one unparsed entry, an
+    Error, and exit 4). The finding stands beside the carriage, the
+    reconciliation row, and the exit 4 behaviour the other groups
+    pin: the head counts and the closing line count it.
+    """
+
+    def test_s7c_carries_one_error_finding_on_the_unparsed_entry(self):
+        output = _output("S7c")
+        findings = h.findings_of(output)
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        self.assertEqual(h.finding_severity(finding), "Error")
+        self.assertEqual(h.finding_entry_id(finding), "DQ-901")
+        recon = h.reconciliation_of(output)
+        per_severity = h.get(recon, "findings_per_severity")
+        counts = {h.text_of(key): h.int_of(value)
+                  for key, value in per_severity.items()}
+        self.assertEqual(counts.get("Error"), 1)
+        self.assertEqual(h.unparsed_count(output), 1)
+        self.assertEqual(h.exit_code_of(output), 4)
+
+    def test_s13_carries_one_error_finding_on_the_unparsed_entry(self):
+        output = _output("S13")
+        errors = [finding for finding in h.findings_of(output)
+                  if h.finding_severity(finding) == "Error"]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(h.finding_entry_id(errors[0]), "DQ-902")
+        self.assertEqual(h.unparsed_count(output), 1)
+        self.assertEqual(h.ambiguous_count(output), 1)
+        self.assertEqual(h.exit_code_of(output), 4)
+
+    def test_s7c_validate_output_counts_the_error_in_its_closing_line(self):
+        code, out, _err = h.cached_run("S7c", "validate")
+        self.assertEqual(code, 4)
+        text = out.decode("utf-8", errors="replace")
+        self.assertNotIn("No findings.", text)
+        closing = [line for line in text.strip().splitlines()
+                   if line][-1]
+        self.assertIn("1 Error", closing)
+
+
 class ExitOneAndZeroTest(unittest.TestCase):
 
     def test_warning_only_and_error_runs_exit_one(self):

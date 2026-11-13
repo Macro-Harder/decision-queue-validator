@@ -730,6 +730,25 @@ def _check10(entry, display_id, derived):
         basis="a parked entry with no named reopening trigger")]
 
 
+def _unparsed_finding(entry, display_id):
+    """The pin 12 Error finding for an entry carried as unparsed.
+
+    Pin 12 rules the unparsed entry's finding grade as Error. The
+    finding is raised under the pin's own rule number, on the entry
+    itself, beside the carriage, the reconciliation row, and the
+    exit 4 cause the entry already carries.
+    """
+    heading_line = _get(entry, "heading_line")
+    span = (Span(heading_line, heading_line)
+            if heading_line is not None else None)
+    heading = _get(entry, "heading") or _get(entry, "heading_text") or ""
+    return _finding(
+        12, "Error", display_id, span, heading,
+        "This entry stands unparsed: its heading stands with no "
+        "body, so no state can be determined for it.",
+        basis="an unparsed entry, carried under pin 12")
+
+
 # ---------------------------------------------------------------------
 # Unit 3c: whole file checks (checks 1 and 6) and the unmatched
 # heading finding
@@ -1188,6 +1207,8 @@ _CLEARING_FORMS = {
        "late or blocks field on the open entry.",
     10: "Name a reopening trigger under the Reopening trigger "
         "label.",
+    12: "Give the entry a body in a recognised form under its "
+        "heading, or take the heading out of the file.",
 }
 
 
@@ -1354,6 +1375,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
     for entry, derived in zip(entries, derived_list):
         display_id = _display_id(entry)
         elements = list(_get(entry, "status_elements") or [])
+        if derived["unparsed"]:
+            entry_findings.append(_unparsed_finding(entry, display_id))
         entry_findings.extend(_check2(entry, display_id))
         entry_findings.extend(_check3(entry, display_id, derived,
                                       elements))
