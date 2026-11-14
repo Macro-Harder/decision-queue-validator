@@ -52,13 +52,7 @@ directory, so a failed write leaves no partial file behind and leaves
 an existing output file untouched. Naming the input file itself as
 the output is refused, so a run can never overwrite the queue it is
 checking. The input file is never modified by any run, and the tool
-itself writes nothing else: no log file and no run record. In a
-default environment one run does leave a cache behind in the tool's
-own directory, written by the Python interpreter rather than by the
-tool: a `decision_queue_validator/__pycache__` directory holding
-`.pyc` files, the interpreter's standard import behaviour. Running
-with `PYTHONDONTWRITEBYTECODE=1` set suppresses that cache, and no
-cache is left then.
+itself writes nothing else: no log file and no run record.
 
 ## Input
 
