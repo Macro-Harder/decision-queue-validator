@@ -14,6 +14,7 @@ by their surface forms alone.
 
 import hashlib
 import re
+import sys
 
 from .types import (
     CensusEntry,
@@ -43,6 +44,7 @@ from .types import (
     ValidateOutput,
     VerbatimAppendixRow,
     Vocabulary,
+    _SHIPPED_VOCABULARY_MAPPING,
 )
 
 __all__ = [
@@ -55,12 +57,13 @@ __all__ = [
 ]
 
 _HEADING_RE = re.compile(r"^(#{1,6}) (.*)$")
-_NUMBERED_RE = re.compile(r"^DQ-(\d{3})(?:: | )(\S.*)$")
+_NUMBERED_RE = re.compile(r"^DQ-(\d+): (\S.*)$")
 _UNNUMBERED_RE = re.compile(r"^(R-\d+) (\S.*)$")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _ADDITION_RE = re.compile(
     r"^(?:[A-Za-z]+ )?addition to (DQ-\d{3})\b", re.IGNORECASE)
 _LABEL_RE = re.compile(r"^([A-Z][A-Za-z0-9 '&()/.-]{0,58}?):(?:[ ]+(.*)|[ ]*)$")
+_BOLD_LEAD_RE = re.compile(r"^\*\*(.+?)\*\*")
 _DQ_TOKEN_RE = re.compile(r"\bDQ-\d{3}\b")
 _R_TOKEN_RE = re.compile(r"\bR-\d+\b")
 
@@ -91,6 +94,9 @@ _FIELD_PARAGRAPH_LABELS = {
 }
 
 # First line labels that open an unheaded labelled paragraph block.
+# The set is the recorded label list at brief section 5.2, PIN-01,
+# form 2: labels of the ruling, settlement, assessment, and outcome
+# families in their recorded forms.
 _DECISION_LABELS = {
     "Ruled",
     "Settled",
@@ -98,10 +104,30 @@ _DECISION_LABELS = {
     "Ruled by",
     "Settled by",
     "Decision",
+    "Ruling text",
+    "Ruling texts",
     "Ruling outcome",
     "Outcome of this decision",
     "Form outcome",
     "Addition to",
+}
+
+# The disposition a recorded label form itself carries, where the
+# labelled matter states no disposition of its own: the matter
+# under the label performs the act the label names, under PIN-01,
+# form 2. A label standing in the decision set with no entry here,
+# the Decision label, carries no disposition from its form.
+_LABEL_DISPOSITIONS = {
+    "Ruled": "Ruled",
+    "Ruled by": "Ruled",
+    "Ruling text": "Ruled",
+    "Ruling texts": "Ruled",
+    "Ruling outcome": "Ruled",
+    "Outcome of this decision": "Ruled",
+    "Form outcome": "Ruled",
+    "Settled": "Settled",
+    "Settled by": "Settled",
+    "Settlement": "Settled",
 }
 
 # Single word lead in labels that are named forms of the contract.
@@ -152,8 +178,29 @@ def _first_word(text):
     return match.group(0) if match else ""
 
 
+_FAMILY_DISPOSITIONS = {
+    "Banked": "Banked",
+    "Open": "Open",
+    "Parked": "Parked",
+    "Presented": "Presented",
+    "Ruled": "Ruled",
+    "Settled": "Settled",
+    "Closed as decided": "Closed",
+}
+
+
 def _disposition_from_value(value):
-    """The disposition of a status value, from its opening forms."""
+    """The disposition of a status value, from its opening forms.
+
+    A value whose opening forms state no disposition is read
+    against the translation table, the shipped vocabulary mapping
+    in types, by exact match on the value as written: the table
+    translates the phrasing to its canonical family, and the
+    family gives the disposition. No normalisation is applied to
+    the value, so a phrasing standing in the table in one code
+    point sequence does not translate a canonically equivalent
+    phrasing in another sequence.
+    """
     word = _first_word(value).upper()
     if word in _DISPOSITION_WORDS:
         return _DISPOSITION_WORDS[word]
@@ -161,15 +208,19 @@ def _disposition_from_value(value):
         return "Ruled"
     if re.search(r"\bSettled by:", value):
         return "Settled"
+    family = _SHIPPED_VOCABULARY_MAPPING.get(value)
+    if family in _FAMILY_DISPOSITIONS:
+        return _FAMILY_DISPOSITIONS[family]
     return None
 
 
-def _find_disposition(text):
+def _find_disposition(text, start=0):
     """Find a disposition statement in one line of prose or a block.
 
     Returns a pair of the disposition and the offset at which the
     statement stands in the line, or None where the line states no
-    disposition under the named forms.
+    disposition under the named forms. The search runs from the
+    given offset, and the offset it returns is absolute in the line.
     """
     checks = (
         (r"\bSETTLED IN PART\b", "Settled"),
@@ -198,13 +249,20 @@ def _find_disposition(text):
         (r"\bnot finished\b", "Open"),
         (r"\bremains open\b", "Open"),
         (r"\bstays open\b", "Open"),
+        (r"\bfurther [Rr]uled\b", "Ruled"),
+        (r"\bfurther [Ss]ettled\b", "Settled"),
+        (r"\b[Ss]ettled this entry\b", "Settled"),
+        (r"\b[Rr]uled this entry\b", "Ruled"),
+        (r"\bhas set the outstanding values\b", "Settled"),
+        (r"\blimb of this entry is [Rr]uled\b", "Ruled"),
+        (r"\blimb of this entry is [Ss]ettled\b", "Settled"),
     )
     best = None
     for priority, (pattern, disposition) in enumerate(checks):
-        match = re.search(pattern, text)
+        match = re.search(pattern, text[start:])
         if not match:
             continue
-        candidate = (match.start(), priority, disposition)
+        candidate = (start + match.start(), priority, disposition)
         if best is None or candidate[:2] < best[:2]:
             best = candidate
     if best is None:
@@ -212,11 +270,153 @@ def _find_disposition(text):
     return best[2], best[0]
 
 
+def _sentence_spans(text):
+    """The sentence spans of a text, as start and end offsets.
+
+    A sentence ends at a period followed by a space, the period
+    standing inside its own sentence, or at the end of the text.
+    """
+    spans = []
+    start = 0
+    index = text.find(". ", start)
+    while index >= 0:
+        spans.append((start, index + 1))
+        start = index + 2
+        index = text.find(". ", start)
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
+def _marked_statement(sentence):
+    """Whether a sentence opens in a marked statement form.
+
+    The marked forms are the ones PIN-01 names as carrying a
+    statement at their head: a contained Status line form, a bold
+    lead in start, or a recorded decision label. A sentence that
+    opens in plain prose and only describes a state further in, as
+    a remainder sentence does, carries no statement of its own:
+    its matter belongs to the statement it follows, under the part
+    and remainder machinery. A bare closure sentence forms no
+    statement either: the terminal closure machinery owns that
+    position, and inside a block segment it formed no element in
+    the recorded reading.
+    """
+    stripped = sentence.strip()
+    if stripped.startswith("Status:") or stripped.startswith("**"):
+        return True
+    label_match = _LABEL_RE.match(stripped)
+    if label_match and \
+            label_match.group(1).strip() in _DECISION_LABELS:
+        return True
+    return False
+
+
+_MARKED_STATEMENT_WORD_RE = re.compile(
+    r"(Ruled|Settled|Banked|Parked|Presented|Open|"
+    r"RULED|SETTLED|BANKED)\b")
+
+
+def _weak_marked_statement(sentence):
+    """Whether a sentence opens with a bare disposition word.
+
+    The weak marked form: a sentence whose first word is itself a
+    disposition word, as a line standing as Ruled. or Settled in
+    part. A closure word does not open a weak statement, for the
+    reason _marked_statement states.
+    """
+    if _marked_statement(sentence):
+        return True
+    stripped = sentence.strip()
+    return _MARKED_STATEMENT_WORD_RE.match(stripped) is not None
+
+
+def _find_disposition_statements(text):
+    """Every disposition statement in one line, in statement order.
+
+    Returns a list of triples: the disposition, the offset at which
+    its statement stands in the line, and the statement text, being
+    the sentence the disposition form stands in. The first
+    statement is the disposition the text as a whole carries, found
+    as _find_disposition finds it. A further statement stands only
+    where a later sentence opens in a marked statement form and
+    carries a disposition, under the segmentation rule at brief
+    section 5.2, PIN-01, form 1: a segment carrying two disposition
+    statements splits at the second statement, wherever the two
+    stand. Descriptive prose after the first statement, as a
+    sentence describing what a remainder does, forms no statement
+    of its own. A bare closure sentence standing last forms no
+    statement here: the terminal closure machinery owns that
+    position, and inside a block segment it formed no element in
+    the recorded reading.
+    """
+    primary = _find_disposition(text)
+    if primary is None:
+        return []
+    disposition, offset = primary
+    sentences = _sentence_spans(text)
+    primary_index = 0
+    for index, (start, end) in enumerate(sentences):
+        if start <= offset < end:
+            primary_index = index
+            break
+    start, end = sentences[primary_index]
+    results = [(disposition, offset, text[start:end])]
+    for index in range(primary_index + 1, len(sentences)):
+        start, end = sentences[index]
+        sentence = text[start:end]
+        if not _marked_statement(sentence):
+            continue
+        hit = _find_disposition(sentence)
+        if hit:
+            results.append((hit[0], start + hit[1], sentence))
+    return results
+
+
+def _statements_in_lines(lines):
+    """The disposition statements standing in a run of lines.
+
+    A run of lines, a block segment or a plain paragraph, carries
+    one primary statement: the statements of its first line that
+    carries one, under _find_disposition_statements. A later line
+    adds a statement only where one of its sentences opens in a
+    marked statement form, or its first sentence opens in the weak
+    marked form, and carries a disposition: the two statements of
+    the segmentation rule stand wherever they stand, on one line
+    or on two lines, and descriptive prose lines after the primary
+    statement form no statement of their own. Returns a list of
+    five tuples: the line number, the line text, the disposition,
+    the offset of the disposition expression within its line, and
+    the statement text.
+    """
+    results = []
+    primary_found = False
+    for number, text in lines:
+        if not primary_found:
+            statements = _find_disposition_statements(text)
+            if statements:
+                primary_found = True
+                for disposition, offset, statement in statements:
+                    results.append((number, text, disposition,
+                                    offset, statement))
+            continue
+        for index, (start, end) in enumerate(_sentence_spans(text)):
+            sentence = text[start:end]
+            if _marked_statement(sentence) or \
+                    (index == 0 and _weak_marked_statement(sentence)):
+                hit = _find_disposition(sentence)
+                if hit:
+                    results.append((number, text, hit[0],
+                                    start + hit[1], sentence))
+    return results
+
+
 def _decider_from_text(text):
     """The decider category and decider text a statement names."""
     if re.search(r"by the Manager\b", text) or \
             re.search(r"(Settled|SETTLED) by:? The Manager\b", text) or \
-            re.search(r"by a (decision|pick) of the Manager\b", text):
+            re.search(r"by a (decision|pick) of the Manager\b", text) or \
+            re.search(r"the Manager's pick under .* delegation", text):
         named = re.search(r"The Manager \(Muse\)[^.]*", text)
         if named:
             return "a Manager grant form", named.group(0).rstrip()
@@ -270,10 +470,22 @@ def _condition_from_text(text):
 
 
 def _scope_of(text, remainder):
+    """The scope of a disposition statement: Whole or Part.
+
+    Scope is Part where the statement in words limits the act to a
+    named part, limb, or portion of the entry, or where the
+    statement names a remainder, as plan Item 3, section 3.5,
+    field 6 states. The remainder itself is carried by the
+    remainder text of the element, never by the scope word.
+    """
+    if remainder is not None:
+        return "Part"
     if re.search(r"in part", text, re.IGNORECASE):
-        if remainder is not None:
-            return "Part with a named remainder"
-        return "Part with no remainder named"
+        return "Part"
+    if re.search(r"\b(?:limb|portion) of this entry\b", text):
+        return "Part"
+    if re.search(r"\bOnly the\b.+\bof this entry is\b", text):
+        return "Part"
     return "Whole"
 
 
@@ -340,6 +552,100 @@ def _unnumbered_heading(text):
     if not match:
         return None
     return match.group(1), match.group(2)
+
+
+_HEADING_BY_RE = re.compile(
+    r"(RULED|Ruled|SETTLED|Settled) by ([^.]+?)"
+    r"( \d{4}-\d{2}-\d{2})?\s*$")
+_HEADING_WORD_BY_RE = re.compile(
+    r"\b(RULED|SETTLED|ORDERED|BANKED|CLOSED|PARKED|PRESENTED|OPEN|"
+    r"Ruled|Settled|Ordered|Banked|Closed|Parked|Presented|Open)"
+    r" by\b")
+_HEADING_TAIL_WORD_RE = re.compile(
+    r"\b(RULED|SETTLED|ORDERED|BANKED|CLOSED|PARKED|PRESENTED|OPEN|"
+    r"Ruled|Settled|Ordered|Banked|Closed|Parked|Presented|Open)"
+    r"( \d{4}-\d{2}-\d{2})?\s*$")
+_ADDITION_THIS_ENTRY_RE = re.compile(
+    r"^Addition to this entry\b", re.IGNORECASE)
+_SEGMENT_STATE_CLAIM_RE = re.compile(
+    r"\b(remains|stays|stands|is|was|left)\b[^.]{0,80}?"
+    r"\b(open|settled|ruled|closed|banked|parked|presented)\b",
+    re.IGNORECASE)
+
+
+def _heading_borne(record):
+    """The heading borne element of an entry, where one stands.
+
+    Under PIN-05 the heading is a status bearing element where it
+    carries status evidence: a heading outcome word, a decider
+    named in the heading, or a ruling stated in the heading. The
+    forms, in the order they are tried: a ruling or settlement
+    stated in the heading in the by form at its end; an outcome
+    word in the by form anywhere in the heading tail; an outcome
+    word at the end of the heading, with a date after it where one
+    stands; and a heading whose whole title is the one outcome
+    word, classifiable or unclassifiable, as the MK-4 construction
+    at plan Item 3, section 3.10, attack 3 states. An outcome word
+    with no translation, as ORDERED, extracts an element with no
+    disposition: the element stands, and PIN-04 governs it.
+
+    Returns a pair of the disposition, or None, and the position of
+    the outcome word within the heading line, or None where the
+    heading carries no status evidence.
+    """
+    heading = record.heading
+    prefix = "#" * record.heading_level + " "
+    match = _HEADING_BY_RE.search(heading)
+    if match:
+        return (_DISPOSITION_WORDS[match.group(1).upper()],
+                len(prefix) + match.start())
+    match = _HEADING_WORD_BY_RE.search(heading)
+    if match:
+        return (_DISPOSITION_WORDS.get(match.group(1).upper()),
+                len(prefix) + match.start())
+    match = _HEADING_TAIL_WORD_RE.search(heading)
+    if match:
+        return (_DISPOSITION_WORDS.get(match.group(1).upper()),
+                len(prefix) + match.start())
+    title = (record.title or "").strip()
+    if title and " " not in title and \
+            title.replace("-", "").isalpha():
+        at = heading.find(title)
+        return (_DISPOSITION_WORDS.get(title.upper()),
+                len(prefix) + (at if at >= 0 else 0))
+    return None
+
+
+def _addition_paragraphs_after_closing(record, closing_line):
+    """Paragraphs labelled as additions to this entry, after a line.
+
+    The paragraphs of the entry body that stand after the given
+    closing Status line and open with an addition label naming this
+    entry, by its number or as this entry, in file order.
+    """
+    paragraphs = []
+    current = []
+    for number, text in record.body_lines:
+        if number <= closing_line:
+            continue
+        if text.strip() == "":
+            if current:
+                paragraphs.append(current)
+                current = []
+            continue
+        current.append((number, text))
+    if current:
+        paragraphs.append(current)
+    found = []
+    for paragraph in paragraphs:
+        first_text = paragraph[0][1]
+        if _ADDITION_THIS_ENTRY_RE.match(first_text):
+            found.append(paragraph)
+            continue
+        addition = _ADDITION_RE.match(first_text)
+        if addition and addition.group(1) == record.identifier:
+            found.append(paragraph)
+    return found
 
 
 def _is_note_section(text):
@@ -467,11 +773,11 @@ class _EntryBuilder:
                 if self.seen_line_start:
                     kind = "later Status line"
                 else:
-                    kind = "head Status line"
+                    kind = "line start Status line"
                     self.seen_line_start = True
                 occurrence = "line start"
             else:
-                kind = "embedded status value"
+                kind = "tail paragraph element"
                 occurrence = "embedded"
             element = _make_element(
                 kind=kind,
@@ -491,6 +797,19 @@ class _EntryBuilder:
         return is_line_start
 
     def _scan_origin_line(self, number, text, decision_block=None):
+        """The matter under an Origin label, tested by its own form.
+
+        The Origin line is not an element by itself, under PIN-05:
+        the matter under the label is tested under the marking form
+        that carries it. A terminal Status value in the matter is a
+        tail paragraph element where its value states a disposition,
+        a closure, or a remaining open state of the entry. A terminal
+        Status sentence whose value states no disposition, as the
+        landing record form at brief section 5.2, PIN-01, form 4,
+        carries no element at all. A decider form stated in the
+        matter is an element of the labelled paragraph that carries
+        it.
+        """
         body = text[len("Origin:"):]
         has_marker = _STATUS_MARKER in body
         has_decider_form = bool(
@@ -500,29 +819,33 @@ class _EntryBuilder:
         if has_marker:
             at = body.find(_STATUS_MARKER)
             value = body[at + len(_STATUS_MARKER):].lstrip(" ")
-            self.elements.append(_make_element(
-                kind="Origin line matter",
-                verbatim=value,
-                disposition=_disposition_from_value(value),
-                line=number,
-                position=len("Origin:") + at,
-                occurrence_kind="embedded",
-                own_text=value,
-                decision_block=decision_block,
-            ))
-        else:
-            found = _find_disposition(body)
-            disposition = found[0] if found else None
-            self.elements.append(_make_element(
-                kind="Origin line matter",
-                verbatim=body.lstrip(" "),
-                disposition=disposition,
-                line=number,
-                position=len("Origin:"),
-                occurrence_kind=None,
-                own_text=body,
-                decision_block=decision_block,
-            ))
+            disposition = _disposition_from_value(value)
+            if disposition is not None:
+                self.elements.append(_make_element(
+                    kind="tail paragraph element",
+                    verbatim=value,
+                    disposition=disposition,
+                    line=number,
+                    position=len("Origin:") + at,
+                    occurrence_kind="embedded",
+                    own_text=value,
+                    decision_block=decision_block,
+                ))
+                return False
+            if not has_decider_form:
+                return False
+        found = _find_disposition(body)
+        disposition = found[0] if found else None
+        self.elements.append(_make_element(
+            kind="labelled paragraph element",
+            verbatim=body.lstrip(" "),
+            disposition=disposition,
+            line=number,
+            position=len("Origin:"),
+            occurrence_kind=None,
+            own_text=body,
+            decision_block=decision_block,
+        ))
         return False
 
     def note_unrecognised_lead_in(self, paragraph):
@@ -567,22 +890,110 @@ class _EntryBuilder:
         label = label_match.group(1).strip() if label_match else ""
         if label in _FIELD_PARAGRAPH_LABELS:
             return
-        found = None
-        found_line = None
-        for number, text in paragraph:
-            hit = _find_disposition(text)
-            if hit:
-                found = hit
-                found_line = (number, text)
-                break
-        if not found:
-            return
-        disposition, offset = found
-        number, text = found_line
         joined = "\n".join(item[1] for item in paragraph)
-        if label in _DECISION_LABELS or \
-                first_text.startswith("Addition to") or \
-                first_text.startswith("Decision under"):
+        bold = _BOLD_LEAD_RE.match(first_text)
+        if bold is not None:
+            lead = bold.group(1)
+            lead_hit = _find_disposition(lead)
+            if lead_hit is not None or "Supersession:" in lead:
+                disposition = lead_hit[0] if lead_hit else None
+                alone = len(paragraph) == 1 and \
+                    first_text.strip() == "**" + lead + "**"
+                if alone and "Supersession:" in lead:
+                    # The bold supersession block reading, plan
+                    # Item 6, section 6.7: a bold line standing
+                    # alone carrying a supersession is read as a
+                    # decision block segment carrying the
+                    # supersession statement, and that statement is
+                    # the determining element for its entry. It is
+                    # not read as a bold lead in paragraph element,
+                    # because the line stands alone and leads no
+                    # paragraph. The disposition is the state the
+                    # superseding act carries: a Manager pick under
+                    # Captain JP's delegation settles, a ruling by
+                    # Captain JP rules.
+                    decider, _decider_text = _decider_from_text(lead)
+                    if decider == "a Manager grant form":
+                        disposition = "Settled"
+                    elif decider == "Captain JP":
+                        disposition = "Ruled"
+                    block = DecisionBlock(
+                        marking_form="bold supersession segment",
+                        span=Span(paragraph[0][0], paragraph[-1][0],
+                                  "heading cut"),
+                        heading_text=None,
+                        post_status_flag=bool(
+                            self.closing_status_line is not None and
+                            paragraph[0][0] >
+                            self.closing_status_line),
+                    )
+                    self.blocks.append(block)
+                    block_index = len(self.blocks) - 1
+                    element = _make_element(
+                        kind="decision block matter",
+                        verbatim=first_text,
+                        disposition=disposition,
+                        line=first_number,
+                        position=0,
+                        occurrence_kind=None,
+                        own_text=joined,
+                        statement=joined,
+                        decision_block=block_index,
+                    )
+                    block.elements.append(element)
+                    self.elements.append(element)
+                    if disposition == "Closed":
+                        self.closed_seen = True
+                    return
+                element = _make_element(
+                    kind="bold lead in paragraph element",
+                    verbatim=first_text,
+                    disposition=disposition,
+                    line=first_number,
+                    position=0,
+                    occurrence_kind=None,
+                    own_text=joined,
+                    statement=joined,
+                    decision_block=decision_block,
+                )
+                self.elements.append(element)
+                if disposition == "Closed":
+                    self.closed_seen = True
+                return
+        hits = _statements_in_lines(paragraph)
+        labelled = label in _DECISION_LABELS or \
+            first_text.startswith("Addition to") or \
+            first_text.startswith("Decision under")
+        if not hits:
+            if labelled and (label in _LABEL_DISPOSITIONS
+                             or label == "Decision"):
+                block = DecisionBlock(
+                    marking_form="unheaded labelled paragraph",
+                    span=Span(paragraph[0][0], paragraph[-1][0],
+                              "heading cut"),
+                    heading_text=None,
+                    post_status_flag=bool(
+                        self.closing_status_line is not None and
+                        paragraph[0][0] > self.closing_status_line),
+                )
+                self.blocks.append(block)
+                block_index = len(self.blocks) - 1
+                element = _make_element(
+                    kind="labelled paragraph element",
+                    verbatim=first_text,
+                    disposition=_LABEL_DISPOSITIONS.get(label),
+                    line=first_number,
+                    position=0,
+                    occurrence_kind=None,
+                    own_text=joined,
+                    statement=first_text,
+                    decision_block=block_index,
+                    decider_text_override=None,
+                )
+                block.elements.append(element)
+                self.elements.append(element)
+            return
+        if labelled:
             block = DecisionBlock(
                 marking_form="unheaded labelled paragraph",
                 span=Span(paragraph[0][0], paragraph[-1][0],
@@ -594,35 +1005,49 @@ class _EntryBuilder:
             )
             self.blocks.append(block)
             block_index = len(self.blocks) - 1
-            element = _make_element(
-                kind="decision block matter",
-                verbatim=text,
-                disposition=disposition,
-                line=number,
-                position=offset,
-                occurrence_kind=None,
-                own_text=joined,
-                statement=text,
-                decision_block=block_index,
-                decider_text_override=None,
-            )
-            block.elements.append(element)
-            self.elements.append(element)
+            for number, text, disposition, offset, statement in hits:
+                if len(hits) == 1:
+                    verbatim, own, stmt = text, joined, text
+                else:
+                    verbatim, own, stmt = statement, statement, \
+                        statement
+                element = _make_element(
+                    kind="labelled paragraph element",
+                    verbatim=verbatim,
+                    disposition=disposition,
+                    line=number,
+                    position=offset,
+                    occurrence_kind=None,
+                    own_text=own,
+                    statement=stmt,
+                    decision_block=block_index,
+                    decider_text_override=None,
+                )
+                block.elements.append(element)
+                self.elements.append(element)
+                if disposition == "Closed":
+                    self.closed_seen = True
         else:
-            element = _make_element(
-                kind="closing prose",
-                verbatim=text,
-                disposition=disposition,
-                line=number,
-                position=offset,
-                occurrence_kind=None,
-                own_text=joined,
-                statement=text,
-                decision_block=decision_block,
-            )
-            self.elements.append(element)
-        if disposition == "Closed":
-            self.closed_seen = True
+            for number, text, disposition, offset, statement in hits:
+                if len(hits) == 1:
+                    verbatim, own, stmt = text, joined, text
+                else:
+                    verbatim, own, stmt = statement, statement, \
+                        statement
+                element = _make_element(
+                    kind="closing prose",
+                    verbatim=verbatim,
+                    disposition=disposition,
+                    line=number,
+                    position=offset,
+                    occurrence_kind=None,
+                    own_text=own,
+                    statement=stmt,
+                    decision_block=decision_block,
+                )
+                self.elements.append(element)
+                if disposition == "Closed":
+                    self.closed_seen = True
         self._terminal_closure_element(paragraph, joined)
 
     def _terminal_closure_element(self, paragraph, joined):
@@ -692,35 +1117,32 @@ class _EntryBuilder:
                         self.record.post_status_blocks = True
             for number, text in run:
                 self.scan_line_occurrences(number, text, block_index)
-            found = None
-            found_line = None
-            for number, text in run:
-                hit = _find_disposition(text)
-                if hit:
-                    found = hit
-                    found_line = (number, text)
-                    break
-            if not found:
+            hits = _statements_in_lines(run)
+            if not hits:
                 return
-            disposition, offset = found
-            number, text = found_line
             joined = "\n".join(item[1] for item in run)
             own = (heading_text or "") + "\n" + joined
-            element = _make_element(
-                kind="decision block matter",
-                verbatim=text,
-                disposition=disposition,
-                line=number,
-                position=offset,
-                occurrence_kind=None,
-                own_text=own,
-                statement=text,
-                decision_block=block_index,
-            )
-            block.elements.append(element)
-            self.elements.append(element)
-            if disposition == "Closed":
-                self.closed_seen = True
+            for number, text, disposition, offset, statement in hits:
+                if len(hits) == 1:
+                    verbatim, own_text, stmt = text, own, text
+                else:
+                    verbatim, own_text, stmt = statement, statement, \
+                        statement
+                element = _make_element(
+                    kind="decision block matter",
+                    verbatim=verbatim,
+                    disposition=disposition,
+                    line=number,
+                    position=offset,
+                    occurrence_kind=None,
+                    own_text=own_text,
+                    statement=stmt,
+                    decision_block=block_index,
+                )
+                block.elements.append(element)
+                self.elements.append(element)
+                if disposition == "Closed":
+                    self.closed_seen = True
 
         for number, text in body:
             if text.startswith(_STATUS_MARKER):
@@ -812,10 +1234,8 @@ class _EntryBuilder:
                 continue
             if kind == "remainder" and target.remainder_text is None:
                 target.remainder_text = value
-                scope = target.tuple[1]
-                if scope.startswith("Part"):
-                    target.tuple = target.tuple._replace(
-                        scope="Part with a named remainder")
+                if target.tuple[1] != "Part":
+                    target.tuple = target.tuple._replace(scope="Part")
             elif kind == "condition" and target.tuple[2] is None:
                 target.tuple = target.tuple._replace(condition=value)
 
@@ -842,6 +1262,14 @@ def parse_queue(input_value, limits):
     Returns the Queue file model, or the file level failure result
     where no model exists for the file.
     """
+    if hasattr(sys, "set_int_max_str_digits"):
+        # Plan Item 3, section 3.2, field 11, in its Step 12
+        # correction: before any heading digit string is converted,
+        # the run raises the integer string conversion limit to
+        # 16,384, the per line limit, so a DQ number inside the
+        # stated limits takes no refusal, no error, and no exception
+        # on account of its digit count.
+        sys.set_int_max_str_digits(16384)
     raw = input_value.raw_bytes
     name = input_value.input_name
     byte_count = len(raw)
@@ -859,6 +1287,7 @@ def parse_queue(input_value, limits):
         return _failure(kinds, name, byte_count, None, digest,
                         breached=breached)
 
+    file_terminated = text.endswith("\n")
     lines = _partition_lines(text)
     line_count = len(lines)
     longest = 0
@@ -985,6 +1414,12 @@ def parse_queue(input_value, limits):
             continue
         if level == 4 and current_kind == "entry":
             continue
+        if level == 3 and _is_note_section(heading_text):
+            starts.append((number, "orphan note",
+                           (level, heading_text, None)))
+            started = True
+            current_kind = "orphan"
+            continue
         starts.append((number, "orphan unmatched",
                        (level, heading_text, None)))
         started = True
@@ -1012,13 +1447,19 @@ def parse_queue(input_value, limits):
     h4_count = 0
     current_section = None
     builders = {}
+    number_ledger = {}
+
+    def unit_text(start, end):
+        return "\n".join(lines_by_number[number]
+                         for number in range(start, end + 1))
 
     for start, end, kind, info in unit_ranges:
         span = Span(start, end, "heading cut")
         if kind == "section introduction":
             current_section = info[1]
             units.append(Unit(kind="section introduction", span=span,
-                              heading_text=info[1]))
+                              heading_text=info[1],
+                              text=unit_text(start, end)))
             continue
         if kind == "file header":
             heading_text = None
@@ -1026,7 +1467,8 @@ def parse_queue(input_value, limits):
                     first_heading[0] <= end:
                 heading_text = first_heading[2]
             units.append(Unit(kind="file header", span=span,
-                              heading_text=heading_text))
+                              heading_text=heading_text,
+                              text=unit_text(start, end)))
             continue
         if kind in ("orphan note", "orphan unmatched"):
             level, heading_text, _form = info
@@ -1068,6 +1510,26 @@ def parse_queue(input_value, limits):
                 claims.append(SegmentClaim(
                     named_entries=claim_named or named,
                     statement=statement))
+            for _number, segment_text in segment_lines:
+                # A state claim in the Manager addition note form:
+                # a bullet naming one entry as its subject and
+                # stating that entry's state, as the note at the
+                # pin states DQ-001 and DQ-002 as still open
+                # against their own ruled bodies. PIN-09 covers a
+                # governing or state claim alike, and the claim is
+                # recorded here, where the segment is built, in
+                # the same shape as the governing claim above.
+                bullet = re.match(r"^- (DQ-\d{3})\b", segment_text)
+                if not bullet:
+                    continue
+                target = bullet.group(1)
+                if any(target in claim.named_entries
+                       for claim in claims):
+                    continue
+                if _SEGMENT_STATE_CLAIM_RE.search(segment_text):
+                    claims.append(SegmentClaim(
+                        named_entries=[target],
+                        statement=segment_text))
             segment = OrphanSegment(
                 kind=orphan_kind,
                 span=span,
@@ -1079,7 +1541,8 @@ def parse_queue(input_value, limits):
             )
             orphans.append(segment)
             units.append(Unit(kind="orphan segment", span=span,
-                              heading_text=heading_text))
+                              heading_text=heading_text,
+                              text=unit_text(start, end)))
             if unmatched:
                 parse_notes.append(ParseNote(
                     kind="unmatched heading",
@@ -1095,6 +1558,8 @@ def parse_queue(input_value, limits):
         if form_kind == "numbered":
             identifier = form_data[0]
             title = form_data[2]
+            number_ledger.setdefault(form_data[1], []).append(
+                identifier)
         else:
             identifier = None
             title = form_data[1]
@@ -1112,7 +1577,8 @@ def parse_queue(input_value, limits):
             entries_by_id.setdefault(identifier, record)
         units.append(Unit(kind="entry", span=span,
                           heading_text=heading_text,
-                          entry_identifier=identifier))
+                          entry_identifier=identifier,
+                          text=unit_text(start, end)))
         builders[start] = _EntryBuilder(record, lines_by_number)
 
     for index, line in enumerate(lines):
@@ -1205,18 +1671,45 @@ def parse_queue(input_value, limits):
             continue
         builder = builders[start]
         record = builder.record
-        heading_match = re.search(
-            r"(RULED|Ruled|SETTLED|Settled) by ([^.]+?)"
-            r"( \d{4}-\d{2}-\d{2})?\s*$", record.heading)
-        if heading_match:
-            prefix = "#" * record.heading_level + " "
+        if builder.closing_status_line is not None:
+            additions = _addition_paragraphs_after_closing(
+                record, builder.closing_status_line)
+            for paragraph in additions:
+                span = Span(paragraph[0][0], paragraph[-1][0],
+                            "label reattachment", True)
+                record.spans.append(span)
+                note = ParseNote(
+                    kind="label reattachment",
+                    text="a paragraph labelled as an addition to "
+                         "this entry stands after its closing "
+                         "Status line and is reattached to it",
+                    line_span=Span(paragraph[0][0], paragraph[-1][0],
+                                   "label reattachment", True),
+                    entry_identifier=record.identifier or
+                    record.heading,
+                )
+                parse_notes.append(note)
+                record.parse_notes.append(note)
+                if not any(paragraph[0][0] <= element.line <=
+                           paragraph[-1][0]
+                           for element in builder.elements):
+                    builder.process_paragraph(paragraph)
+            if additions and record.spans and \
+                    record.spans[0].end_line > \
+                    builder.closing_status_line:
+                primary = record.spans[0]
+                record.spans[0] = Span(
+                    primary.start_line, builder.closing_status_line,
+                    primary.boundary_basis, primary.non_contiguous)
+        borne = _heading_borne(record)
+        if borne is not None:
+            disposition, position = borne
             element = _make_element(
                 kind="heading borne evidence",
                 verbatim=record.heading,
-                disposition=_DISPOSITION_WORDS[
-                    heading_match.group(1).upper()],
+                disposition=disposition,
                 line=record.heading_line,
-                position=len(prefix) + heading_match.start(),
+                position=position,
                 occurrence_kind=None,
                 own_text=record.heading,
                 statement=record.heading,
@@ -1231,13 +1724,17 @@ def parse_queue(input_value, limits):
         record.parse_notes = record.parse_notes + builder.notes
         parse_notes.extend(builder.notes)
         builder.attach_remainders_and_conditions(record.body_lines)
-        body_present = any(
-            text.strip() != "" for _number, text in record.body_lines
-            if _number > record.heading_line and
-            not any(span.boundary_basis == "label reattachment" and
-                    span.start_line <= _number <= span.end_line
-                    for span in record.spans[1:]))
-        record.unparsed = not body_present
+        has_body_line = any(
+            _number > record.heading_line
+            for _number, _text in record.body_lines)
+        heading_is_last_line = record.heading_line == line_count
+        cut_off = bool(
+            not file_terminated and has_body_line and record.spans
+            and max(span.end_line for span in record.spans) ==
+            line_count)
+        record.unparsed = bool(
+            (heading_is_last_line or cut_off)
+            and not builder.elements)
         date = _DATE_RE.search(record.heading)
         if date:
             record.date_text = date.group(0)
@@ -1290,7 +1787,8 @@ def parse_queue(input_value, limits):
     )
     return QueueFileModel(
         header_facts=facts,
-        units=units,
+        units=[unit for unit in units
+               if unit.kind != "orphan segment"],
         entries=entries,
         orphan_segments=orphans,
         parse_notes=parse_notes,
@@ -1300,4 +1798,11 @@ def parse_queue(input_value, limits):
         lines=lines,
         unmatched_headings=[
             segment for segment in orphans if segment.unmatched_heading],
+        input_name=name,
+        source_designation="live",
+        raw_bytes=raw,
+        line_count=line_count,
+        byte_count=byte_count,
+        digest=digest,
+        number_ledger=number_ledger,
     )

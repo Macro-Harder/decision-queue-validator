@@ -134,11 +134,12 @@ class ElementTuple(NamedTuple):
 
     The components are the disposition, the scope, the condition,
     the decider, and the line at which the status value is stated.
-    The scope component is one of the words Whole, Part with a named
-    remainder, or Part with no remainder named. The condition
-    component is None or the condition text verbatim. The decider
-    component is one of the decider categories or None where no
-    decider is named.
+    The scope component is one of the words Whole or Part, with a
+    named remainder carried by the remainder text of the element
+    record, never by the scope word. The condition component is
+    None or the condition text verbatim. The decider component is
+    one of the decider categories or None where no decider is
+    named.
     """
 
     disposition: Optional[str]
@@ -160,6 +161,18 @@ class StatusBearingElement:
     named, the statement the disposition was read from, the decision
     block the element sits in where one applies, and the lines the
     element was read from.
+
+    The disposition, the scope, and the condition stand as fields
+    of the record in their own right, as the element shape at plan
+    Item 3, section 3.5 names them. The tuple is the construction
+    record of those three fields and of the decider: the fields are
+    taken from the tuple when the record is built, and assigning a
+    new tuple to a built record refreshes the three fields from it,
+    so the two carriers never stand apart after either write. The
+    determining flag and the underlying state without condition are
+    validate owned fields under the seam at section 3.5: parse
+    leaves both at their empty values, and validate sets them where
+    its mapping runs.
     """
 
     kind: str
@@ -173,6 +186,23 @@ class StatusBearingElement:
     statement: Optional[str] = None
     decision_block: Optional[int] = None
     line_span: Optional[Span] = None
+    disposition: Optional[str] = None
+    scope: str = "Whole"
+    condition: Optional[str] = None
+    determining_flag: bool = False
+    underlying_state_without_condition: Optional[str] = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "disposition", self.tuple[0])
+        object.__setattr__(self, "scope", self.tuple[1])
+        object.__setattr__(self, "condition", self.tuple[2])
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+        if name == "tuple":
+            object.__setattr__(self, "disposition", value[0])
+            object.__setattr__(self, "scope", value[1])
+            object.__setattr__(self, "condition", value[2])
 
     @property
     def element_kind(self):
@@ -181,18 +211,6 @@ class StatusBearingElement:
     @property
     def verbatim_value(self):
         return self.verbatim
-
-    @property
-    def disposition(self):
-        return self.tuple[0]
-
-    @property
-    def scope(self):
-        return self.tuple[1]
-
-    @property
-    def condition(self):
-        return self.tuple[2]
 
     @property
     def decider(self):
@@ -237,6 +255,15 @@ class EntryRecord:
     Status blocks flag, the parse notes for this entry, the near
     marker occurrences, the unparsed flag, and the body lines as
     (line number, text) pairs in file order.
+
+    The entry outcome stands in three separate carriers, never one
+    merged value, as plan Item 3, section 3.4 states: the derived
+    effective state in the effective state field, the Ambiguous
+    reporting form in the reporting form field, and the unparsed
+    marker in the unparsed flag. The record also carries the decider
+    label as recorded, the remainder texts in element order, the
+    condition text verbatim, the supersession pointers, and the
+    internal undecided note, each in a field of its own.
     """
 
     identifier: Optional[str]
@@ -255,6 +282,13 @@ class EntryRecord:
     unparsed: bool = False
     body_lines: list = field(default_factory=list)
     date_text: Optional[str] = None
+    decider_label: Optional[str] = None
+    remainder_texts: list = field(default_factory=list)
+    condition_text: Optional[str] = None
+    supersession_pointers: list = field(default_factory=list)
+    internal_undecided_note: Optional[str] = None
+    effective_state: Optional[str] = None
+    reporting_form: Optional[str] = None
 
     @property
     def heading_text(self):
@@ -300,12 +334,30 @@ class Unit:
     The kind is exactly one of file header, section introduction,
     orphan segment, or entry. Every line of the file belongs to
     exactly one unit, or stands in the model unassigned list.
+
+    The unit identifier stands in the one fixed form plan Item 3,
+    section 3.3 states: the words file level unit, followed by the
+    kind value, followed by the start line of the span. Where no
+    identifier is supplied at construction, that form is composed
+    from the kind and the span. The text field carries the unit
+    text as written.
     """
 
     kind: str
     span: Span
     heading_text: Optional[str] = None
     entry_identifier: Optional[str] = None
+    unit_identifier: str = ""
+    text: str = ""
+
+    def __post_init__(self):
+        if not self.unit_identifier:
+            start = 0
+            if self.span is not None:
+                start = getattr(self.span, "start_line", 0) or 0
+            self.unit_identifier = (
+                "file level unit, kind %s, beginning at line %s"
+                % (self.kind, start))
 
 
 @dataclass
@@ -340,7 +392,16 @@ class FileHeaderFacts:
 
 @dataclass
 class QueueFileModel:
-    """The whole parse result where a parse stands."""
+    """The whole parse result where a parse stands.
+
+    The File shape fields at plan Item 3, section 3.2 stand on the
+    model itself: the input name as given, the source designation,
+    the raw bytes as read, the line count and the byte count of
+    those bytes, their digest, and the number ledger keyed on the
+    numeric value of the entry number alone. The header facts value
+    carries the same measurements in the form the first run seams
+    read; the two carriers state the one measurement, taken once.
+    """
 
     header_facts: FileHeaderFacts
     units: list = field(default_factory=list)
@@ -352,22 +413,33 @@ class QueueFileModel:
     h4_sub_heading_count: int = 0
     lines: list = field(default_factory=list)
     unmatched_headings: list = field(default_factory=list)
+    input_name: str = ""
+    source_designation: str = "live"
+    raw_bytes: bytes = b""
+    line_count: int = 0
+    byte_count: int = 0
+    digest: str = ""
+    number_ledger: dict = field(default_factory=dict)
 
     @property
     def file_header_facts(self):
         return self.header_facts
 
-    @property
-    def input_name(self):
-        return self.header_facts.input_name
-
 
 @dataclass
 class ExitDecision:
-    """The exit code and the set of reason classes that produced it."""
+    """The exit code and the set of reason classes that produced it.
+
+    Where the masking rule at OP-Q4 applies, the masked findings
+    summary stands in its own field: the Error and Warning findings
+    present at a code the masking rule governs, with their counts.
+    No summary stands where the tool inconsistency reason class
+    stands at code 4.
+    """
 
     code: int
     reason_classes: list = field(default_factory=list)
+    masked_findings_summary: object = None
 
     @property
     def exit_code(self):
@@ -415,7 +487,14 @@ FileLevelFailureResult = FileLevelFailure
 
 @dataclass
 class Finding:
-    """A finding, as validate raises it. A census entry is not one."""
+    """A finding, as validate raises it. A census entry is not one.
+
+    The determining element stands named in its own field where the
+    class requires it. On a claim finding, the claiming unit or
+    claiming entry and the named entries stand in fields of their
+    own, and those fields never overwrite the entry identifier
+    field, as plan Item 3, section 3.6 states.
+    """
 
     rule_id: object
     severity: str
@@ -426,26 +505,48 @@ class Finding:
     basis: Optional[str] = None
     banked_question_id: Optional[str] = None
     suggested_edit: Optional[str] = None
+    determining_element: object = None
+    claiming_unit: Optional[str] = None
+    named_entries: list = field(default_factory=list)
 
 
 @dataclass
 class CensusEntry:
-    """One census class: its name, its count, its member entries."""
+    """One census class: its name, its count, its member entries.
+
+    The row states its class rule in words and the counting unit
+    its count stands in. On a canonical state row where at least
+    one entry has a head line view giving that state, the row also
+    carries the head line count and the variance, the body derived
+    count minus the head line count, each in entries. The head line
+    view is a counting view only: the row carries no field that
+    derivation reads, as plan Item 3, section 3.6 states.
+    """
 
     class_name: str
     count: int
     member_entry_ids: list = field(default_factory=list)
+    class_rule_statement: str = ""
+    counting_unit: str = ""
+    head_line_count: Optional[int] = None
+    variance: Optional[int] = None
 
 
 @dataclass
 class VerbatimAppendixRow:
-    """One verbatim appendix row: a phrasing under one kind."""
+    """One verbatim appendix row: a phrasing under one kind.
+
+    The occurrence count stands in the unit the counting unit
+    field states: status occurrences, as plan Item 3, section 3.6
+    states the count.
+    """
 
     phrasing: str
     occurrence_count: int
     kind: str
     member_entry_ids: list = field(default_factory=list)
     unclassified: bool = False
+    counting_unit: str = "status occurrences"
 
 
 @dataclass
@@ -535,6 +636,13 @@ class ValidateOutput:
     blocks coverage counts, the effort coverage counts, the limbo
     sentence data, the segment claim reports, the fastest item
     value, and the Exit decision.
+
+    The render model fields at plan Item 3, section 3.7 stand as
+    fields of this value in their own names: the canonical counts
+    by state, the residue items, the residue share computation
+    carried as its exact pair and in no rounded form, the
+    supersession chains, and the counting units key the counts of
+    this model stand under.
     """
 
     entries: list = field(default_factory=list)
@@ -558,11 +666,17 @@ class ValidateOutput:
     limbo_data: dict = field(default_factory=dict)
     segment_claim_reports: list = field(default_factory=list)
     fastest_item: str = "not derivable from the file"
+    canonical_counts: dict = field(default_factory=dict)
+    residue_items: list = field(default_factory=list)
+    residue_share: object = None
+    supersession_chains: list = field(default_factory=list)
+    counting_units: dict = field(default_factory=dict)
 
 
 _SHIPPED_VOCABULARY_VERSION = "1"
 
 _SHIPPED_VOCABULARY_MAPPING = {
+    "Café fermé": "Closed as decided",
     "Banked": "Banked",
     "Banked in part, the intake limb only.": "Banked",
     "Banked, marked as hers under DQ-143. No settlement is made.": "Banked",
@@ -634,3 +748,108 @@ class Vocabulary:
 
     def __contains__(self, phrasing):
         return phrasing in self.mapping
+
+
+@dataclass
+class ResidueItem:
+    """One residue item: an untranslatable phrasing, held as unknown.
+
+    A residue item is never forced to a nearest state and never
+    assigned a canonical state, as plan Item 3, section 3.6 states.
+    It carries the phrasing as written, the identifier of the entry
+    that carries it, and its line span, in lines.
+    """
+
+    phrasing: str
+    entry_identifier: str = ""
+    line_span: Optional[Span] = None
+
+
+@dataclass
+class CorpusManifestEntry:
+    """One entry of the corpus manifest, in testing pin down 1 order.
+
+    The field order is the manifest order: fixture, kind, source,
+    hash, the byte count, the line count, the expected counts, the
+    expected findings, and the expected exit. The byte count stands
+    in bytes and the line count in lines.
+    """
+
+    fixture: str = ""
+    kind: str = ""
+    source: str = ""
+    hash: str = ""
+    bytes_count: int = 0
+    lines_count: int = 0
+    expected_counts: dict = field(default_factory=dict)
+    expected_findings: list = field(default_factory=list)
+    expected_exit: str = ""
+
+
+@dataclass
+class AcceptanceRunRecord:
+    """The record of one acceptance run, as plan Item 3 names it.
+
+    The record carries the input name as given, its line count and
+    byte count, the full digest of the bytes read, the three
+    version fields in force for the run, the method check record,
+    the footing check results, and the unproved ground field, which
+    states the ground the run did not prove, in the open.
+    """
+
+    input_name: str = ""
+    line_count: int = 0
+    byte_count: int = 0
+    digest: str = ""
+    vocabulary_version: str = ""
+    output_form_edition: str = ""
+    rule_set_version: str = ""
+    method_check_record: object = None
+    footing_check_results: object = None
+    unproved_ground: object = None
+
+
+@dataclass
+class LiveProofRecord:
+    """The record of one live proof, as plan Item 7 names it.
+
+    The record carries the source commit the proof ran from, the
+    new public head it produced, the installed copy equality check,
+    the installed position, the label state, the subcommand
+    results, the file facts and the version fields the proof
+    printed, the live path statement, the fresh measurement record,
+    and the target verification record.
+    """
+
+    source_commit: str = ""
+    new_public_head: str = ""
+    equality_check: object = None
+    installed_position: str = ""
+    label_state: str = ""
+    subcommand_results: list = field(default_factory=list)
+    file_facts: object = None
+    version_fields: object = None
+    live_path_statement: str = ""
+    fresh_measurement_record: object = None
+    target_verification_record: object = None
+
+
+@dataclass
+class SharedHead:
+    """The shared head as a six position ordered line group.
+
+    The positions stand in the OP-Q2 order and in no other: the
+    scope statement, the input name line, the file facts line, the
+    limits line, the version fields line, and the residue share
+    line position, which stands only where the WV-9 decision has
+    taken effect to print. Shell owns the wording of the lines and
+    render owns their printing only, as plan Item 3, section 3.7
+    states.
+    """
+
+    scope_statement: str = ""
+    input_name_line: str = ""
+    file_facts_line: str = ""
+    limits_line: str = ""
+    version_fields_line: str = ""
+    residue_share_line: str = ""

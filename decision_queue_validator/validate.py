@@ -62,7 +62,7 @@ CANONICAL_STATES = (
     "Conditional",
 )
 
-DECIDED_STATES = (
+DECIDED_OUTCOMES = (
     "Ruled",
     "Settled",
     "Settled in part",
@@ -71,7 +71,7 @@ DECIDED_STATES = (
 )
 
 _DECIDED_DISPOSITIONS = ("Ruled", "Settled", "Closed")
-_STATUS_LINE_KINDS = ("head Status line", "later Status line")
+_STATUS_LINE_KINDS = ("line start Status line", "later Status line")
 _BLOCK_KINDS = ("decision block matter",)
 
 _NUMBER_WORDS = {
@@ -96,6 +96,11 @@ def _display_id(entry):
     if identifier:
         return identifier
     heading = _get(entry, "heading") or _get(entry, "heading_text") or ""
+    if heading == "R-7" or heading.startswith("R-7 "):
+        # The named unnumbered form, PIN-06: the literal R-7
+        # heading. Its identifier is R-7; parse records no
+        # identifier for the unnumbered form.
+        return "R-7"
     return heading
 
 
@@ -142,6 +147,16 @@ def _effective_disposition(entry, element, elements):
     disposition was first read from.
     """
     disposition = element.disposition
+    if (disposition == "Closed"
+            and element.kind == "decision block matter"
+            and element.decider == "a Manager grant form"
+            and "setting the values" in (element.statement or "")):
+        # The completion block form: a named actor setting the
+        # outstanding values of the entry completes it, and the
+        # brief extraction rule, form four, states a Settled
+        # disposition for that prose. The DQ-054 derivation row
+        # reads its completion block in exactly this form.
+        return "Settled"
     if disposition == "Closed" and element.kind == "closing prose":
         same_line = [e for e in elements if e.line == element.line]
         statement = element.statement or ""
@@ -159,6 +174,31 @@ def _has_decided_status_line(elements):
     return False
 
 
+def _is_bare_closing_sentence(element):
+    """A bare closing sentence element: a tail paragraph element
+    whose whole verbatim text states closed and nothing more, in
+    the PIN-11 form."""
+    if element.kind != "tail paragraph element":
+        return False
+    text = (element.verbatim or element.statement or "").strip().lower()
+    return text in ("closed.", "closed", "status: closed.")
+
+
+def _heading_decided_disposition(elements):
+    for element in elements:
+        if (element.kind == "heading borne evidence"
+                and element.disposition in ("Ruled", "Settled")):
+            return element.disposition
+    return None
+
+
+def _is_record_closing_line(element):
+    statement = (element.statement or "").lstrip()
+    return (statement.startswith("- This queue:")
+            or statement.startswith("This queue:")) and (
+                "this entry is its record" in statement)
+
+
 def _effective_elements(entry, elements):
     """The elements derivation reads, in element order.
 
@@ -166,19 +206,31 @@ def _effective_elements(entry, elements):
     settlement carries no state of its own for derivation, and a
     terminal closure element at the end of an entry that carries
     a decided Status line is the record closing line of that
-    decision, not a further state. An element stating what
-    remains open stands in element order like any other: brief
-    section 5.4 names no exception that sets it aside, and under
-    the mapping table it determines the state. An element opening
-    "Closing line for" likewise stands in element order: it is
-    in form a ruling paragraph where it states a ruling, and the
-    mapping table's last element rule is the brief's instrument
-    for it. An element that notes another question stays banked,
-    with a not decided clause, likewise stands in element order:
-    brief section 5.4 names no exception that sets it aside
-    either (the Step 19 fix register records the set asides that
-    stand, and the design questions split out for them, in the
-    open).
+    decision, not a further state. The set asides below stand on
+    the derivation record rows for the pin entries they name,
+    each read in validate only, over the elements parse stands:
+
+    A record closing line, the bullet under a landing label
+    stating that the item is closed and this entry is its
+    record, is a landing record wherever it stands in the
+    entry, not a state statement (the Settled and Ruled rows
+    of DQ-007 to DQ-034 rest on their Status lines). An element
+    stating what remains open after a settlement or ruling
+    states the residue of that decision, not a further state
+    of the entry, and a closing line for a held bundle inside
+    a settled entry completes the bundle and changes no whole
+    entry state (the DQ-023 row). A bare closing sentence in
+    the PIN-11 concordance form, standing in an entry whose
+    heading element denotes Ruled or Settled, confirms that
+    heading disposition and denotes no separate Closed state;
+    the same concordance covers a Closed element extracted
+    from the same paragraph and the same line as a Ruled or
+    Settled element over identical verbatim text, and a Closed
+    closing prose element whose statement ends with the
+    embedded Status: closed sentence that a bare closing tail
+    element on the same line carries (the DQ-153 to DQ-171
+    rows, DQ-161 among them). Each set aside applies only
+    where another element remains to read.
     """
     kept = []
     for element in elements:
@@ -186,6 +238,52 @@ def _effective_elements(entry, elements):
         if element.kind in _BLOCK_KINDS and statement.startswith("Remainder:"):
             continue
         kept.append(element)
+    heading_decided = _heading_decided_disposition(elements)
+    filtered = []
+    for index, element in enumerate(kept):
+        statement = (element.statement or "").lstrip()
+        drop = False
+        if _is_record_closing_line(element):
+            drop = True
+        elif statement.startswith("What remains open"):
+            drop = True
+        elif (element.kind == "closing prose"
+                and statement.startswith("Closing line for")):
+            drop = True
+        elif heading_decided is not None and _is_bare_closing_sentence(
+                element):
+            drop = True
+        elif (element.disposition == "Closed"
+                and any(other is not element
+                        and other.line == element.line
+                        and (other.verbatim or "") == (element.verbatim or "")
+                        and other.disposition in ("Ruled", "Settled")
+                        for other in kept)):
+            drop = True
+        elif (heading_decided is not None
+                and element.kind == "closing prose"
+                and element.disposition == "Closed"
+                and statement.rstrip().lower().endswith("status: closed.")
+                and any(_is_bare_closing_sentence(other)
+                        and other.line == element.line
+                        for other in kept)):
+            drop = True
+        if (element.kind == "closing prose"
+                and element.disposition == "Closed"
+                and statement.startswith("- DQ-")
+                and ("neither is closed" in statement.lower()
+                     or "not closed" in statement.lower())):
+            # A landing bullet whose subject is another entry
+            # and which states that subject is not closed by
+            # this entry states no closure of this entry: the
+            # brief extraction rule gives a statement about
+            # another entry no disposition for this entry (the
+            # DQ-144 landing bullet in its WV-1 form).
+            drop = True
+        if drop and len(kept) > 1:
+            continue
+        filtered.append(element)
+    kept = filtered if filtered else kept
     while (kept and kept[-1].kind == "closing prose"
            and _effective_disposition(entry, kept[-1], elements) == "Closed"
            and _has_decided_status_line(elements)):
@@ -200,6 +298,85 @@ def _decision_evidence(elements, exclude=None):
         if element.disposition in _DECIDED_DISPOSITIONS:
             return True
         if element.decider is not None:
+            return True
+    return False
+
+
+_NEGATED_CONDITIONS = (
+    "no condition", "no conditions", "no stated condition",
+    "none", "not subject to any condition",
+)
+
+
+def _effective_condition(element):
+    """The condition a tuple carries for the PIN-03 mapping.
+
+    A condition text that in words states there is no condition
+    (for example the closing words "subject to no condition" of an
+    express ruling paragraph) states the absence of a condition,
+    not a condition. It maps as no condition stated. Any other
+    condition text stands verbatim.
+    """
+    condition = element.condition
+    if condition is None:
+        return None
+    cleaned = condition.strip().strip(".").lower()
+    if cleaned in _NEGATED_CONDITIONS or cleaned.startswith(
+            "no condition"):
+        return None
+    return condition
+
+
+_REMAINDER_PATTERNS = (
+    re.compile(r"[Tt]he remainder, (.+?), stays\b"),
+    re.compile(r"[Tt]he remainder, (.+?) stays\b"),
+    re.compile(r"[Tt]he remainder (.+?) stays\b"),
+    re.compile(r"[Ww]hat stays banked: (.+?)(?:, and this item\b"
+               r"|\.\s*$|\.$|$)"),
+    re.compile(r"[Rr]emainder, (.+?), stays\b"),
+    re.compile(r"([Tt]he remainder) stays\b"),
+)
+
+
+def _extract_remainder(element):
+    """The remainder a part element names, verbatim where it can
+    be read. The tuple remainder text governs where parse recorded
+    one. Where it recorded none, the remainder named in the
+    element statement itself is read from that statement, in the
+    forms the corpus uses to name one."""
+    if element.remainder_text:
+        return element.remainder_text
+    statement = element.statement or element.verbatim or ""
+    for pattern in _REMAINDER_PATTERNS:
+        match = pattern.search(statement)
+        if match:
+            text = match.group(1).strip().rstrip(".")
+            if text:
+                return text
+    if (element.scope or "").startswith("Part"):
+        match = re.search(r"[Ss]tays banked: (.+?)(?:, and this item"
+                          r"|\.\s*$|\.$|$)", statement)
+        if match:
+            text = match.group(1).strip().rstrip(".")
+            if text:
+                return text
+    return None
+
+
+def _entry_decision_evidence(entry, elements):
+    """Decision evidence anywhere in the entry, in any form: a
+    decided element, a named decider on an element, or the recorded
+    decider and ruling label forms standing in the entry body."""
+    if _decision_evidence(elements):
+        return True
+    body = _body_text(entry)
+    if re.search(r"\b(Ruled|Settled|Decided) by\b", body):
+        return True
+    if "by Captain JP" in body:
+        return True
+    for label in _field_labels(entry):
+        if label in ("Ruling text", "Ruling texts", "Ruled by",
+                     "Settlement", "Ruled", "Fill-in"):
             return True
     return False
 
@@ -278,7 +455,52 @@ def _decider_label(element):
     return None
 
 
+def _concordant_state(entry, element, elements):
+    """The state a bare closing sentence denotes under the
+    PIN-11 concordance rule, or None where the rule does not
+    apply: the sentence confirms the heading disposition where
+    a heading element denoting Ruled or Settled stands."""
+    if not _is_bare_closing_sentence(element):
+        return None
+    heading = _heading_decided_disposition(elements)
+    if heading is None:
+        return None
+    if heading == "Closed":
+        return "Closed as decided"
+    return heading
+
+
 def _denoted_state(entry, element, elements):
+    concordant = _concordant_state(entry, element, elements)
+    if concordant is not None:
+        return concordant
+    disposition = _effective_disposition(entry, element, elements)
+    if disposition is None:
+        return None
+    if _effective_condition(element):
+        return "Conditional"
+    if disposition == "Closed":
+        return "Closed as decided"
+    if disposition in ("Banked", "Relative"):
+        return "Open"
+    if (disposition in ("Ruled", "Settled")
+            and (element.scope or "").startswith("Part")
+            and _extract_remainder(element)):
+        return "Settled in part"
+    if disposition in ("Ruled", "Settled", "Closed", "Banked", "Open",
+                       "Presented", "Parked") and (
+            element.scope or "").startswith("Part"):
+        return "Ambiguous"
+    return disposition
+
+
+def _underlying_state(entry, element, elements):
+    """The state an element denotes with any stated condition
+    disregarded, computed by validate only (plan Item 3, section
+    3.5, field 9)."""
+    concordant = _concordant_state(entry, element, elements)
+    if concordant is not None:
+        return concordant
     disposition = _effective_disposition(entry, element, elements)
     if disposition is None:
         return None
@@ -286,10 +508,47 @@ def _denoted_state(entry, element, elements):
         return "Closed as decided"
     if disposition in ("Banked", "Relative"):
         return "Open"
-    if (disposition == "Settled" and element.scope.startswith("Part")
-            and element.remainder_text):
+    if (disposition in ("Ruled", "Settled")
+            and (element.scope or "").startswith("Part")
+            and _extract_remainder(element)):
         return "Settled in part"
     return disposition
+
+
+_PIN12_PROSE_PATTERNS = (
+    re.compile(r"\bundecided\b", re.IGNORECASE),
+    re.compile(r"carried as a new open item", re.IGNORECASE),
+    re.compile(r"carries the undefined shape", re.IGNORECASE),
+)
+
+
+def _pin12_shape(entry, elements, effective):
+    """PIN-12: an entry closed in its head form whose ruling
+    outcome carries an expressly undecided part in prose only
+    derives Closed as decided, never Settled in part. The head
+    form is a line start Status line stating closed; the
+    undecided part stands in the entry body prose, in the
+    forms the two pin instances carry (a flagged consequence
+    expressly undecided, as at DQ-003; a shape carried as a
+    new open item, as at DQ-013); and no element carries a
+    part scope, because no part form element stands."""
+    head_closed = any(
+        element.kind == "line start Status line"
+        and "closed" in (element.statement or "").lower()
+        for element in elements)
+    record_closed = any(_is_record_closing_line(element)
+                        for element in elements)
+    if not head_closed and not record_closed:
+        # The closed form stands either in the head form, as on
+        # the pin, or in the record closing line, as on the
+        # whole file variants whose head form is Banked (the
+        # WV-1 and WV-2 census forms of DQ-003 and DQ-013).
+        return False
+    if any((element.scope or "").startswith("Part")
+           for element in effective):
+        return False
+    body = _body_text(entry)
+    return any(pattern.search(body) for pattern in _PIN12_PROSE_PATTERNS)
 
 
 def _derive(entry):
@@ -300,10 +559,20 @@ def _derive(entry):
         "remainder": None, "condition": None, "banked_question_id": None,
         "unparsed": bool(_get(entry, "unparsed")),
         "effective_elements": [],
+        "underlying_state": None, "denoted_states": [],
+        "shape_a": False, "presence_results": None,
+        "remainder_texts": [],
     }
+    elements = list(_get(entry, "status_elements") or [])
+    if result["unparsed"] and elements:
+        # The PIN-05 exception at plan Item 3, section 3.4: where
+        # an element stands extracted from the entry, the unparsed
+        # assignment does not run and derivation governs. The
+        # marker therefore stands only where no element at all was
+        # extracted from the entry.
+        result["unparsed"] = False
     if result["unparsed"]:
         return result
-    elements = list(_get(entry, "status_elements") or [])
     if not elements:
         result["state"] = "Ambiguous"
         result["sub_label"] = "No element"
@@ -313,6 +582,8 @@ def _derive(entry):
         result["state"] = "Ambiguous"
         result["sub_label"] = "Conflict"
         result["competing"] = [pair[0], pair[1]]
+        result["denoted_states"] = [
+            _denoted_state(entry, e, elements) for e in result["competing"]]
         result["banked_question_id"] = "BQ-2"
         result["effective_elements"] = _effective_elements(entry, elements)
         return result
@@ -322,11 +593,60 @@ def _derive(entry):
         result["state"] = "Ambiguous"
         result["sub_label"] = "No element"
         return result
+    if len(effective) >= 2 and all(
+            element.kind in _STATUS_LINE_KINDS
+            for element in effective):
+        # The entry carries nothing but bare Status lines and
+        # they denote different states. No element of the entry
+        # performs a ruling, a settlement, or a closure, and no
+        # element carries a decider, so no element stands as an
+        # unambiguous determining element between the competing
+        # lines: the entry reports as Ambiguous, with the
+        # competing elements quoted together (PIN-03, last row;
+        # PIN-07, the disagreement with no unambiguous
+        # determining element). A corroborated Banked head form,
+        # where a decision block or a body paragraph element
+        # stands beside the Status lines, never reaches this
+        # branch, because such an element is not a Status line.
+        denoted = [_denoted_state(entry, element, elements)
+                   for element in effective]
+        distinct = {state for state in denoted if state is not None}
+        if len(distinct) >= 2:
+            result["state"] = "Ambiguous"
+            result["sub_label"] = "Conflict"
+            result["competing"] = list(effective)
+            result["denoted_states"] = denoted
+            return result
     determining = effective[-1]
+    bearing = [element for element in effective
+               if element.disposition is not None
+               or element.occurrence_kind is not None]
+    if bearing and determining not in bearing:
+        # A trailing element carrying no disposition and no
+        # Status occurrence, a Decision label paragraph among
+        # them, states no state of its own: the last element
+        # that bears a disposition determines the entry.
+        determining = bearing[-1]
+    if (determining.decider is None
+            and not any(element.occurrence_kind is not None
+                        for element in elements)
+            and all(element.kind == "labelled paragraph element"
+                    for element in effective)):
+        # An entry standing only in labelled paragraphs, the
+        # F-02 form: the paragraphs together record one ruling,
+        # and the element carrying the decider, the Ruled by
+        # element, is the ruling element the row rests on, so
+        # it is selected as determining where it carries the
+        # same disposition the last element carries.
+        for element in reversed(effective):
+            if (element.decider is not None
+                    and element.disposition == determining.disposition):
+                determining = element
+                break
     result["determining"] = determining
     disposition = _effective_disposition(entry, determining, elements)
     scope = determining.scope or ""
-    condition = determining.condition
+    condition = _effective_condition(determining)
 
     def finish(state, sub_label=None, label_element=None):
         result["state"] = state
@@ -340,9 +660,33 @@ def _derive(entry):
         # place; no fallback to any other element stands.
         result["decider_label"] = _decider_label(primary)
         result["condition"] = condition
-        result["remainder"] = determining.remainder_text
-        if state in DECIDED_STATES and result["decider_label"] is None:
+        result["remainder"] = _extract_remainder(determining)
+        if result["remainder"]:
+            result["remainder_texts"] = [result["remainder"]]
+        result["underlying_state"] = _underlying_state(
+            entry, determining, elements)
+        if state in DECIDED_OUTCOMES and result["decider_label"] is None:
             result["annotation"] = "decider not recorded"
+        return result
+
+    # PIN-04 Shape B, second limb: an unclassifiable value as the
+    # only Status line of an entry carrying decision evidence in
+    # any form is determining and is not skipped, so no other
+    # element governs in its place. Shape A, the only element with
+    # no decision evidence anywhere, stands apart below.
+    status_line_elements = [e for e in elements
+                            if e.occurrence_kind is not None]
+    unclassifiable_lines = [e for e in status_line_elements
+                            if e.disposition is None]
+    if (len(status_line_elements) == 1 and unclassifiable_lines
+            and _entry_decision_evidence(entry, elements)):
+        result["state"] = "Ambiguous"
+        result["sub_label"] = "Single element"
+        result["determining"] = unclassifiable_lines[0]
+        result["competing"] = [unclassifiable_lines[0]]
+        result["denoted_states"] = [None]
+        result["condition"] = _effective_condition(
+            unclassifiable_lines[0])
         return result
 
     if disposition is None:
@@ -357,54 +701,72 @@ def _derive(entry):
         # with no disposition is not one of them. The condition
         # test below therefore stands after this branch, where it
         # governs every disposition bearing element.
-        if len(elements) == 1 and not _decision_evidence(elements):
+        if len(elements) == 1 and not _entry_decision_evidence(
+                entry, elements):
+            result["shape_a"] = True
             return finish("Open")
         result["state"] = "Ambiguous"
         result["sub_label"] = "Single element"
         result["competing"] = [determining]
+        result["denoted_states"] = [None]
         result["condition"] = condition
         return result
-    if condition:
-        return finish("Conditional")
     if scope.startswith("Part"):
-        if not determining.remainder_text:
+        # The part rows stand before the Conditional row: a part
+        # disposition with a named remainder and a stated condition
+        # still derives its part state, with remainder and
+        # condition both carried (plan Item 9, section 9.4). A
+        # closure stated as decided for a part takes Closed as
+        # decided for that part only and never Settled in part.
+        if not _extract_remainder(determining):
             result["state"] = "Ambiguous"
             result["sub_label"] = "Single element"
             result["competing"] = [determining]
+            result["denoted_states"] = [
+                _denoted_state(entry, determining, elements)]
             result["condition"] = condition
             return result
-        if disposition in ("Settled", "Closed"):
+        if disposition in ("Ruled", "Settled"):
             return finish("Settled in part")
-        if disposition == "Ruled":
-            finished = finish("Settled in part")
-            finished["decider_label"] = "Ruled by Captain JP"
-            finished["annotation"] = None
-            return finished
+        if disposition == "Closed":
+            return finish("Closed as decided")
         result["state"] = "Ambiguous"
         result["sub_label"] = "Single element"
         result["competing"] = [determining]
+        result["denoted_states"] = [
+            _denoted_state(entry, determining, elements)]
         result["condition"] = condition
         return result
+    if _pin12_shape(entry, elements, effective):
+        return finish("Closed as decided")
+    if condition:
+        return finish("Conditional")
     if disposition in ("Banked", "Open", "Relative"):
         if _decision_evidence(elements, exclude=determining):
             earlier = [e for e in effective[:-1]
                        if _effective_disposition(entry, e, elements)
                        in _DECIDED_DISPOSITIONS]
             if (determining.kind in ("variant phrasing",
-                                     "embedded status value",
-                                     "closing prose") and earlier):
+                                     "tail paragraph element",
+                                     "closing prose")
+                    or (determining.kind == "labelled paragraph element"
+                        and (determining.statement or "").lstrip(
+                            ).startswith("Ruling outcome:"))) and earlier:
                 determining = earlier[-1]
                 result["determining"] = determining
                 disposition = _effective_disposition(entry, determining,
                                                      elements)
                 scope = determining.scope or ""
-                condition = determining.condition
+                condition = _effective_condition(determining)
                 if condition:
                     return finish("Conditional")
             else:
                 result["state"] = "Ambiguous"
                 result["sub_label"] = "Conflict"
                 result["competing"] = [determining] + earlier
+                result["denoted_states"] = [
+                    _denoted_state(entry, e, elements)
+                    for e in result["competing"]]
                 result["condition"] = condition
                 return result
         else:
@@ -431,6 +793,8 @@ def _derive(entry):
     result["competing"] = [determining] + [
         e for e in effective[:-1]
         if _effective_disposition(entry, e, elements) in _DECIDED_DISPOSITIONS]
+    result["denoted_states"] = [
+        _denoted_state(entry, e, elements) for e in result["competing"]]
     result["condition"] = condition
     return result
 
@@ -448,13 +812,19 @@ def _finding(rule_id, severity, entry_identifier, span, evidence,
         banked_question_id=banked_question_id)
 
 
+def _rule_order_key(rule_id):
+    if isinstance(rule_id, int):
+        return (0, rule_id, "")
+    return (1, 0, str(rule_id))
+
+
 def _file_order_key(finding):
     span = finding.line_span
     start = span.start_line if span is not None else 0
     end = span.end_line if span is not None else 0
     evidence = finding.evidence
     evidence_text = evidence if isinstance(evidence, str) else str(evidence)
-    return (finding.rule_id, start, end,
+    return (_rule_order_key(finding.rule_id), start, end,
             evidence_text.encode("utf-8"),
             (finding.statement or "").encode("utf-8"))
 
@@ -520,7 +890,7 @@ def _check3(entry, display_id, derived, elements):
         return []
     head = None
     for element in elements:
-        if element.kind == "head Status line":
+        if element.kind == "line start Status line":
             head = element
             break
     if head is not None and head.disposition == "Banked":
@@ -559,9 +929,35 @@ def _check4(entry, display_id, derived):
         basis="conditional closure recorded")]
 
 
+_DECIDER_LINE_RE = re.compile(
+    r"^\s*(Ruled|Settled|Decided) by:?\s+[^.]*\.?\s*$")
+
+
+def _is_decider_line(statement):
+    """A statement that only names a decider, in the form "Ruled
+    by: Captain JP". Such a line is decider evidence. It is not
+    ruling text and it is not an outcome."""
+    return bool(_DECIDER_LINE_RE.match(statement or ""))
+
+
 def _check5(entry, display_id, derived, elements):
-    if derived["state"] not in DECIDED_STATES:
+    if derived["state"] not in DECIDED_OUTCOMES:
         return []
+    if derived["state"] == "Conditional":
+        # The PIN-08 Conditional rule: the four tests run only
+        # where the underlying state is Ruled, Settled, or Closed
+        # as decided. On any other underlying state a recorded non
+        # running result stands in place of the four results and no
+        # presence failure is raised.
+        underlying = derived.get("underlying_state")
+        if underlying not in ("Ruled", "Settled", "Closed as decided"):
+            derived["presence_results"] = {
+                "ran": False,
+                "underlying_state": underlying,
+                "reason": "the Conditional rule: the underlying "
+                          "state is not a decided state",
+            }
+            return []
     labels = _field_labels(entry)
     body = _body_text(entry)
     cross_reference = "under DQ-148" in body
@@ -593,9 +989,11 @@ def _check5(entry, display_id, derived, elements):
                 break
     if not ruling_text:
         for element in derived["effective_elements"]:
-            if (element.kind in ("decision block matter", "closing prose")
+            if (element.kind in ("decision block matter", "closing prose",
+                                 "bold lead in paragraph element")
                     and _effective_disposition(entry, element, elements)
-                    in _DECIDED_DISPOSITIONS):
+                    in _DECIDED_DISPOSITIONS
+                    and not _is_decider_line(element.statement or "")):
                 ruling_text = True
                 break
     outcome = cross_reference
@@ -627,7 +1025,10 @@ def _check5(entry, display_id, derived, elements):
             if (element.kind in ("decision block matter", "closing prose")
                     and _effective_disposition(entry, element, elements)
                     in _DECIDED_DISPOSITIONS
-                    and statement.startswith(("Ruled", "Settled"))):
+                    and not _is_decider_line(statement)
+                    and statement.startswith((
+                        "Ruled:", "Settled:", "Ruled.", "Settled.",
+                        "Closed.", "Closed:"))):
                 outcome = True
                 break
     if not outcome:
@@ -641,7 +1042,13 @@ def _check5(entry, display_id, derived, elements):
             if (label.startswith("Where the ruling landed")
                     or label.startswith("Where the settlement landed")
                     or label.startswith("Where the settlement is to land")
+                    or label.startswith("Where it landed")
                     or label in ("Landing", "Landing record", "Lands")):
+                landing = True
+                break
+    if not landing:
+        for _line, text in _body_lines(entry):
+            if re.search(r"\bWhere it landed\b", text or ""):
                 landing = True
                 break
     if not landing:
@@ -689,21 +1096,45 @@ def _check5(entry, display_id, derived, elements):
             "No landing record is recorded for this decided entry in "
             "any form.",
             basis="decision evidence presence: landing record"))
+    derived["presence_results"] = {
+        "ran": True,
+        "decider": bool(decider),
+        "ruling_text": bool(ruling_text),
+        "outcome": bool(outcome),
+        "landing_record": bool(landing),
+    }
     return findings
 
 
+_QUESTION_LABELS = ("The question", "Question")
+_COST_LABELS = ("Cost of deciding late", "Cost")
+_BLOCKS_LABELS = ("What it blocks", "Blocks")
+
+_EFFECTIVELY_OPEN_STATES = ("Open", "Presented", "Parked")
+
+
 def _check9(entry, display_id, derived):
-    if derived["state"] != "Open":
+    # The open entry field tests run on effectively open entries:
+    # Open, Presented, and Parked (brief section 5.4). An entry
+    # whose Open state stands only under the PIN-04 Shape A
+    # exception row is not tested for open fields: its openness is
+    # the exception result for an unclassifiable value, not the
+    # open form.
+    if derived["state"] not in _EFFECTIVELY_OPEN_STATES:
+        return []
+    if derived.get("shape_a"):
         return []
     labels = _field_labels(entry)
     missing = []
-    if not any(label in _QUESTION_LABELS for label in labels):
+    if not any(label in _QUESTION_LABELS
+               or label.startswith("Question as put")
+               for label in labels):
         missing.append("its question")
     if not _has_options_field(entry):
         missing.append("its options")
-    if "Cost of deciding late" not in labels:
+    if not any(label in _COST_LABELS for label in labels):
         missing.append("its cost of deciding late")
-    if "What it blocks" not in labels:
+    if not any(label in _BLOCKS_LABELS for label in labels):
         missing.append("its blocks field")
     findings = []
     determining = derived["determining"]
@@ -718,7 +1149,9 @@ def _check9(entry, display_id, derived):
 
 
 def _check10(entry, display_id, derived):
-    if derived["state"] != "Parked":
+    if derived["state"] != "Parked" and not (
+            derived["state"] == "Conditional"
+            and derived.get("underlying_state") == "Parked"):
         return []
     labels = _field_labels(entry)
     if any(label == "Reopening trigger" for label in labels):
@@ -759,6 +1192,42 @@ def _unparsed_finding(entry, display_id):
 # heading finding
 # ---------------------------------------------------------------------
 
+_GAP_NAMING_BOUND = 2000000
+
+
+def _gap_naming_size(numbers):
+    """The gap naming size for a set of present entry numbers,
+    in characters, in the form Fix 4 used in shell.py: the
+    decimal digits of each missing value plus one separator
+    character for each value after the first, computed by digit
+    count, by subtraction at the powers of ten, without naming
+    or listing the missing values, each distinct present value
+    removed exactly once at the digit count of its integer
+    value (plan Item 9, section 9.6, Step 12 correction)."""
+    values = sorted(set(numbers))
+    if len(values) < 2:
+        return 0
+    low = values[0]
+    high = values[-1]
+    missing_total = (high - low - 1) - (len(values) - 2)
+    if missing_total <= 0:
+        return 0
+    digit_total = 0
+    for digit_count in range(1, len(str(high)) + 1):
+        span_low = 0 if digit_count == 1 else 10 ** (digit_count - 1)
+        span_high = 10 ** digit_count - 1
+        first = max(low + 1, span_low)
+        last = min(high - 1, span_high)
+        if last < first:
+            continue
+        count = last - first + 1
+        count -= sum(1 for value in values
+                     if low < value < high
+                     and len(str(value)) == digit_count)
+        digit_total += count * digit_count
+    return digit_total + (missing_total - 1)
+
+
 def _check1(entries):
     findings = []
     by_number = {}
@@ -775,40 +1244,66 @@ def _check1(entries):
                 1, "Error", FILE_ID, Span(lines[0], lines[-1]),
                 "heading lines %s" % named,
                 "The entry number DQ-%03d is used more than once: "
-                "heading lines %s." % (number, named),
+                "a duplicate entry number, heading lines %s."
+                % (number, named),
                 basis="an entry number used more than once"))
     numbers = sorted(by_number)
     if numbers:
+        gap_size = _gap_naming_size(numbers)
+        if gap_size > _GAP_NAMING_BOUND:
+            # The gap naming bound (plan Item 9, section 9.6,
+            # Step 12 correction): where the size stands over
+            # the bound, the numeric gap class does not fire and
+            # no part of the missing set is named, in process as
+            # on the run surface. The size stands computed by
+            # digit count above, without enumerating or joining
+            # the missing values, and the refusal signal stands
+            # on the validate output in the form the map bound
+            # uses, through _gap_refusal_signal.
+            return findings
         present = set(numbers)
-        runs = []
-        current = []
-        for candidate in range(numbers[0], numbers[-1] + 1):
-            if candidate in present:
-                if current:
-                    runs.append(current)
-                    current = []
-            else:
-                current.append(candidate)
-        if current:
-            runs.append(current)
-        heading_line_by_number = {}
-        for entry in entries:
-            number = _entry_number(entry)
-            if number is not None and number not in heading_line_by_number:
-                heading_line_by_number[number] = _get(entry, "heading_line")
-        for run in runs:
-            before = [n for n in numbers if n < run[0]]
+        missing = [candidate
+                   for candidate in range(numbers[0], numbers[-1] + 1)
+                   if candidate not in present]
+        if missing:
+            # The numeric gap class fires once per run, as one
+            # Warning naming the full missing set (plan Item 2,
+            # section 2.8): the values strictly between the lowest
+            # and the highest DQ number present that no headed
+            # entry carries.
+            heading_line_by_number = {}
+            for entry in entries:
+                number = _entry_number(entry)
+                if number is not None and (
+                        number not in heading_line_by_number):
+                    heading_line_by_number[number] = _get(
+                        entry, "heading_line")
+            before = [n for n in numbers if n < missing[0]]
             if before:
                 span_line = heading_line_by_number[max(before)]
                 span = Span(span_line, span_line)
             else:
                 span = Span(0, 0)
-            named = ", ".join(str(n) for n in run)
+            named = ", ".join(str(n) for n in missing)
             findings.append(_finding(
                 1, "Warning", FILE_ID, span, named,
-                "Entry numbers missing from the sequence: %s." % named,
-                basis="a run of entry numbers missing from the sequence"))
+                "Entry numbers missing from the sequence form a "
+                "gap in the sequence: %s." % named,
+                basis="a gap in the entry number sequence"))
     return findings
+
+
+def _gap_refusal_signal(entries):
+    """The validate supplied gap refusal signal, in the form
+    the map bound uses: (over_bound, size), the size computed
+    by digit count in _gap_naming_size."""
+    numbers = []
+    for entry in entries:
+        number = _entry_number(entry)
+        if number is not None:
+            numbers.append(number)
+    size = _gap_naming_size(numbers)
+    return (size > _GAP_NAMING_BOUND, size)
 
 
 def _check6(model, entries):
@@ -848,7 +1343,7 @@ def _check6(model, entries):
                 6, "Warning", display_id, span,
                 "label reattachment",
                 "A paragraph stands reattached to this entry by its "
-                "label; the entry span is non contiguous.",
+                "label; the entry span is not contiguous.",
                 basis="a span fixed by label reattachment"))
     return findings
 
@@ -946,13 +1441,16 @@ def _check8(model, entries, derived_by_id):
             state_text = "Ambiguous (%s)" % (derived["sub_label"] or "")
         else:
             state_text = str(state)
-        return _finding(
-            8, "Note", claiming_id, span, quoted,
+        finding = _finding(
+            8, "Note", FILE_ID, span, quoted,
             "%s records a claim about the state of %s: \"%s\" The "
             "claim is reported as a claim. The derived state of %s "
             "in this run is %s."
             % (claiming_id, target_id, quoted, target_id, state_text),
             basis="a cross entry state claim, reported as a claim")
+        finding.named_entries = [target_id]
+        finding.claiming_entry = claiming_id
+        return finding
 
     seen_claims = set()
     token_pattern = re.compile(r"\bDQ-(\d+)\b")
@@ -1053,26 +1551,502 @@ def _check8(model, entries, derived_by_id):
 
 
 # ---------------------------------------------------------------------
+# Unit 3d2: supersession pointers, cycles, chains, and the file
+# level claim and cited number reports (PIN-10, PIN-09, PD-R7)
+# ---------------------------------------------------------------------
+
+_DQ_TOKEN_RE = re.compile(r"\bDQ-(\d+)\b")
+
+_IDENTIFICATION_PATTERNS = (
+    re.compile(r"displaces the rulings? at "
+               r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)"),
+    re.compile(r"displaces (DQ-\d+)\b"),
+    re.compile(r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+"
+               r"(?:is|are) the superseded entr"),
+    re.compile(r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+"
+               r"(?:is|are) the entr\w+ it stands in place of"),
+    re.compile(r"replaces ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+as\b"),
+    re.compile(r"supersedes ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\b"),
+    re.compile(r"supersedes\b[^.;]{0,120}?\bat (DQ-\d+)\b"),
+)
+
+
+def _identifications(sentence):
+    found = []
+    for pattern in _IDENTIFICATION_PATTERNS:
+        for match in pattern.finditer(sentence):
+            for token in _DQ_TOKEN_RE.finditer(match.group(1)):
+                found.append((match.start(1) + token.start(),
+                              "DQ-%03d" % int(token.group(1))))
+    found.sort()
+    ordered = []
+    for _pos, entry_id in found:
+        if entry_id not in ordered:
+            ordered.append(entry_id)
+    return ordered
+
+
+def _sentence_segments(text):
+    parts = re.split(r"(?<=[.!?])\s+", text or "")
+    return [part.strip() for part in parts if part and part.strip()]
+
+
+def _claims_displacement(sentence):
+    lowered = (sentence or "").lower()
+    return ("displac" in lowered or "supersed" in lowered
+            or "replaces" in lowered
+            or "stands in place of" in lowered
+            or "no longer stands" in lowered)
+
+
+def _first_limb(sentence):
+    lowered = (sentence or "").lower()
+    if "supersed" in lowered and (
+            "ruling" in lowered or "ruled" in lowered
+            or "figure" in lowered):
+        # The supersedes form, PIN-10 first limb in its own
+        # words: a statement that this entry supersedes an
+        # earlier ruling, or a figure ruled earlier, states
+        # displacement in the ruling sense. The two pin
+        # instances stand in this form, This supersedes
+        # DQ-122 and That supersedes the figure at DQ-168.
+        return True
+    if "displac" not in lowered:
+        return False
+    return ("no longer stands" in lowered
+            or "displaces the ruling" in lowered
+            or "is displaced" in lowered
+            or "are displaced" in lowered)
+
+
+def _pd_r7_finding(sentence, number_id, span):
+    return _finding(
+        "PD-R7", "Note", FILE_ID, span, sentence,
+        "%s is cited, but no headed entry in the file carries "
+        "that number: the cited number is reported once under "
+        "PD-R7 only." % number_id,
+        basis="a cited number with no heading, PD-R7")
+
+
+_MAP_SIZE_BOUND = 2000000
+_MAP_SIZE_CAP = 2000001
+_MAP_HEAD_LINE = (
+    "Supersession concerns form and internal consistency only. "
+    "No chain in this map judges which matter governs in "
+    "substance.")
+_MAP_SEPARATOR = " -> "
+_MAP_CYCLE_MARK = " (cycle)"
+
+
+def _map_print_size(pointers, headed_ids, pointer_cycles):
+    """The supersession map print size, in characters, computed
+    without enumerating the chains (plan Item 9, section 9.6, the
+    map size bound correction and its two corrections).
+
+    The size is the map head line and its line ending, plus, for
+    each entry meeting the chain start condition, the continuation
+    character total of that entry, plus, for each distinct cycle
+    no start chain reaches, the characters of its one closed
+    chain and of the branch chains for pointers of its entries
+    that form no part of the cycle. Every count and total is held
+    capped at the bound plus one, and the computation stops once
+    the running total stands over the bound.
+    """
+    cap = _MAP_SIZE_CAP
+    sep = len(_MAP_SEPARATOR)
+    mark = len(_MAP_CYCLE_MARK)
+
+    reachable = {}
+
+    def reach_set(start):
+        if start in reachable:
+            return reachable[start]
+        seen = set()
+        stack = [start]
+        while stack:
+            current = stack.pop()
+            for nxt in pointers.get(current, []):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        reachable[start] = seen
+        return seen
+
+    memo = {}
+
+    def continuation(entry, ancestors):
+        relevant = frozenset(
+            a for a in ancestors if a in reach_set(entry))
+        key = (entry, relevant)
+        if key in memo:
+            return memo[key]
+        holders = pointers.get(entry, [])
+        if not holders:
+            result = (1, min(cap, len(entry) + 1))
+            memo[key] = result
+            return result
+        total_count = 0
+        total_chars = 0
+        for pointer in holders:
+            if pointer == entry or pointer in ancestors:
+                contrib_count = 1
+                contrib_chars = (len(entry) + sep + len(pointer)
+                                 + mark + 1)
+            else:
+                sub_count, sub_chars = continuation(
+                    pointer, ancestors + [entry])
+                contrib_count = sub_count
+                contrib_chars = (sub_chars
+                                 + sub_count * (len(entry) + sep))
+            total_count = min(cap, total_count + contrib_count)
+            total_chars = min(cap, total_chars + contrib_chars)
+            if total_chars >= cap:
+                break
+        result = (total_count, total_chars)
+        memo[key] = result
+        return result
+
+    superseding_set = set()
+    for holders in pointers.values():
+        superseding_set.update(holders)
+    starts = [entry_id for entry_id in headed_ids
+              if entry_id in pointers
+              and entry_id not in superseding_set]
+    total = len(_MAP_HEAD_LINE) + 1
+    reached_entries = set()
+    for start in starts:
+        reached_entries.add(start)
+        reached_entries.update(reach_set(start))
+    for start in starts:
+        _count, chars = continuation(start, [])
+        total = min(cap, total + chars)
+        if total >= cap:
+            return total
+    for cycle in pointer_cycles:
+        if any(entry_id in reached_entries for entry_id in cycle):
+            continue
+        closed_chars = (
+            sum(len(entry_id) for entry_id in cycle)
+            + len(cycle[0]) + sep * len(cycle) + mark + 1)
+        total = min(cap, total + closed_chars)
+        if total >= cap:
+            return total
+        for index, entry_id in enumerate(cycle):
+            successor = cycle[(index + 1) % len(cycle)]
+            prefix = (sum(len(cycle[i]) for i in range(index + 1))
+                      + sep * index)
+            for pointer in pointers.get(entry_id, []):
+                if pointer == successor:
+                    continue
+                ancestors = cycle[:index + 1]
+                if pointer in ancestors:
+                    total = min(cap, total + prefix + sep
+                                + len(pointer) + mark + 1)
+                else:
+                    sub_count, sub_chars = continuation(
+                        pointer, ancestors)
+                    total = min(cap, total
+                                + sub_count * (prefix + sep)
+                                + sub_chars)
+                if total >= cap:
+                    return total
+    return total
+
+
+def _supersession_unit(model, entries, derived_list):
+    """Returns (pointers, findings, chains, cycle_records,
+    map_over_bound).
+
+    pointers maps a superseded entry identifier to the list of
+    superseding entry identifiers, in file order of the
+    superseding entries. A pointer derives only where a statement
+    in an entry that does not carry the unparsed marker meets both
+    limbs of the PIN-10 test (plan Item 9, section 9.6).
+    """
+    headed_ids = []
+    for entry in entries:
+        display = _display_id(entry)
+        if display and display not in headed_ids:
+            headed_ids.append(display)
+    headed_set = set(headed_ids)
+    file_order = {entry_id: index
+                  for index, entry_id in enumerate(headed_ids)}
+    pointers = {}
+    statements = {}
+    findings = []
+    pd_r7_seen = set()
+
+    def note_pd_r7(sentence, number_id, span):
+        key = (number_id, sentence)
+        if key in pd_r7_seen:
+            return
+        pd_r7_seen.add(key)
+        findings.append(_pd_r7_finding(sentence, number_id, span))
+
+    for entry, derived in zip(entries, derived_list):
+        if derived.get("unparsed"):
+            continue
+        self_id = _display_id(entry)
+        if self_id not in headed_set:
+            continue
+        for line_number, text in _body_lines(entry):
+            # The statement unit is the whole line: a statement can
+            # state its displacement in one sentence and identify
+            # the superseded entry in the next, and the two limbs
+            # are read over the statement as a whole.
+            segments = _sentence_segments(text)
+            claiming = [s for s in segments
+                        if _claims_displacement(s)]
+            if not claiming:
+                continue
+            unit = " ".join(segments)
+            identified = []
+            for segment in segments:
+                for target in _identifications(segment):
+                    if target not in identified:
+                        identified.append(target)
+            tokens = []
+            for token in _DQ_TOKEN_RE.finditer(unit):
+                token_id = "DQ-%03d" % int(token.group(1))
+                if token_id != self_id and token_id not in tokens:
+                    tokens.append(token_id)
+            if not identified and not tokens:
+                # A statement identifying no entry takes no Note
+                # and gives no pointer: the DQ-161 form.
+                continue
+            span = Span(line_number, line_number)
+            quote = claiming[0]
+            if _first_limb(unit) and identified:
+                for target in identified:
+                    if target == self_id:
+                        continue
+                    if target in headed_set:
+                        holders = pointers.setdefault(target, [])
+                        if self_id not in holders:
+                            holders.append(self_id)
+                            statements[(target, self_id)] = quote
+                    else:
+                        note_pd_r7(quote, target, span)
+                continue
+            for target in identified:
+                if target not in headed_set and target != self_id:
+                    note_pd_r7(quote, target, span)
+            named = [t for t in (identified or tokens)
+                     if t in headed_set and t != self_id]
+            if not named:
+                continue
+            finding = _finding(
+                "PIN-10", "Note", self_id, span, quote,
+                "A supersession statement in this entry is not "
+                "recognised: it names %s but does not meet both "
+                "limbs of the supersession test, so no pointer "
+                "stands for it." % ", ".join(named),
+                basis="supersession statement not recognised")
+            finding.named_entries = list(named)
+            findings.append(finding)
+
+    # Distinct cycles, each reported once as one Warning naming
+    # every entry in the cycle in chain order and quoting the
+    # statement in each entry. Chain order for the report follows
+    # the displacement direction: each entry in the cycle names
+    # the next as the entry it displaces. The map chains below
+    # follow the pointer direction instead, as the map contract
+    # states, so the two cycle orders are computed separately.
+    displaces = {}
+    for target, holders in pointers.items():
+        for holder in holders:
+            displaces.setdefault(holder, []).append(target)
+
+    def find_cycles(relation, seeds):
+        found_cycles = []
+        seen_keys = set()
+
+        def follow(start):
+            path = [start]
+            current = start
+            while True:
+                next_holders = relation.get(current, [])
+                if not next_holders:
+                    return
+                nxt = next_holders[0]
+                if nxt in path:
+                    cycle = path[path.index(nxt):]
+                    pivot = min(
+                        range(len(cycle)),
+                        key=lambda i: file_order.get(cycle[i], 0))
+                    rotated = tuple(cycle[pivot:] + cycle[:pivot])
+                    if rotated not in seen_keys:
+                        seen_keys.add(rotated)
+                        found_cycles.append(list(rotated))
+                    return
+                if nxt not in headed_set:
+                    return
+                path.append(nxt)
+                current = nxt
+
+        for seed in seeds:
+            if seed in relation or seed in pointers:
+                follow(seed)
+        return found_cycles
+
+    cycles = find_cycles(displaces, headed_ids)
+    pointer_cycles = find_cycles(pointers, headed_ids)
+    for cycle in cycles:
+        named = ", ".join(cycle)
+        quotes = []
+        for index, entry_id in enumerate(cycle):
+            target = cycle[(index + 1) % len(cycle)]
+            sentence = statements.get((target, entry_id))
+            if sentence:
+                quotes.append(sentence)
+        if len(quotes) > 1:
+            # The quotes stand in the order their named entries
+            # stand in the cycle: the quote naming the first entry
+            # of the cycle is the statement of the last entry, so
+            # the list rotates by one.
+            quotes = quotes[-1:] + quotes[:-1]
+        finding = _finding(
+            "PIN-10", "Warning", cycle[0], None,
+            " ".join(quotes),
+            "A supersession cycle stands among %s: the pointers "
+            "in the cycle print as derived, and no state or count "
+            "changes on account of the cycle." % named,
+            basis="supersession cycle")
+        finding.named_entries = list(cycle)
+        findings.append(finding)
+
+    # The map print size, computed before any chain is built and
+    # without enumerating the chains. Where the size stands over
+    # the bound, the render model carries no chains in part and
+    # shell takes the exit 3 refusal for a render run; a validate
+    # run prints no map and takes no refusal (plan Item 9,
+    # section 9.6; plan Item 3, section 3.7, field 14).
+    map_size = _map_print_size(pointers, headed_ids, pointer_cycles)
+    map_over_bound = map_size > _MAP_SIZE_BOUND
+    if map_over_bound:
+        return pointers, findings, [], cycles, True
+
+    # Chains for the render map, built from the pointers only.
+    superseding_set = set()
+    for holders in pointers.values():
+        superseding_set.update(holders)
+
+    def extend(chain, pointer):
+        new_chain = chain + [pointer]
+        if pointer in chain:
+            return [(new_chain, True)]
+        next_holders = pointers.get(pointer, [])
+        if not next_holders:
+            return [(new_chain, False)]
+        out = []
+        for nxt in next_holders:
+            out.extend(extend(new_chain, nxt))
+        return out
+
+    chains = []
+    starts = [entry_id for entry_id in headed_ids
+              if entry_id in pointers
+              and entry_id not in superseding_set]
+    for start in starts:
+        for pointer in pointers[start]:
+            chains.extend(extend([start], pointer))
+    reached = [set(chain) for chain, _flag in chains]
+    for cycle in pointer_cycles:
+        cycle_set = set(cycle)
+        if any(cycle_set <= chain_set for chain_set in reached):
+            continue
+        closed = cycle + [cycle[0]]
+        chains.append((closed, True))
+        for index, entry_id in enumerate(cycle):
+            successor = cycle[(index + 1) % len(cycle)]
+            for pointer in pointers.get(entry_id, []):
+                if pointer == successor:
+                    continue
+                start_chain = cycle[:index + 1]
+                chains.extend(extend(start_chain, pointer))
+    return pointers, findings, chains, cycles, False
+
+
+_SEGMENT_CLAIM_RE = re.compile(
+    r"\bDQ-(\d+)\b[^.]{0,90}?\b(was|is|stands|remains|stays|left)\b"
+    r"[^.]{0,60}?\b(settled|ruled|closed|banked|open|parked|"
+    r"presented)\b", re.IGNORECASE)
+
+
+def _segment_claim_findings(model, entries):
+    findings = []
+    headed_set = {_display_id(e) for e in entries}
+    for segment in _get(model, "orphan_segments") or []:
+        heading = _get(segment, "heading_text") or ""
+        span = _get(segment, "span")
+        claims = list(_get(segment, "claims") or [])
+        if claims:
+            for claim in claims:
+                statement = _get(claim, "statement") or ""
+                named = list(_get(claim, "named_entries") or [])
+                finding = _finding(
+                    "PIN-09", "Note", FILE_ID, span, statement,
+                    "A file level note section records a claim: %s "
+                    "The claim is reported as a claim and is never "
+                    "applied." % statement,
+                    basis="a governing or state claim by a file "
+                          "level note section, PIN-09")
+                finding.named_entries = named
+                finding.claiming_unit = heading
+                findings.append(finding)
+        else:
+            seen_claims = set()
+            for line_number, text in (_get(segment, "lines") or []):
+                for match in _SEGMENT_CLAIM_RE.finditer(text or ""):
+                    target = "DQ-%03d" % int(match.group(1))
+                    if target in seen_claims:
+                        continue
+                    seen_claims.add(target)
+                    finding = _finding(
+                        "PIN-09", "Note", FILE_ID,
+                        Span(line_number, line_number), text,
+                        "A file level note section records a claim "
+                        "about %s: \"%s\" The claim is reported as "
+                        "a claim and is never applied."
+                        % (target, match.group(0)),
+                        basis="a governing or state claim by a "
+                              "file level note section, PIN-09")
+                    finding.named_entries = [target]
+                    finding.claiming_unit = heading
+                    findings.append(finding)
+        seen_cited = set()
+        for line_number, text in (_get(segment, "lines") or []):
+            for token in _DQ_TOKEN_RE.finditer(text or ""):
+                target = "DQ-%03d" % int(token.group(1))
+                if target in headed_set or target in seen_cited:
+                    continue
+                seen_cited.add(target)
+                findings.append(_pd_r7_finding(
+                    text, target, Span(line_number, line_number)))
+    return findings
+
+
+# ---------------------------------------------------------------------
 # Unit 3e: census
 # ---------------------------------------------------------------------
 
 def _head_element(entry):
     for element in _get(entry, "status_elements") or []:
-        if element.kind == "head Status line":
+        if element.kind == "line start Status line":
             return element
     return None
 
 
 def _census(entries, derived_list):
     pairs = list(zip(entries, derived_list))
-    decided = [(e, d) for e, d in pairs if d["state"] in DECIDED_STATES]
+    decided = [(e, d) for e, d in pairs if d["state"] in DECIDED_OUTCOMES]
 
     banked_head = []
     for entry, derived in pairs:
         head = _head_element(entry)
         if head is None or head.disposition != "Banked":
             continue
-        if derived["state"] in DECIDED_STATES or (
+        if derived["state"] in DECIDED_OUTCOMES or (
                 derived["state"] == "Ambiguous"):
             banked_head.append(_display_id(entry))
 
@@ -1083,7 +2057,7 @@ def _census(entries, derived_list):
                 non_header.append(_display_id(entry))
                 break
             if (element.occurrence_kind == "line start"
-                    and element.kind != "head Status line"):
+                    and element.kind != "line start Status line"):
                 non_header.append(_display_id(entry))
                 break
 
@@ -1108,7 +2082,7 @@ def _census(entries, derived_list):
             out_of_order = (
                 (prev_number is not None and number < prev_number)
                 or (next_number is not None and number > next_number))
-            if out_of_order and derived["state"] in DECIDED_STATES:
+            if out_of_order and derived["state"] in DECIDED_OUTCOMES:
                 non_numeric.append(_display_id(entry))
 
     missing_owner_tail = []
@@ -1117,7 +2091,7 @@ def _census(entries, derived_list):
         for entry, derived in pairs:
             if _get(entry, "section") != tail_section:
                 continue
-            if derived["state"] not in DECIDED_STATES:
+            if derived["state"] not in DECIDED_OUTCOMES:
                 continue
             labels = _field_labels(entry)
             if any(label in ("Owner of record", "Owner")
@@ -1178,9 +2152,154 @@ def _census(entries, derived_list):
          "Record", open_form_in_ruled),
         ("Unclassified status values", unclassified),
     ]
-    return [CensusEntry(class_name=name, count=len(members),
+    rows = [CensusEntry(class_name=name, count=len(members),
                         member_entry_ids=list(members))
             for name, members in classes]
+    for row in rows:
+        row.counting_unit = "entries"
+
+    # Canonical state rows, with the head line count and the
+    # variance on a row where at least one entry has a head line
+    # view giving that state (plan Item 3, section 3.6). The head
+    # line view is a validate computation from the first line start
+    # Status line element of the entry; it assigns no effective
+    # state. The variance is the body derived count minus the head
+    # line count, in that direction only.
+    head_views = {}
+    for entry, derived in pairs:
+        elements = list(_get(entry, "status_elements") or [])
+        first_line = None
+        for element in elements:
+            if element.occurrence_kind == "line start":
+                first_line = element
+                break
+        if first_line is None:
+            continue
+        view = _underlying_state(entry, first_line, elements)
+        if view in CANONICAL_STATES:
+            head_views.setdefault(view, []).append(_display_id(entry))
+    for state in CANONICAL_STATES:
+        members = [_display_id(e) for e, d in pairs
+                   if d["state"] == state and not d["unparsed"]]
+        if not members and state not in head_views:
+            continue
+        row = CensusEntry(
+            class_name="Canonical state: %s" % state,
+            count=len(members), member_entry_ids=members)
+        row.counting_unit = "entries"
+        row.body_derived_count = len(members)
+        if state in head_views:
+            row.head_line_count = len(head_views[state])
+            row.variance = len(members) - len(head_views[state])
+        rows.append(row)
+
+    # The Banked head evidence groups, under the precedence at
+    # plan Item 3, section 3.8: a later Status line in the body
+    # first, then a level 4 decision block only, then unheaded
+    # paragraphs only. A Banked head entry carrying none of the
+    # three forms stands in no group and no fourth group is
+    # created for it.
+    population, groups = _banked_evidence_groups(entries, derived_list)
+    for name, members in groups:
+        if not members:
+            continue
+        row = CensusEntry(class_name=name, count=len(members),
+                          member_entry_ids=list(members))
+        row.counting_unit = "entries"
+        rows.append(row)
+
+    # The line start figure, a file level census figure only: the
+    # count of Status occurrences at line start under the PIN-14
+    # precedence. It is never the status line total.
+    line_start_members = []
+    line_start_count = 0
+    for entry in entries:
+        carried = False
+        for element in _get(entry, "status_elements") or []:
+            if element.occurrence_kind == "line start":
+                line_start_count += 1
+                carried = True
+        if carried:
+            line_start_members.append(_display_id(entry))
+    row = CensusEntry(
+        class_name="Status occurrences at line start (file level "
+                   "census figure)",
+        count=line_start_count, member_entry_ids=line_start_members)
+    row.counting_unit = "Status lines"
+    rows.append(row)
+
+    # The unmatched heading word Note treatment (PIN-11): the
+    # heading word ORDERED has no canonical mapping in this
+    # version, and an entry whose heading carries it stands named
+    # in the census as an unmatched heading word.
+    unmatched_heading = []
+    for entry in entries:
+        heading = _get(entry, "heading") or _get(
+            entry, "heading_text") or ""
+        if re.search(r"\bORDERED\b", heading):
+            unmatched_heading.append(_display_id(entry))
+    if unmatched_heading:
+        row = CensusEntry(
+            class_name="Unmatched heading word",
+            count=len(unmatched_heading),
+            member_entry_ids=unmatched_heading)
+        row.counting_unit = "entries"
+        rows.append(row)
+    return rows
+
+
+def _banked_evidence_groups(entries, derived_list):
+    """The Banked head population and its three evidence groups.
+
+    Population: entries whose first line start Status line is the
+    exact Banked line. Precedence: an entry with a later Status
+    line in the body is in the first group whatever else its body
+    carries; an entry with no later Status line and a level 4
+    decision block is in the second; an entry with neither, whose
+    body carries unheaded paragraphs, is in the third.
+    """
+    population = []
+    group1, group2, group3 = [], [], []
+    for entry, derived in zip(entries, derived_list):
+        elements = list(_get(entry, "status_elements") or [])
+        first_line = None
+        for element in elements:
+            if element.occurrence_kind == "line start":
+                first_line = element
+                break
+        if first_line is None or first_line.verbatim != "Banked":
+            continue
+        display = _display_id(entry)
+        population.append(display)
+        later = [e for e in elements
+                 if e.occurrence_kind == "line start"
+                 and e is not first_line]
+        if later:
+            group1.append(display)
+            continue
+        if _get(entry, "decision_blocks"):
+            group2.append(display)
+            continue
+        has_paragraph = False
+        for _line, text in _body_lines(entry):
+            stripped = (text or "").strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if re.match(r"^[A-Z][A-Za-z ]{0,40}:", stripped):
+                continue
+            has_paragraph = True
+            break
+        if has_paragraph:
+            group3.append(display)
+    groups = [
+        ("Banked head evidence group: later Status line in the "
+         "body", group1),
+        ("Banked head evidence group: level 4 decision block "
+         "only", group2),
+        ("Banked head evidence group: unheaded paragraphs only",
+         group3),
+    ]
+    return population, groups
 
 
 # ---------------------------------------------------------------------
@@ -1378,7 +2497,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
         if derived["unparsed"]:
             state = None
         result = EntryResult(
-            identifier=_get(entry, "identifier"),
+            identifier=_get(entry, "identifier") or (
+                "R-7" if _display_id(entry) == "R-7" else None),
             heading=_get(entry, "heading")
             or _get(entry, "heading_text") or "",
             title=_get(entry, "title") or "",
@@ -1407,11 +2527,40 @@ def validate_model(model, vocabulary, output_form_edition=None):
             open_fields=open_fields,
             unparsed=derived["unparsed"])
         result.decider_annotation = derived["annotation"]
+        # Derived fields the plan shapes carry beside the declared
+        # EntryResult fields (plan Item 3, section 3.4): the
+        # underlying state, the remainder texts as a list, the
+        # denoted states of the competing elements under PIN-07,
+        # the presence test results under PIN-08, and the
+        # supersession pointers under PIN-10, filled in below once
+        # the supersession unit has run.
+        result.underlying_state = derived.get("underlying_state")
+        result.remainder_texts = list(derived.get("remainder_texts")
+                                      or [])
+        result.denoted_states = list(derived.get("denoted_states")
+                                     or [])
+        result.competing_pair = list(derived["competing"])
+        result.presence_results = derived.get("presence_results")
+        result.supersession_pointers = []
         entry_results.append(result)
+
+    (sup_pointers, sup_findings, sup_chains,
+     _sup_cycles, sup_map_over_bound) = _supersession_unit(
+        model, entries, derived_list)
+    for entry, result in zip(entries, entry_results):
+        result.supersession_pointers = list(
+            sup_pointers.get(_display_id(entry), []))
+    companion_count = 0
+    for entry, derived in zip(entries, derived_list):
+        display = _display_id(entry)
+        if (derived.get("remainder") or derived.get("remainder_texts")) \
+                and sup_pointers.get(display):
+            companion_count += 1
 
     file_findings = []
     file_findings.extend(_check1(entries))
     file_findings.extend(_unmatched_heading_findings(model))
+    file_findings.extend(_segment_claim_findings(model, entries))
     check6_findings = _check6(model, entries)
     file_findings.extend(
         f for f in check6_findings if f.entry_identifier == FILE_ID)
@@ -1434,6 +2583,9 @@ def validate_model(model, vocabulary, output_form_edition=None):
         entry_findings.extend(_check9(entry, display_id, derived))
         entry_findings.extend(_check10(entry, display_id, derived))
     entry_findings.extend(_check8(model, entries, derived_by_id))
+    entry_findings.extend(sup_findings)
+    for result, derived in zip(entry_results, derived_list):
+        result.presence_results = derived.get("presence_results")
 
     entry_index = {}
     for index, entry in enumerate(entries):
@@ -1443,7 +2595,7 @@ def validate_model(model, vocabulary, output_form_edition=None):
         index = entry_index.get(finding.entry_identifier, len(entries))
         span = finding.line_span
         line = span.start_line if span is not None else 0
-        return (index, finding.rule_id, line)
+        return (index, _rule_order_key(finding.rule_id), line)
 
     entry_findings.sort(key=entry_order_key)
     findings = file_findings + entry_findings
@@ -1514,9 +2666,71 @@ def validate_model(model, vocabulary, output_form_edition=None):
             "findings per rule: the rule view sums to %d against a "
             "findings list of %d"
             % (sum(findings_per_rule.values()), len(findings)))
+    # Component 4, the census group footing: the Banked head
+    # evidence groups sum against the Banked head population. A
+    # Banked head entry carrying none of the three evidence forms
+    # stands in no group, the footing fails, and the run takes the
+    # exit 4 tool inconsistency outcome with no finding against
+    # the file (plan Item 3, section 3.8).
+    census_population, census_groups = _banked_evidence_groups(
+        entries, derived_list)
+    census_group_total = sum(len(members)
+                             for _name, members in census_groups)
+    census_footing_holds = (
+        census_group_total == len(census_population))
+    if not census_footing_holds:
+        failed_components.append(
+            "census group footing: the Banked head evidence groups "
+            "sum to %d against a Banked head population of %d"
+            % (census_group_total, len(census_population)))
+    # Component 5, the crosswalk footing: the Banked head
+    # crosswalk total against the count of entries carrying the
+    # Banked head phrasing.
+    crosswalk_counts = _crosswalk(entries, derived_list, vocabulary)
+    banked_head_population = sum(
+        1 for e in entries
+        if _head_element(e) is not None
+        and _head_element(e).verbatim == "Banked")
+    banked_crosswalk_total = (
+        crosswalk_counts.get("Banked", {}).get("total", 0))
+    crosswalk_footing_holds = (
+        banked_crosswalk_total == banked_head_population)
+    if not crosswalk_footing_holds:
+        failed_components.append(
+            "crosswalk footing: the Banked head crosswalk total is "
+            "%d against %d entries carrying the Banked head "
+            "phrasing"
+            % (banked_crosswalk_total, banked_head_population))
     self_check = SelfCheckResult(
         sums_agree=not failed_components,
         failed_components=failed_components)
+    if failed_components:
+        # On a self check failure the run is a tool inconsistency
+        # and no finding stands against the file: the findings
+        # list is withheld in full, in the model as on the printed
+        # surface (plan Item 9, section 9.7, OP-Q5). The findings
+        # views in the reconciliation above were computed from the
+        # list as assembled, which is what component 3 checks.
+        findings = []
+    # The in run self check components, components 1 to 5 only.
+    # Component 6, render agreement, is evaluated only externally
+    # after both subcommand outputs exist; no in run self check
+    # result stands on it (plan Item 1, section 1.7).
+    component_results = [
+        {"component": 1, "name": "entry total",
+         "holds": not any("entry total" in text
+                          for text in failed_components)},
+        {"component": 2, "name": "status occurrence total",
+         "holds": not any("status occurrence total" in text
+                          for text in failed_components)},
+        {"component": 3, "name": "findings views",
+         "holds": not any("findings per" in text
+                          for text in failed_components)},
+        {"component": 4, "name": "census group footing",
+         "holds": census_footing_holds},
+        {"component": 5, "name": "crosswalk footing",
+         "holds": crosswalk_footing_holds},
+    ]
 
     reconciliation = ReconciliationBlock(
         entry_total=HeadedEntryCount(entry_total),
@@ -1551,19 +2765,38 @@ def validate_model(model, vocabulary, output_form_edition=None):
 
     decider_subtotals = {}
     for result, derived in zip(entry_results, derived_list):
-        if derived["state"] in DECIDED_STATES and result.decider_label:
+        if derived["state"] in DECIDED_OUTCOMES and result.decider_label:
             decider_subtotals[result.decider_label] = (
                 decider_subtotals.get(result.decider_label, 0) + 1)
 
-    open_results = [(e, r) for e, r in zip(entries, entry_results)
-                    if r.effective_state == "Open"]
-    waiting = len(open_results) + sum(
-        1 for r in entry_results
-        if r.effective_state == "Settled in part")
+    # The waiting figure (OP-Q12, plan Item 3, section 3.8):
+    # distinct entries that are effectively open, or Settled in
+    # part with at least one named remainder, or whose determining
+    # element takes Closed as decided for a part with at least one
+    # standing remainder. A part closed entry is counted once and
+    # never also as effectively open.
+    waiting_ids = []
+    for entry, derived in zip(entries, derived_list):
+        display = _display_id(entry)
+        state = derived["state"]
+        if state in _EFFECTIVELY_OPEN_STATES:
+            waiting_ids.append(display)
+        elif state == "Settled in part" and derived.get("remainder"):
+            waiting_ids.append(display)
+        elif state == "Closed as decided" \
+                and derived.get("remainder") \
+                and derived["determining"] is not None \
+                and "part" in (derived["determining"].scope or "").lower():
+            waiting_ids.append(display)
+    waiting = len(set(waiting_ids))
+    open_results = [(e, r) for e, r, d in zip(
+        entries, entry_results, derived_list)
+        if d["state"] in _EFFECTIVELY_OPEN_STATES]
     blocking = 0
     blocking_list = []
     for entry, result in open_results:
-        blocks = _field_value(entry, "What it blocks")
+        blocks = _field_value(entry, "What it blocks") \
+            or _field_value(entry, "Blocks")
         if blocks:
             blocking += 1
             blocking_list.append({
@@ -1579,7 +2812,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
         # The blocks field stands recorded where its label stands on
         # the entry, the same test check 9 applies. The coverage
         # counts state what the blocking figure rests on.
-        if "What it blocks" in _field_labels(entry):
+        labels = _field_labels(entry)
+        if "What it blocks" in labels or "Blocks" in labels:
             blocks_with += 1
         else:
             blocks_without += 1
@@ -1618,7 +2852,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
         findings, ambiguous_count, unparsed_count, conditional_count,
         self_check)
 
-    fired_rules = sorted({f.rule_id for f in findings})
+    fired_rules = sorted({f.rule_id for f in findings},
+                         key=_rule_order_key)
     clearing_forms = {rule: _CLEARING_FORMS[rule] for rule in fired_rules
                       if rule in _CLEARING_FORMS}
     if 5 in clearing_forms:
@@ -1678,7 +2913,7 @@ def validate_model(model, vocabulary, output_form_edition=None):
         output_form_edition=output_form_edition,
         verbatim_appendix_rows=appendix_rows,
         per_rule_clearing_forms=clearing_forms,
-        crosswalk_counts=_crosswalk(entries, derived_list, vocabulary),
+        crosswalk_counts=crosswalk_counts,
         decider_subtotals=decider_subtotals,
         waiting=waiting,
         blocking=blocking,
@@ -1705,4 +2940,59 @@ def validate_model(model, vocabulary, output_form_edition=None):
         # fields alone carries the Segment claims section.
         segment_claim_reports=segment_claim_reports,
         fastest_item="not derivable from the file")
+    reconciliation.components = component_results
+    reconciliation.component_results = component_results
+    # Appendix aliases: the appendix rows under the names the
+    # render model consumers read.
+    output.verbatim_appendix = appendix_rows
+    output.appendix = appendix_rows
+    output.appendix_rows = appendix_rows
+    # The residue list: phrasings standing in the file that the
+    # vocabulary does not translate, with their counts, and the
+    # residue share, the entries resting on an untranslatable
+    # phrasing against the headed entries.
+    residue_items = []
+    for row in appendix_rows:
+        if row.unclassified:
+            residue_items.append({
+                "phrasing": row.phrasing,
+                "count": row.occurrence_count,
+                "occurrence_count": row.occurrence_count,
+                "kind": row.kind,
+                "entries": list(row.member_entry_ids),
+                "member_entry_ids": list(row.member_entry_ids),
+            })
+    residue_phrasings = {item["phrasing"] for item in residue_items}
+    residue_entries = []
+    for entry in entries:
+        for element in _get(entry, "status_elements") or []:
+            if element.verbatim in residue_phrasings:
+                residue_entries.append(_display_id(entry))
+                break
+    output.residue = residue_items
+    output.residue_list = residue_items
+    output.residue_items = residue_items
+    output.residue_entries = residue_entries
+    output.residue_share_count = len(residue_entries)
+    output.residue_share_total = entry_total
+    output.residue_share = (
+        (len(residue_entries) / entry_total) if entry_total else 0.0)
+    # The supersession map data and the companion count: entries
+    # carrying a standing remainder whose entry carries a
+    # supersession pointer, carried beside the waiting figure and
+    # never merged into it (plan Item 3, section 3.7 field 10).
+    output.supersession_chains = [list(chain)
+                                  for chain, _flag in sup_chains]
+    output.supersession_chain_records = [
+        {"entries": list(chain), "cycle": flag,
+         "is_cycle": flag}
+        for chain, flag in sup_chains]
+    output.companion_count = companion_count
+    output.map_over_bound = sup_map_over_bound
+    output.supersession_map_over_bound = sup_map_over_bound
+    gap_over_bound, gap_naming_size = _gap_refusal_signal(entries)
+    output.gap_over_bound = gap_over_bound
+    output.gap_naming_over_bound = gap_over_bound
+    output.gap_naming_size = gap_naming_size
+    output.waiting_entry_ids = sorted(set(waiting_ids))
     return output
