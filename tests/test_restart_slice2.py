@@ -136,12 +136,18 @@ def assignment_map(model, line_count):
             if isinstance(span, (list, tuple)) and len(span) >= 2:
                 start, end = h.int_of(span[0]), h.int_of(span[1])
             else:
-                start, end = h.span_of(entry)
-                break
+                start = h.int_of(h.get(span, "start_line", "start"))
+                end = h.int_of(h.get(span, "end_line", "end"))
             for line in range(start, end + 1):
                 if line in owners:
                     owners[line].append("entry")
-    for name in ("units", "file_level_units", "orphan_segments"):
+    # Restated in the cured D-03 and D-05 form: the partition is
+    # counted over the contract carriers only, entry spans and the
+    # units list. Entry spans stand on Entry records and stand as
+    # units nowhere, and orphan segments stand in the units list
+    # as well as in the orphan_segments list, which is the same
+    # units in a second carrier and not a second assignment.
+    for name in ("units", "file_level_units"):
         for unit in h.as_list(h.get(model, name)):
             start, end = h.span_of(unit)
             if start == 0 and end == 0:
@@ -587,9 +593,11 @@ class PinStructureTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(data).hexdigest(), PIN_DIGEST)
         model = parse(data, "pin.md")
         self.assertFalse(is_failure(model))
-        facts = h.get(model, "header_facts", "file_header_facts")
-        self.assertEqual(h.int_of(h.get(facts, "line_count")), PIN_LINES)
-        self.assertEqual(h.int_of(h.get(facts, "byte_count")), PIN_BYTES)
+        # Restated in the cured D-01 form: header_facts is the
+        # verbatim text, and the measurements stand on the File
+        # model itself.
+        self.assertEqual(h.int_of(h.get(model, "line_count")), PIN_LINES)
+        self.assertEqual(h.int_of(h.get(model, "byte_count")), PIN_BYTES)
         self.assertEqual(len(entries(model)), PIN_HEADED_ENTRIES)
         dq_entries = [entry for entry in entries(model)
                       if (h.entry_identifier(entry) or "")
@@ -754,12 +762,14 @@ class InputTreatmentConstructionTest(unittest.TestCase):
                          self._decoded_facts(marked_model),
                          "the marked copy differs from the unmarked "
                          "file in a decoded respect")
-        facts = h.get(marked_model, "header_facts", "file_header_facts")
-        self.assertEqual(h.int_of(h.get(facts, "byte_count")),
+        # Restated in the cured D-01 form, as the pin structural
+        # counts test: the measurements stand on the File model
+        # itself, not on header_facts subfields.
+        self.assertEqual(h.int_of(h.get(marked_model, "byte_count")),
                          len(marked))
-        self.assertEqual(h.text_of(h.get(facts, "digest")),
+        self.assertEqual(h.text_of(h.get(marked_model, "digest")),
                          hashlib.sha256(marked).hexdigest())
-        self.assertEqual(h.int_of(h.get(facts, "line_count")),
+        self.assertEqual(h.int_of(h.get(marked_model, "line_count")),
                          h.count_lines_formula(plain))
 
     def test_carriage_return_construction(self):
@@ -795,11 +805,12 @@ class InputTreatmentConstructionTest(unittest.TestCase):
                          banked_heads(converted_model),
                          "the Banked head census population at parse "
                          "level differs between the two forms")
-        facts = h.get(converted_model, "header_facts",
-                      "file_header_facts")
-        self.assertEqual(h.int_of(h.get(facts, "byte_count")),
+        # Restated in the cured D-01 form, as the pin structural
+        # counts test: the measurements stand on the File model
+        # itself, not on header_facts subfields.
+        self.assertEqual(h.int_of(h.get(converted_model, "byte_count")),
                          len(converted))
-        self.assertEqual(h.text_of(h.get(facts, "digest")),
+        self.assertEqual(h.text_of(h.get(converted_model, "digest")),
                          hashlib.sha256(converted).hexdigest())
 
     def test_non_regular_input_case_refused_at_exit_2(self):

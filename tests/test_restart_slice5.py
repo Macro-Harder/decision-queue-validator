@@ -755,8 +755,24 @@ class ClaimsAndProvenanceTest(unittest.TestCase):
         self.assertTrue(claims)
         for finding in claims:
             ident = h.finding_entry_id(finding) or ""
-            self.assertTrue(
-                "file" in ident.lower() or ident == "")
+            claiming = h.text_of(h.get(finding, "claiming_unit")) or ""
+            # Restated in the cured D-09 form: no claim carries the
+            # literal FILE. A segment claim carries the unit
+            # identifier, as its entry identifier and in the
+            # declared claiming_unit field. An entry claim carries
+            # the claiming entry identifier, as its entry
+            # identifier and in the declared claiming_unit field.
+            self.assertEqual(ident, claiming)
+            if "file" in claiming.lower():
+                self.assertTrue(
+                    claiming.lower().startswith("file level unit"),
+                    "a segment claim does not carry the unit "
+                    "identifier: " + claiming)
+            else:
+                self.assertTrue(
+                    claiming.startswith("DQ-"),
+                    "an entry claim does not carry the claiming "
+                    "entry identifier in claiming_unit: " + claiming)
 
     def test_cited_number_construction(self):
         # Step 13 construction, register TG-S5-03: one synthetic

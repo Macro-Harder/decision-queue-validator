@@ -139,6 +139,14 @@ class Xl04SelfCheckFailureTest(unittest.TestCase):
         double = h.self_check_model_double()
         output = h.validate_function(validate_module)(
             double, vocabulary)
+        # Restated in the cured D-15 form: validate supplies no
+        # exit decision. The self check failure surface is asserted
+        # through the shell supply point, assembling and supplying
+        # the decision through shell in process, and reading the
+        # code and reason classes off the supplied decision.
+        shell_module = h.import_module("shell")
+        decision, masked = shell_module._assemble_exit_decision(output)
+        shell_module._supply_exit_decision(output, decision, masked)
         self.assertEqual(h.exit_code_of(output), 4)
         reasons = " ".join(h.reason_classes_of(output)).lower()
         self.assertIn("inconsist", reasons)
@@ -200,6 +208,15 @@ class Xl04SelfCheckFailureTest(unittest.TestCase):
         self.assertIsNotNone(
             output, "the pipeline produced no validate output")
         self.assertEqual(h.findings_of(output), [])
+        # Restated in the cured D-15 form, as the first XL-04 test:
+        # the in process limb asserts the exit decision through
+        # the shell supply point, assembling and supplying the
+        # decision through shell and reading the code and reason
+        # classes off the supplied decision. The run surface limb
+        # above already stands in that form and is not restated.
+        shell_module = h.import_module("shell")
+        decision, masked = shell_module._assemble_exit_decision(output)
+        shell_module._supply_exit_decision(output, decision, masked)
         self.assertEqual(h.exit_code_of(output), 4)
         reasons = " ".join(h.reason_classes_of(output)).lower()
         self.assertIn("inconsist", reasons)

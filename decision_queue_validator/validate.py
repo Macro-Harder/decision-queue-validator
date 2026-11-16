@@ -127,6 +127,22 @@ def _entry_number(entry):
     return None
 
 
+def _is_dq_numbered(entry):
+    """Whether the entry stands as a DQ numbered entry.
+
+    The distinction stands in the D-06 form: a DQ numbered
+    entry carries its identifier as an int DQNumber, the
+    numeric value the heading digits denote (a seam double
+    carrying the string DQ label gives the same number through
+    _entry_number), while a named unnumbered entry carries its
+    identifier as the literal heading text, which gives no
+    number. Identifier presence alone distinguishes neither
+    form, because the named unnumbered entry carries an
+    identifier too.
+    """
+    return _entry_number(entry) is not None
+
+
 def _body_lines(entry):
     return list(_get(entry, "body_lines") or [])
 
@@ -2564,11 +2580,10 @@ def _appendix_rows(entries, vocabulary):
         row = VerbatimAppendixRow(
             phrasing=phrasing, occurrence_count=data["count"],
             kind=kind, member_entry_ids=data["members"])
-        # The separate named part membership for an unclassified
-        # phrasing: the row carries it as the flag the render
-        # surface reads, the phrasing standing in the vocabulary
-        # mapping or not, computed here once by validate.
-        row.unclassified = phrasing not in vocabulary.mapping
+        # The row stands in its declared shape only: no
+        # unclassified flag stands attached to it here, the
+        # declared VerbatimAppendixRow shape carrying no such
+        # field (the A1-F6 cure form).
         result.append(row)
     return result
 
@@ -2975,8 +2990,14 @@ def validate_model(model, vocabulary, output_form_edition=None):
         fail(1, "population footing: the entry list holds %d "
                 "entries and the parse owned count records %d "
                 "entry units" % (entry_total, parse_entry_units))
+    # The DQ entry total counts DQ numbered entries only, in
+    # the D-06 distinction _is_dq_numbered states: the named
+    # unnumbered entry carries the literal heading text as its
+    # identifier and stands in the unnumbered count, never in
+    # this total, which is the total the File number ledger
+    # keys on DQ numbers alone.
     dq_entry_count = sum(1 for e in entries
-                         if _get(e, "identifier") is not None)
+                         if _is_dq_numbered(e))
     number_ledger = _get(model, "number_ledger")
     if number_ledger is not None:
         ledger_total = 0
@@ -3099,7 +3120,7 @@ def validate_model(model, vocabulary, output_form_edition=None):
         entry_total=HeadedEntryCount(entry_total),
         dq_entry_count=dq_entry_count,
         unnumbered_entry_count=sum(1 for e in entries
-                                   if _get(e, "identifier") is None),
+                                   if not _is_dq_numbered(e)),
         headed_span_count=sum(len(_get(e, "spans") or [])
                               for e in entries),
         orphan_note_segment_count=sum(

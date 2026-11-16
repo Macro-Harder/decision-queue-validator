@@ -1060,6 +1060,21 @@ def _appendix_lines(output):
         "one entry can contribute several occurrences, and one "
         "line can contribute two; the entry counts are in the "
         "canonical table; rows are not merged.")
+    # The separate named part for unclassified phrasings, under
+    # AF-2, is the appendix home of the residue items whose
+    # phrasings are unclassified, so the marking stands on the
+    # residue items the model carries, a declared field of the
+    # render model, and on no attribute of the row itself: the
+    # appendix row shape carries no unclassified field.
+    unclassified_phrasings = set()
+    for item in _items(_field(output, "residue_items",
+                              "residue_list", "residue")):
+        if isinstance(item, str):
+            continue
+        carried = _text(_field(item, "phrasing", "verbatim",
+                               "value"))
+        if carried:
+            unclassified_phrasings.add(carried)
     unclassified = []
     for row in rows:
         if isinstance(row, str):
@@ -1080,7 +1095,7 @@ def _appendix_lines(output):
         if members:
             line += " | entries: " + ", ".join(
                 escape_text(item) for item in members)
-        if _field(row, "unclassified"):
+        if phrasing in unclassified_phrasings:
             line += " | unclassified"
             unclassified.append(line)
         lines.append(line)
