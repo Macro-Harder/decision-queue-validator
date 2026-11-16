@@ -56,23 +56,33 @@ entry findings; the full findings grouped by entry, under a line
 stating that findings concern form and internal consistency only and
 that no finding judges whether a ruling was right; a rule list
 stating, once per rule that fired, what recorded form would clear a
-finding of that rule; the entry rows; the counts, with a units key
-and the crosswalk for the Banked head phrasing; the census, with the
-member entries of each class listed under its row; the
-reconciliation block; and the figures described below.
+finding of that rule; the entry groups in the order stated below
+for the render summary, printing each group that stands in the
+file; the counts, with a units key and, where the file carries the
+Banked head phrasing, the crosswalk for that phrasing; the census,
+with the class rule and the member entries of each class listed
+under its row; the reconciliation block; the verbatim appendix of
+Status phrasings as written; the residue list of phrasings the tool
+could not translate; the Segment claims, where a note segment of
+the file carries a claim over named entries, each claim reported
+as a claim and not applied to any entry it names; and the figures
+described below.
 
-The render summary carries, in order: a marking that names the
-presentation set, being the Open group and the Settled in part group
-for its remainders, with the reasons the other groups stand outside
-the set, and a statement that file order is not presentation order;
-the entry groups in this order: Open, Settled in part, Presented,
-Parked, Conditional, Ambiguous, Ruled, Settled, Closed as decided,
-and the unparsed entries last; the supersession map, where the file
-carries recognised displacements, printing each displacement as a
-chain of entries; then the counts, the census, the reconciliation
-block, the verbatim appendix of Status phrasings as written, the
-residue list of phrasings the tool could not translate, and the
-figures.
+The render summary carries, in order: a line naming its layers and
+their order; a marking that names the presentation set, being the
+Open group and the Settled in part group for its remainders, with
+the reasons the other groups stand outside the set, and a statement
+that file order is not presentation order; the entry groups in this
+order: Open, Settled in part, Presented, Parked, Conditional,
+Ambiguous, Ruled, Settled, Closed as decided, and the unparsed
+entries last; the supersession map, where the file carries
+recognised displacements, printing each displacement as a chain of
+entries; then the counts, with the units key and the crosswalk
+where the file carries the Banked head phrasing, the census, the
+reconciliation block, the verbatim appendix of Status phrasings as
+written, the residue list of phrasings the tool could not
+translate, the Segment claims where a note segment carries one,
+and the figures.
 
 The figures state how many entries are waiting and how many entries
 block other work, each with its unit, entries. The waiting figure

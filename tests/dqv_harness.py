@@ -19,8 +19,8 @@ import hashlib
 import importlib
 import importlib.util
 import inspect
-import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -50,12 +50,161 @@ FIXTURE_IDS = (
 
 _MANIFEST_CACHE = None
 
+MANIFEST_FIELDS = (
+    "Fixture", "Kind", "Source", "Hash", "Bytes", "Lines",
+    "Expected counts", "Expected findings", "Expected exit",
+)
+
+_MANIFEST_LABELS = ("pinned", "derived", "open")
+
+_MANIFEST_FIELD_KEYS = {
+    "Fixture": "fixture",
+    "Kind": "kind",
+    "Source": "source",
+    "Hash": "hash",
+    "Bytes": "bytes",
+    "Lines": "lines",
+    "Expected counts": "expected_counts",
+    "Expected findings": "expected_findings",
+    "Expected exit": "expected_exit",
+}
+
+
+class ManifestFailure(AssertionError):
+    """A manifest self check failure.
+
+    Raised as a manifest failure, never as a fixture failure and
+    never as a pass, before any fixture verdict is taken from
+    the manifest (plan Item 3, section 3.9 and Item 9,
+    section 9.11).
+    """
+
+
+def _manifest_labelled(value):
+    pattern = r"\(\s*(%s)\b" % "|".join(_MANIFEST_LABELS)
+    return re.search(pattern, value.lower()) is not None
+
+
+def check_manifest_text(text):
+    """Parse manifest text against the plan grammar, or fail.
+
+    The grammar stands at plan Item 3, section 3.9: one entry
+    per fixture; an entry begins with the Fixture line; each
+    further field stands on its own line in the pin down 1
+    order, label, colon, value; an entry ends at a blank line;
+    no line inside an entry is blank; a value never wraps onto
+    a second line. The check fails loudly, with the entry
+    named, on any entry that breaks the grammar, omits a field,
+    repeats a field, or carries an expected count, an expected
+    finding, or an expected exit with no pinned, derived, or
+    open label. Returns the entries as a mapping of fixture
+    identifier to entry mapping.
+    """
+    entries = {}
+    blocks = text.replace("\r\n", "\n").split("\n\n")
+    for block in blocks:
+        block = block.strip("\n")
+        if not block.strip():
+            continue
+        lines = block.split("\n")
+        first = lines[0]
+        fixture_id = first.split(":", 1)[1].strip() \
+            if ":" in first else "(unnamed entry)"
+        labels = []
+        values = {}
+        for line in lines:
+            if ":" not in line:
+                raise ManifestFailure(
+                    "manifest failure: entry %s carries a line "
+                    "with no field label: %s" % (fixture_id, line))
+            label, value = line.split(":", 1)
+            label = label.strip()
+            if label not in MANIFEST_FIELDS:
+                raise ManifestFailure(
+                    "manifest failure: entry %s carries the "
+                    "field %s, which the grammar does not name"
+                    % (fixture_id, label))
+            if label in values:
+                raise ManifestFailure(
+                    "manifest failure: entry %s repeats the "
+                    "field %s" % (fixture_id, label))
+            labels.append(label)
+            values[label] = value.strip()
+        if labels != list(MANIFEST_FIELDS):
+            raise ManifestFailure(
+                "manifest failure: entry %s carries its fields "
+                "as %s, not in the grammar order %s"
+                % (fixture_id, ", ".join(labels),
+                   ", ".join(MANIFEST_FIELDS)))
+        fixture_id = values["Fixture"]
+        if fixture_id in entries:
+            raise ManifestFailure(
+                "manifest failure: entry %s stands twice in "
+                "the manifest" % fixture_id)
+        digest = values["Hash"]
+        if len(digest) != 64 or any(
+                char not in "0123456789abcdef" for char in digest):
+            raise ManifestFailure(
+                "manifest failure: entry %s carries a hash that "
+                "is not a full digest: %s" % (fixture_id, digest))
+        for numeric in ("Bytes", "Lines"):
+            if not values[numeric].isdigit():
+                raise ManifestFailure(
+                    "manifest failure: entry %s carries a %s "
+                    "value that is not a count: %s"
+                    % (fixture_id, numeric, values[numeric]))
+        counts = values["Expected counts"]
+        if counts.strip().lower() not in ("", "none"):
+            for segment in counts.split(";"):
+                if segment.strip() and not _manifest_labelled(
+                        segment):
+                    raise ManifestFailure(
+                        "manifest failure: entry %s carries an "
+                        "expected count with no pinned, derived, "
+                        "or open label: %s"
+                        % (fixture_id, segment.strip()))
+        for field_name in ("Expected findings", "Expected exit"):
+            if not _manifest_labelled(values[field_name]):
+                raise ManifestFailure(
+                    "manifest failure: entry %s carries a %s "
+                    "value with no pinned, derived, or open "
+                    "label: %s"
+                    % (fixture_id, field_name, values[field_name]))
+        entry = {}
+        for label, key in _MANIFEST_FIELD_KEYS.items():
+            entry[key] = values[label]
+        entry["bytes"] = int(values["Bytes"])
+        entry["lines"] = int(values["Lines"])
+        entry["sha256"] = values["Hash"]
+        entries[fixture_id] = entry
+    if not entries:
+        raise ManifestFailure(
+            "manifest failure: the manifest text carries no entry")
+    return entries
+
+
+def manifest_text_entries():
+    """The corpus manifest entries, from the manifest text.
+
+    The governing form of the manifest is the plain text file
+    at MANIFEST_MD, under the grammar the plan fixes. Every
+    read runs the self check first: no fixture verdict is taken
+    from a manifest that has not passed it. The JSON copy at
+    MANIFEST_JSON is not a verdict source.
+    """
+    with open(MANIFEST_MD, "r", encoding="utf-8") as handle:
+        return check_manifest_text(handle.read())
+
 
 def manifest():
     global _MANIFEST_CACHE
     if _MANIFEST_CACHE is None:
-        with open(MANIFEST_JSON, "r", encoding="utf-8") as handle:
-            _MANIFEST_CACHE = json.load(handle)
+        entries = manifest_text_entries()
+        _MANIFEST_CACHE = {
+            "corpus": "decision_queue_corpus",
+            "fixtures": entries,
+            "entries": [entries[key] for key in entries],
+        }
     return _MANIFEST_CACHE
 
 
@@ -278,7 +427,21 @@ def cached_run(fixture_id, subcommand, seed=SEED_ONE):
 
 
 def expected_exit(fixture_id):
-    return manifest_value(manifest_entry(fixture_id), "expected_exit_code")
+    entry = manifest_entry(fixture_id)
+    if "expected_exit_code" in entry:
+        return manifest_value(entry, "expected_exit_code")
+    text = str(entry["expected_exit"]).strip()
+    digits = ""
+    for char in text:
+        if char.isdigit():
+            digits += char
+        elif digits:
+            break
+    if not digits:
+        raise ManifestFailure(
+            "manifest failure: entry %s carries an expected "
+            "exit with no exit code: %s" % (fixture_id, text))
+    return int(digits)
 
 
 # ---------------------------------------------------------------------

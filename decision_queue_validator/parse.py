@@ -17,17 +17,14 @@ import re
 import sys
 
 from .types import (
-    CensusEntry,
+    DQNumber,
     DecisionBlock,
-    DistinctPhrasingCount,
     ElementTuple,
     EntryRecord,
     ExitDecision,
     FieldOccurrence,
     FileHeaderFacts,
     FileLevelFailure,
-    Finding,
-    HeadedEntryCount,
     Input,
     InputValue,
     Limits,
@@ -36,15 +33,11 @@ from .types import (
     OrphanSegment,
     ParseNote,
     QueueFileModel,
-    ReconciliationBlock,
     SegmentClaim,
     Span,
     StatusBearingElement,
     Unit,
-    ValidateOutput,
-    VerbatimAppendixRow,
     Vocabulary,
-    _SHIPPED_VOCABULARY_MAPPING,
 )
 
 __all__ = [
@@ -58,7 +51,7 @@ __all__ = [
 
 _HEADING_RE = re.compile(r"^(#{1,6}) (.*)$")
 _NUMBERED_RE = re.compile(r"^DQ-(\d+): (\S.*)$")
-_UNNUMBERED_RE = re.compile(r"^(R-\d+) (\S.*)$")
+_NAMED_UNNUMBERED_HEADING = "R-7 closure conflict"
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _ADDITION_RE = re.compile(
     r"^(?:[A-Za-z]+ )?addition to (DQ-\d{3})\b", re.IGNORECASE)
@@ -178,28 +171,18 @@ def _first_word(text):
     return match.group(0) if match else ""
 
 
-_FAMILY_DISPOSITIONS = {
-    "Banked": "Banked",
-    "Open": "Open",
-    "Parked": "Parked",
-    "Presented": "Presented",
-    "Ruled": "Ruled",
-    "Settled": "Settled",
-    "Closed as decided": "Closed",
-}
-
-
 def _disposition_from_value(value):
     """The disposition of a status value, from its opening forms.
 
-    A value whose opening forms state no disposition is read
-    against the translation table, the shipped vocabulary mapping
-    in types, by exact match on the value as written: the table
-    translates the phrasing to its canonical family, and the
-    family gives the disposition. No normalisation is applied to
-    the value, so a phrasing standing in the table in one code
-    point sequence does not translate a canonically equivalent
-    phrasing in another sequence.
+    The disposition is read from the surface forms of the value
+    alone: its opening word, or a Ruled by or Settled by form it
+    carries. A value whose opening forms state no disposition
+    takes no disposition here. Parse holds no vocabulary mapping
+    and performs no translation: the translation of a verbatim
+    phrasing to a canonical family, and every mapping to a
+    canonical state, is validate work under the seam at plan
+    Item 3, section 3.5, and a phrasing parse cannot read stands
+    in the element list with no disposition, under PIN-04.
     """
     word = _first_word(value).upper()
     if word in _DISPOSITION_WORDS:
@@ -208,9 +191,6 @@ def _disposition_from_value(value):
         return "Ruled"
     if re.search(r"\bSettled by:", value):
         return "Settled"
-    family = _SHIPPED_VOCABULARY_MAPPING.get(value)
-    if family in _FAMILY_DISPOSITIONS:
-        return _FAMILY_DISPOSITIONS[family]
     return None
 
 
@@ -548,10 +528,18 @@ def _numbered_heading(text):
 
 
 def _unnumbered_heading(text):
-    match = _UNNUMBERED_RE.match(text)
-    if not match:
+    """The named unnumbered entry form, and no other.
+
+    The one unnumbered headed entry this version recognises is
+    the named R-7 entry, under its literal heading text as
+    measured. A heading in an R number form with any other
+    number, or with the R-7 number under any other title, is no
+    entry form: it takes the Warning and file level unit
+    treatment under PIN-06.
+    """
+    if text != _NAMED_UNNUMBERED_HEADING:
         return None
-    return match.group(1), match.group(2)
+    return "R-7", text[len("R-7 "):]
 
 
 _HEADING_BY_RE = re.compile(
@@ -643,12 +631,24 @@ def _addition_paragraphs_after_closing(record, closing_line):
             found.append(paragraph)
             continue
         addition = _ADDITION_RE.match(first_text)
-        if addition and addition.group(1) == record.identifier:
+        if addition and addition.group(1) == str(record.identifier):
             found.append(paragraph)
     return found
 
 
 def _is_note_section(text):
+    """Whether a heading stands in a recorded note section form.
+
+    The recorded forms are the forms the brief names at PIN-06:
+    a heading opening with the word Note or Notes, an Amendment
+    note heading, and the Manager addition note heading, in
+    either of its written forms. A heading whose words merely
+    contain the word note or notes in some other position stands
+    in no recorded form and is no note section: it takes the
+    recognition test, and where it names a single DQ entry as
+    its subject it takes the Warning and file level unit
+    treatment.
+    """
     words = re.findall(r"[A-Za-z']+", text)
     if not words:
         return False
@@ -658,7 +658,9 @@ def _is_note_section(text):
     if len(lowered) >= 2 and lowered[0] == "amendment" and \
             lowered[1] == "note":
         return True
-    if "note" in lowered or "notes" in lowered:
+    stripped = text.strip()
+    if stripped.startswith("Manager's addition note") or \
+            stripped.startswith("Manager addition note"):
         return True
     return False
 
@@ -863,8 +865,9 @@ class _EntryBuilder:
                  ", which is no named label form; its matter is body "
                  "text only",
             line_span=span,
-            entry_identifier=self.record.identifier or
-            self.record.heading,
+            entry_identifier=str(self.record.identifier)
+            if self.record.identifier is not None
+            else self.record.heading,
         ))
 
     def process_paragraph(self, paragraph, decision_block=None,
@@ -1387,10 +1390,10 @@ def parse_queue(input_value, limits):
         if level == 1:
             if position == 0:
                 continue
-            starts.append((number, "orphan unmatched",
+            starts.append((number, "file header",
                            (level, heading_text, None)))
             started = True
-            current_kind = "orphan"
+            current_kind = "file header"
             continue
         if level == 2:
             if _is_note_section(heading_text):
@@ -1404,8 +1407,6 @@ def parse_queue(input_value, limits):
                                (level, heading_text, None)))
                 started = True
                 current_kind = "section introduction"
-                continue
-            if not started:
                 continue
             starts.append((number, "orphan unmatched",
                            (level, heading_text, None)))
@@ -1463,7 +1464,9 @@ def parse_queue(input_value, limits):
             continue
         if kind == "file header":
             heading_text = None
-            if first_heading and first_heading[0] >= start and \
+            if info is not None:
+                heading_text = info[1]
+            elif first_heading and first_heading[0] >= start and \
                     first_heading[0] <= end:
                 heading_text = first_heading[2]
             units.append(Unit(kind="file header", span=span,
@@ -1473,14 +1476,10 @@ def parse_queue(input_value, limits):
         if kind in ("orphan note", "orphan unmatched"):
             level, heading_text, _form = info
             if kind == "orphan note":
-                lowered = heading_text.lower()
-                if lowered.startswith("amendment note"):
-                    orphan_kind = "amendment note section"
-                else:
-                    orphan_kind = "file level note section"
+                orphan_kind = "note section"
                 unmatched = False
             else:
-                orphan_kind = "another file level segment"
+                orphan_kind = "other file level segment"
                 unmatched = True
             segment_lines = [(number, lines_by_number[number])
                              for number in range(start, end + 1)]
@@ -1540,7 +1539,7 @@ def parse_queue(input_value, limits):
                 lines=segment_lines,
             )
             orphans.append(segment)
-            units.append(Unit(kind="orphan segment", span=span,
+            units.append(Unit(kind=orphan_kind, span=span,
                               heading_text=heading_text,
                               text=unit_text(start, end)))
             if unmatched:
@@ -1556,12 +1555,12 @@ def parse_queue(input_value, limits):
         level, heading_text, form = info
         form_kind, form_data = form
         if form_kind == "numbered":
-            identifier = form_data[0]
+            identifier = DQNumber(form_data[1], form_data[0])
             title = form_data[2]
             number_ledger.setdefault(form_data[1], []).append(
                 identifier)
         else:
-            identifier = None
+            identifier = heading_text
             title = form_data[1]
         record = EntryRecord(
             identifier=identifier,
@@ -1574,11 +1573,7 @@ def parse_queue(input_value, limits):
         )
         entries.append(record)
         if identifier is not None:
-            entries_by_id.setdefault(identifier, record)
-        units.append(Unit(kind="entry", span=span,
-                          heading_text=heading_text,
-                          entry_identifier=identifier,
-                          text=unit_text(start, end)))
+            entries_by_id.setdefault(str(identifier), record)
         builders[start] = _EntryBuilder(record, lines_by_number)
 
     for index, line in enumerate(lines):
@@ -1628,7 +1623,8 @@ def parse_queue(input_value, limits):
             for paragraph in _paragraphs(chunk_lines):
                 first_text = paragraph[0][1]
                 addition = _ADDITION_RE.match(first_text)
-                if addition and addition.group(1) != record.identifier:
+                if addition and addition.group(1) != str(
+                        record.identifier):
                     pending_additions.append(
                         (addition.group(1), paragraph, record))
                     continue
@@ -1685,8 +1681,9 @@ def parse_queue(input_value, limits):
                          "Status line and is reattached to it",
                     line_span=Span(paragraph[0][0], paragraph[-1][0],
                                    "label reattachment", True),
-                    entry_identifier=record.identifier or
-                    record.heading,
+                    entry_identifier=str(record.identifier)
+                    if record.identifier is not None
+                    else record.heading,
                 )
                 parse_notes.append(note)
                 record.parse_notes.append(note)
@@ -1715,8 +1712,21 @@ def parse_queue(input_value, limits):
                 statement=record.heading,
             )
             builder.elements.append(element)
-        builder.elements.sort(
-            key=lambda item: (item.line, item.position_in_line))
+
+        def assembled_key(element):
+            # PIN-02: elements stand in assembled order, the in
+            # place elements in file order first, then the
+            # elements of the reattached spans in the order the
+            # spans were collected, each span flagged not
+            # contiguous. Raw file position orders only within
+            # one span, never across the assembled entry.
+            for index, span in enumerate(record.spans):
+                if span.start_line <= element.line <= span.end_line:
+                    return (index, element.line,
+                            element.position_in_line)
+            return (0, element.line, element.position_in_line)
+
+        builder.elements.sort(key=assembled_key)
         record.status_elements = builder.elements
         record.decision_blocks = builder.blocks
         record.fields = builder.fields
@@ -1747,48 +1757,13 @@ def parse_queue(input_value, limits):
                         record.date_text = found_date.group(0)
                         break
 
-    unit_counts = {
-        "entry": 0,
-        "orphan_segment": 0,
-        "file_header": 0,
-        "section_introduction": 0,
-    }
-    for unit in units:
-        if unit.kind == "entry":
-            unit_counts["entry"] += 1
-        elif unit.kind == "orphan segment":
-            unit_counts["orphan_segment"] += 1
-        elif unit.kind == "file header":
-            unit_counts["file_header"] += 1
-        elif unit.kind == "section introduction":
-            unit_counts["section_introduction"] += 1
-
-    stated_vocabulary = None
-    for unit in units:
-        if unit.kind != "file header":
-            continue
-        for number in range(unit.span.start_line,
-                            unit.span.end_line + 1):
-            if "vocabulary" in lines_by_number[number].lower():
-                stated_vocabulary = lines_by_number[number]
-                break
-        break
-
-    facts = FileHeaderFacts(
-        input_name=name,
-        stated_vocabulary=stated_vocabulary,
-        byte_count=byte_count,
-        line_count=line_count,
-        longest_line_length=longest,
-        digest=digest,
-        limits=limits,
-        vocabulary_version=None,
-        unit_counts=unit_counts,
-    )
+    header_text = ""
+    if queue_header_present and first_heading is not None:
+        header_text = lines_by_number[first_heading[0]]
+    facts = FileHeaderFacts(header_text)
     return QueueFileModel(
         header_facts=facts,
-        units=[unit for unit in units
-               if unit.kind != "orphan segment"],
+        units=list(units),
         entries=entries,
         orphan_segments=orphans,
         parse_notes=parse_notes,

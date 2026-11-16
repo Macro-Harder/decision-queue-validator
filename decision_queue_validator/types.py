@@ -42,6 +42,29 @@ class HeadedEntryCount:
         return "HeadedEntryCount(%r)" % (self.value,)
 
 
+class DQNumber(int):
+    """The numeric value a DQ heading's digits denote.
+
+    The value is the integer itself: equality, hashing, and
+    ordering are the integer's, so two headings whose digits
+    differ in width alone carry the one value. The string form
+    is the DQ label as written in the heading, which is the
+    form print surfaces use. The heading text verbatim stands
+    on the Entry record itself, at its heading field.
+    """
+
+    def __new__(cls, value, label=""):
+        obj = int.__new__(cls, value)
+        obj.label = label or ("DQ-%d" % int(value))
+        return obj
+
+    def __str__(self):
+        return self.label
+
+    def __repr__(self):
+        return "DQNumber(%r, %r)" % (int(self), self.label)
+
+
 class DistinctPhrasingCount:
     """A count of distinct verbatim status phrasings."""
 
@@ -246,9 +269,10 @@ class NearMarkerOccurrence:
 class EntryRecord:
     """One headed entry, as parse records it.
 
-    The record carries the identifier (a DQ number as text, or None
-    for an unnumbered headed entry carried under its literal heading
-    text), the verbatim heading text, the heading level and line, the
+    The record carries the identifier (the DQ number as the numeric
+    value the heading digits denote, in the DQNumber type, or the
+    literal heading text for the named R-7 entry), the verbatim
+    heading text, the heading level and line, the
     title text after the entry token, the spans in file order, the
     section as provenance only, the ordered field occurrences, the
     ordered status elements, the ordered decision blocks, the post
@@ -266,7 +290,7 @@ class EntryRecord:
     internal undecided note, each in a field of its own.
     """
 
-    identifier: Optional[str]
+    identifier: object
     heading: str
     heading_level: int
     heading_line: int
@@ -295,6 +319,10 @@ class EntryRecord:
         return self.heading
 
     @property
+    def span(self):
+        return self.spans[0] if self.spans else None
+
+    @property
     def unparsed_flag(self):
         return self.unparsed
 
@@ -311,8 +339,10 @@ class SegmentClaim:
 class OrphanSegment:
     """An orphan segment: a first class member of the model.
 
-    The kind is one of file level note section, amendment note
-    section, or another file level segment that is not an entry. A
+    The kind is one of the file level unit kinds at plan Item 3,
+    section 3.3: note section, for a segment under one of the
+    recorded note section headings, or other file level segment,
+    for a segment under a heading matching no known form. A
     segment created by an unmatched heading carries its unmatched
     flag, so the finding that belongs to it can be raised from the
     model. The entries the segment names are taken from its own text.
@@ -329,11 +359,14 @@ class OrphanSegment:
 
 @dataclass
 class Unit:
-    """One unit of the partition.
+    """One file level unit of the partition.
 
-    The kind is exactly one of file header, section introduction,
-    orphan segment, or entry. Every line of the file belongs to
-    exactly one unit, or stands in the model unassigned list.
+    The kind is exactly one of the kinds plan Item 3, section 3.3
+    states: file header, section introduction, note section, or
+    other file level segment. Entry spans are not units of this
+    shape; they stand on the Entry records. Every line of the file
+    belongs to exactly one entry or exactly one unit of this
+    shape, or stands in the model unassigned list.
 
     The unit identifier stands in the one fixed form plan Item 3,
     section 3.3 states: the words file level unit, followed by the
@@ -360,34 +393,16 @@ class Unit:
                 % (self.kind, start))
 
 
-@dataclass
-class FileHeaderFacts:
-    """The file header facts parse measures once.
+class FileHeaderFacts(str):
+    """The header facts of the File shape: one verbatim text field.
 
-    The vocabulary version in force is not a parse fact: parse is
-    handed no Vocabulary value, so that field stands as None in the
-    model and is supplied at the validate handoff, where the version
-    is known. The unit counts are inputs to the reconciliation self
-    check and are printed nowhere.
+    The value is the queue header text as written, supplied by the
+    first occurrence of the queue header in the file and by no
+    later occurrence, as plan Item 3, section 3.2, field 7 states.
+    It carries no subfield list. The line count, the byte count,
+    and the digest of the bytes read stand as fields of the File
+    shape itself, not as parts of this value.
     """
-
-    input_name: str
-    stated_vocabulary: Optional[str] = None
-    byte_count: int = 0
-    line_count: int = 0
-    longest_line_length: int = 0
-    digest: str = ""
-    limits: Optional[Limits] = None
-    vocabulary_version: Optional[str] = None
-    unit_counts: dict = field(default_factory=dict)
-
-    @property
-    def counts_by_kind(self):
-        return self.unit_counts
-
-    @property
-    def digest_short(self):
-        return self.digest[:12]
 
 
 @dataclass
@@ -398,12 +413,13 @@ class QueueFileModel:
     model itself: the input name as given, the source designation,
     the raw bytes as read, the line count and the byte count of
     those bytes, their digest, and the number ledger keyed on the
-    numeric value of the entry number alone. The header facts value
-    carries the same measurements in the form the first run seams
-    read; the two carriers state the one measurement, taken once.
+    numeric value of the entry number alone. The header facts field
+    carries the queue header text verbatim, in the one text field
+    section 3.2, field 7 states, and no measurement stands inside
+    it; the measurements stand on the model fields named here.
     """
 
-    header_facts: FileHeaderFacts
+    header_facts: str = ""
     units: list = field(default_factory=list)
     entries: list = field(default_factory=list)
     orphan_segments: list = field(default_factory=list)
@@ -545,7 +561,6 @@ class VerbatimAppendixRow:
     occurrence_count: int
     kind: str
     member_entry_ids: list = field(default_factory=list)
-    unclassified: bool = False
     counting_unit: str = "status occurrences"
 
 
@@ -590,13 +605,19 @@ class ReconciliationBlock:
 
 @dataclass
 class FileFactsData:
-    """The file facts data for the shared head, carried by validate."""
+    """The file facts data for the shared head, carried by validate.
+
+    The source designation of the File shape stands on this value
+    in its own field, so the designation recorded on the parse
+    model reaches the printed head through the validate handoff.
+    """
 
     input_name: str
     byte_count: int = 0
     line_count: int = 0
     entry_count: Optional[HeadedEntryCount] = None
     digest: str = ""
+    source_designation: str = "live"
 
 
 @dataclass
@@ -624,6 +645,25 @@ class EntryResult:
 
 
 @dataclass
+class CountingUnitsKey:
+    """The counting units key of the render model.
+
+    The counts of the render model stand under this key, as plan
+    Item 3, section 3.7 states: each field names the unit the
+    count it keys stands in, so no count of the model is read
+    without its unit. Validate populates the key; render reads
+    the figures under it.
+    """
+
+    canonical_counts: str = "entries"
+    headed_entry_count: str = "headed entries"
+    residue_items: str = "residue items"
+    supersession_chains: str = "chains"
+    waiting: str = "entries"
+    blocking: str = "entries"
+
+
+@dataclass
 class ValidateOutput:
     """The sole validate to render handoff.
 
@@ -646,6 +686,7 @@ class ValidateOutput:
     """
 
     entries: list = field(default_factory=list)
+    entry_groups: list = field(default_factory=list)
     findings: list = field(default_factory=list)
     census: list = field(default_factory=list)
     reconciliation: Optional[ReconciliationBlock] = None
@@ -670,7 +711,8 @@ class ValidateOutput:
     residue_items: list = field(default_factory=list)
     residue_share: object = None
     supersession_chains: list = field(default_factory=list)
-    counting_units: dict = field(default_factory=dict)
+    counting_units: CountingUnitsKey = field(
+        default_factory=CountingUnitsKey)
 
 
 _SHIPPED_VOCABULARY_VERSION = "1"
@@ -772,7 +814,11 @@ class CorpusManifestEntry:
     The field order is the manifest order: fixture, kind, source,
     hash, the byte count, the line count, the expected counts, the
     expected findings, and the expected exit. The byte count stands
-    in bytes and the line count in lines.
+    in bytes and the line count in lines. The expected count labels
+    field stands after those nine: it holds, per expected count,
+    the label that count carries, one of pinned, derived, or open,
+    so the manifest self check at plan Item 3, section 3.9 has a
+    carrier for the label it checks for.
     """
 
     fixture: str = ""
@@ -784,6 +830,7 @@ class CorpusManifestEntry:
     expected_counts: dict = field(default_factory=dict)
     expected_findings: list = field(default_factory=list)
     expected_exit: str = ""
+    expected_count_labels: dict = field(default_factory=dict)
 
 
 @dataclass

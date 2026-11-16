@@ -17,7 +17,14 @@ import stat
 import sys
 
 from .parse import parse_queue
-from .render import escape_text, render_summary, render_validate
+from .render import (
+    build_shared_head,
+    escape_text,
+    file_facts_line,
+    render_summary,
+    render_validate,
+    shared_head_lines,
+)
 from .types import ExitDecision, FileLevelFailure, Input, Limits, Vocabulary
 from .validate import validate_model
 
@@ -51,23 +58,27 @@ def build_vocabulary():
 
 
 def _head_lines(input_name, facts_line=None):
-    lines = [
-        "Checked: form and internal consistency only. Not checked: "
-        "merits, truth of rulings, landings elsewhere, companion "
-        "file contents, decider authority.",
-        "Input: %s" % escape_text(input_name),
-    ]
-    if facts_line is not None:
-        lines.append(facts_line)
-    lines.append(
+    """The head of a shell surface, from the one shared head
+    construction in render, and from no second construction.
+
+    Every shell surface carries all five standing positions,
+    the file facts line included: where no file facts stand for
+    the surface, as on a run that did not take place, the facts
+    line states absent at its position.
+    """
+    if facts_line is None:
+        facts_line = file_facts_line(None, None, None, None)
+    limits_line = (
         "Limits: %d bytes, %d lines, %d characters per line" % (
             LIMITS.max_bytes, LIMITS.max_lines,
             LIMITS.max_characters_per_line))
-    lines.append(
+    versions_line = (
         "Versions: vocabulary %s, output form %s, rule set %s" % (
             VOCABULARY_VERSION, OUTPUT_FORM_EDITION,
             RULE_SET_VERSION))
-    return lines
+    head = build_shared_head(input_name, facts_line, limits_line,
+                             versions_line)
+    return shared_head_lines(head)
 
 
 def closing_line(code, reason_text):
@@ -165,14 +176,17 @@ def _refusal_output(input_name, fault_lines, facts_line,
     return "\n".join(lines) + "\n"
 
 
-def _file_facts_line(byte_count, line_count, digest):
-    parts = ["live"]
-    if line_count is not None:
-        parts.append("%d lines" % line_count)
-    parts.append("%d bytes" % byte_count)
-    if digest:
-        parts.append("digest %s" % escape_text(digest[:12]))
-    return "File: " + ", ".join(parts)
+def _file_facts_line(byte_count, line_count, digest,
+                     source_designation=None):
+    """The file facts line of a refusal surface, in the shared
+    head form render owns.
+
+    The source designation prints only where a value carrying it
+    stands for the run; no designation is supplied here where
+    none stands.
+    """
+    return file_facts_line(source_designation, line_count,
+                           byte_count, digest)
 
 
 def _failure_output(failure):
@@ -209,8 +223,9 @@ def _failure_output(failure):
             escape_text(str(item)) for item in decision.reason_classes)
     return _refusal_output(
         failure.input_name, fault_lines,
-        _file_facts_line(failure.byte_count, failure.line_count,
-                         failure.digest),
+        _file_facts_line(
+            failure.byte_count, failure.line_count, failure.digest,
+            getattr(failure, "source_designation", None)),
         reason_text)
 
 
@@ -380,17 +395,6 @@ def _assemble_exit_decision(output):
     ambiguous = _number(_get(recon, "ambiguous_count", "ambiguous"))
     unparsed = _number(_get(recon, "unparsed_count",
                             "unparsed_entries"))
-    entries = _items(_get(output, "entries", "entry_results",
-                          "per_entry"))
-    if ambiguous == 0:
-        ambiguous = sum(
-            1 for entry in entries
-            if _get(entry, "effective_state", "state") == "Ambiguous"
-            or _get(entry, "reporting_form") == "Ambiguous")
-    if unparsed == 0:
-        unparsed = sum(
-            1 for entry in entries
-            if _get(entry, "unparsed", "unparsed_flag"))
     supplied = _get(output, "reason_class_inputs",
                     "exit_reason_inputs")
     supplied_text = " ".join(
@@ -429,17 +433,26 @@ def _assemble_exit_decision(output):
 
 
 def _supply_exit_decision(output, decision, masked):
+    """The supply point of the shell supplied model fields.
+
+    Shell supplies the exit decision field of the render model,
+    and the rule set version field from its own constant, after
+    validate has handed its results over and before the model
+    is handed to render. The masked findings summary stands on
+    the Exit decision alone, in its declared field, and is
+    attached to no other value.
+    """
     try:
         output.exit_decision = decision
     except (AttributeError, TypeError):
         if isinstance(output, dict):
             output["exit_decision"] = decision
+    try:
+        output.rule_set_version = RULE_SET_VERSION
+    except (AttributeError, TypeError):
+        if isinstance(output, dict):
+            output["rule_set_version"] = RULE_SET_VERSION
     if masked is not None:
-        try:
-            output.masked_findings_summary = {
-                "Error": masked[0], "Warning": masked[1]}
-        except (AttributeError, TypeError):
-            pass
         try:
             decision.masked_findings_summary = {
                 "Error": masked[0], "Warning": masked[1]}
@@ -540,7 +553,8 @@ def main(argv=None):
             facts_line = _file_facts_line(
                 _number(_get(facts, "byte_count")),
                 _number(_get(facts, "line_count")),
-                _get(facts, "digest"))
+                _get(facts, "digest"),
+                _get(facts, "source_designation"))
         delivered = _deliver_stderr_run(_gap_refusal_output(
             input_name, facts_line, gap_size))
         return delivered if delivered != 0 else 3
@@ -554,10 +568,12 @@ def main(argv=None):
                 facts_line = _file_facts_line(
                     _number(_get(facts, "byte_count")),
                     _number(_get(facts, "line_count")),
-                    _get(facts, "digest"))
+                    _get(facts, "digest"),
+                    _get(facts, "source_designation"))
             elif isinstance(signal, FileLevelFailure):
                 facts_line = _file_facts_line(
-                    signal.byte_count, signal.line_count, signal.digest)
+                    signal.byte_count, signal.line_count, signal.digest,
+                    getattr(signal, "source_designation", None))
             delivered = _deliver_stderr_run(_map_refusal_output(
                 input_name, facts_line))
             return delivered if delivered != 0 else 3

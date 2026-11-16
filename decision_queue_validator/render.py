@@ -13,6 +13,9 @@ __all__ = [
     "render_summary",
     "render_output",
     "escape_text",
+    "build_shared_head",
+    "shared_head_lines",
+    "file_facts_line",
 ]
 
 SCOPE_LINE = (
@@ -29,14 +32,7 @@ MAP_HEAD_LINE = (
     "No chain in this map judges which matter governs in "
     "substance."
 )
-UNITS_KEY_LINE = (
-    "Units key: canonical rows count entries; appendix rows count "
-    "status occurrences as written; headed entries exceed DQ "
-    "entries by one, the unnumbered R-7 entry, and every count "
-    "that includes it states its unit; the line start figure is a "
-    "census figure, not the status line total; the reported "
-    "status line total is the occurrence total."
-)
+
 WAITING_FORMULA = (
     "Waiting is the count of distinct entries that are either "
     "effectively open entries, or Settled in part entries "
@@ -67,6 +63,7 @@ _U_FORM.update(range(0x2066, 0x206A))
 _U_FORM.update(range(0x200B, 0x200E))
 _U_FORM.update(range(0x2061, 0x2065))
 _U_FORM.update(range(0x206A, 0x2070))
+_U_FORM.update([0x2028, 0x2029])
 _TAG_FORM = set([0xE0001])
 _TAG_FORM.update(range(0xE0020, 0xE0080))
 
@@ -80,9 +77,11 @@ def escape_text(value):
     backslash, x, and two uppercase hexadecimal digits.
     Directional, zero width, invisible format, and invisible
     operator characters print as backslash, u, and four uppercase
-    hexadecimal digits. Tag characters print as backslash, u, and
-    five uppercase hexadecimal digits. Every other character
-    prints as itself.
+    hexadecimal digits. The line separator and the paragraph
+    separator print in that same form, so no operator supplied
+    text can break the line structure of an output. Tag
+    characters print as backslash, u, and five uppercase
+    hexadecimal digits. Every other character prints as itself.
     """
     if value is None:
         return ""
@@ -221,44 +220,98 @@ def _element_text(element):
     return text
 
 
+def file_facts_line(source_designation, line_count, byte_count,
+                    digest):
+    """The file facts line of the shared head, in its one form.
+
+    The source designation prints exactly as the model carries
+    it. No designation is supplied here where the model carries
+    none: the position states absent, in the form the other
+    absent figures of this surface take. Counts and the digest
+    print only where the model carries them.
+    """
+    source = _text(source_designation)
+    parts = [escape_text(source) if source else "absent"]
+    if line_count is not None:
+        parts.append("%d lines" % _number(line_count))
+    if byte_count is not None:
+        parts.append("%d bytes" % _number(byte_count))
+    if digest:
+        parts.append("digest %s" % escape_text(_text(digest)[:12]))
+    return "File: " + ", ".join(parts)
+
+
+def build_shared_head(input_name, facts_line, limits_line,
+                      versions_line):
+    """The one shared head construction, in the OP-Q2 order.
+
+    Every output of both subcommands and every shell surface
+    takes its head from this construction and from no other. The
+    head stands as a SharedHead value: the scope statement, the
+    input name line, the file facts line, the limits line, and
+    the version fields line, with the sixth position, the
+    residue share line, standing empty until the WV-9 printing
+    decision takes effect to print.
+    """
+    from .types import SharedHead
+
+    return SharedHead(
+        scope_statement=SCOPE_LINE,
+        input_name_line="Input: %s" % _esc(input_name),
+        file_facts_line=facts_line,
+        limits_line=limits_line,
+        version_fields_line=versions_line,
+        residue_share_line="")
+
+
+def shared_head_lines(head):
+    """The printed lines of a SharedHead, in position order."""
+    lines = [
+        head.scope_statement,
+        head.input_name_line,
+        head.file_facts_line,
+        head.limits_line,
+        head.version_fields_line,
+    ]
+    if head.residue_share_line:
+        lines.append(head.residue_share_line)
+    return lines
+
+
 def _head_lines(output):
     facts = _field(output, "file_facts", "file_facts_data")
-    lines = [SCOPE_LINE]
     name = _field(facts, "input_name", "name")
     if name is None:
         name = _field(output, "input_name")
-    lines.append("Input: %s" % _esc(name))
     if facts is not None:
-        source = _text(_field(
-            facts, "source_designation", "source", "designation"))
-        if source not in ("live", "pinned"):
-            source = _text(_field(
-                output, "source_designation", "source"))
-        if source not in ("live", "pinned"):
-            source = "live"
-        digest = _text(_field(facts, "digest")) or ""
-        lines.append(
-            "File: %s, %d lines, %d bytes, digest %s" % (
-                source,
-                _number(_field(facts, "line_count")),
-                _number(_field(facts, "byte_count")),
-                escape_text(digest[:12])))
+        source = _text(_field(facts, "source_designation"))
+        if source is None:
+            source = _text(_field(output, "source_designation"))
+        facts_line = file_facts_line(
+            source, _field(facts, "line_count"),
+            _field(facts, "byte_count"), _field(facts, "digest"))
+    else:
+        facts_line = file_facts_line(
+            _text(_field(output, "source_designation")),
+            None, None, None)
     limits = _field(output, "limits")
     max_bytes = _field(limits, "max_bytes")
     max_lines = _field(limits, "max_lines")
     max_chars = _field(limits, "max_characters_per_line")
-    lines.append(
+    limits_line = (
         "Limits: %d bytes, %d lines, %d characters per line" % (
             _number(max_bytes) if max_bytes is not None else 2000000,
             _number(max_lines) if max_lines is not None else 10000,
             _number(max_chars) if max_chars is not None else 16384))
-    lines.append(
+    rule_set = _text(_field(output, "rule_set_version"))
+    versions_line = (
         "Versions: vocabulary %s, output form %s, rule set %s" % (
             _esc(_field(output, "vocabulary_version") or "1"),
             _esc(_field(output, "output_form_edition") or "1"),
-            _esc(_field(output, "rule_set_version",
-                        "rule_set") or "1")))
-    return lines
+            escape_text(rule_set) if rule_set else "absent"))
+    head = build_shared_head(name, facts_line, limits_line,
+                             versions_line)
+    return shared_head_lines(head)
 
 
 def _foot_line(form):
@@ -267,43 +320,20 @@ def _foot_line(form):
             "same file" % other)
 
 
-def _carried_entry_total_break(output):
-    """A footing break carried in the model itself, or None.
-
-    Where the model handed to render carries parse owned header
-    facts whose entry unit count disagrees with the entry list
-    the model carries, and no reconciliation self check result
-    stands in the model, the break the self check compares is
-    already present in the carried values. It is reported in the
-    form validate itself uses for that component, so the run
-    takes the tool inconsistency surface in place of the summary.
-    No figure is repaired and no count is recomputed for any
-    other surface: a model carrying a reconciliation block is
-    governed by its self check result alone, exactly as before.
-    """
-    facts = _field(output, "header_facts", "file_header_facts")
-    if facts is None:
-        return None
-    counts = _field(facts, "unit_counts", "counts_by_kind")
-    if not isinstance(counts, dict) or "entry" not in counts:
-        return None
-    claimed = _number(counts.get("entry"))
-    actual = len(_entries(output))
-    if claimed == actual:
-        return None
-    return {"failed_components": [
-        "entry total: the entry list holds %d entries and the "
-        "parse owned count records %d entry units"
-        % (actual, claimed)]}
-
-
 def _self_check_failed(output):
+    """The self check failure the model carries, or None.
+
+    The self check is validate work. Render reads the result the
+    model carries and computes no footing comparison of its own:
+    where no self check result stands in the model, no failure
+    surface is composed here.
+    """
     recon = _field(output, "reconciliation", "reconciliation_block")
     check = _field(recon, "self_check", "self_check_result")
     if check is None:
         check = _field(output, "self_check", "self_check_result")
     if check is None:
-        return _carried_entry_total_break(output)
+        return None
     if isinstance(check, str):
         lowered = check.lower()
         return check if "not agree" in lowered or \
@@ -357,7 +387,7 @@ def _failure_output(output, form):
 
 def _entries(output):
     return _items(_field(output, "entries", "entry_results",
-                         "per_entry", "entry_groups"))
+                         "per_entry"))
 
 
 def _entry_label(entry):
@@ -536,29 +566,114 @@ def _entry_row_lines(entry):
     return lines
 
 
-def _group_sections(entries, include_all_headings):
+def _model_entry_groups(output):
+    """The entry groups the model carries, or None.
+
+    The render model carries its entry groups in render order
+    (plan Item 3, section 3.7, field 6). Each group stands as a
+    mapping or a value carrying a group name and its entries.
+    None stands where the model carries no entry groups field at
+    all, or where the field carries no named group: only then
+    does the print fall back to the entries as carried, grouped
+    by the group each entry itself carries.
+    """
+    if isinstance(output, dict):
+        if "entry_groups" not in output:
+            return None
+        raw = output.get("entry_groups")
+    elif output is None or not hasattr(output, "entry_groups"):
+        return None
+    else:
+        raw = getattr(output, "entry_groups")
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        pairs = [(name, _items(members))
+                 for name, members in raw.items()]
+        return pairs or None
+    pairs = []
+    for item in _items(raw):
+        name = None
+        members = None
+        if isinstance(item, (list, tuple)) and len(item) == 2 and \
+                isinstance(item[0], str):
+            name, members = item[0], _items(item[1])
+        elif isinstance(item, dict) and (
+                "group" in item or "name" in item) and (
+                "entries" in item or "members" in item):
+            name = _text(_field(item, "group", "name"))
+            members = _items(_field(item, "entries", "members"))
+        elif item is not None and hasattr(item, "entries") and (
+                hasattr(item, "group") or hasattr(item, "name")):
+            name = _text(_field(item, "group", "name"))
+            members = _items(_field(item, "entries", "members"))
+        if name is not None and members is not None:
+            pairs.append((name, members))
+    return pairs or None
+
+
+def _group_title(name):
+    if name == "Unparsed":
+        return "Unparsed entries"
+    if name == "Ambiguous":
+        return "Ambiguous group"
+    return "%s group" % name
+
+
+def _group_sections(output, entries, include_all_headings):
     lines = []
-    groups = {}
-    for entry in entries:
-        groups.setdefault(_entry_group(entry), []).append(entry)
-    for state in _GROUP_ORDER:
-        chosen = groups.get(state) or []
-        if not chosen and not include_all_headings:
-            continue
-        title = "Unparsed entries" if state == "Unparsed" else \
-            "%s group" % state
-        if state == "Ambiguous":
-            title = "Ambiguous group"
-        lines.append(title)
-        lines.append("")
-        for entry in chosen:
-            lines.extend(_entry_row_lines(entry))
+    model_groups = _model_entry_groups(output)
+    covered = set()
+    if model_groups is not None:
+        by_name = {}
+        carried_order = []
+        for name, members in model_groups:
+            if name not in by_name:
+                by_name[name] = []
+                carried_order.append(name)
+            by_name[name].extend(members)
+            for member in members:
+                covered.add(id(member))
+        order = [name for name in _GROUP_ORDER + ("Unparsed",)
+                 if name in by_name or include_all_headings]
+        order.extend(name for name in carried_order
+                     if name not in order)
+        for name in order:
+            chosen = by_name.get(name) or []
+            if not chosen and not include_all_headings:
+                continue
+            lines.append(_group_title(name))
             lines.append("")
-    unparsed = groups.get("Unparsed") or []
-    if unparsed or include_all_headings:
-        lines.append("Unparsed entries")
+            for entry in chosen:
+                lines.extend(_entry_row_lines(entry))
+                lines.append("")
+        ungrouped = [entry for entry in entries
+                     if id(entry) not in covered]
+    else:
+        groups = {}
+        for entry in entries:
+            groups.setdefault(_entry_group(entry), []).append(entry)
+        for state in _GROUP_ORDER:
+            chosen = groups.get(state) or []
+            if not chosen and not include_all_headings:
+                continue
+            lines.append(_group_title(state))
+            lines.append("")
+            for entry in chosen:
+                lines.extend(_entry_row_lines(entry))
+                lines.append("")
+        unparsed = groups.get("Unparsed") or []
+        if unparsed or include_all_headings:
+            lines.append("Unparsed entries")
+            lines.append("")
+            for entry in unparsed:
+                lines.extend(_entry_row_lines(entry))
+                lines.append("")
+        ungrouped = groups.get(None) or []
+    if ungrouped:
+        lines.append("Ungrouped entries")
         lines.append("")
-        for entry in unparsed:
+        for entry in ungrouped:
             lines.extend(_entry_row_lines(entry))
             lines.append("")
     return lines
@@ -627,10 +742,16 @@ def _validate_body(output):
     findings = _items(_field(output, "findings", "findings_list"))
     lines.append("Findings index")
     lines.append("")
+    entry_ids = {_entry_label(entry) for entry in _entries(output)}
     indexed = []
     for position, finding in enumerate(findings):
         ident = _finding_entry(finding)
-        if ident is None or ident == "FILE":
+        if ident is None:
+            continue
+        if entry_ids:
+            if ident not in entry_ids:
+                continue
+        elif ident == "FILE" or ident.startswith("file level unit"):
             continue
         severity = _text(_field(finding, "severity", "grade")) or ""
         rank = _SEVERITY_ORDER.index(severity) \
@@ -677,8 +798,7 @@ def _validate_body(output):
                     _field(finding, "evidence", "verbatim_evidence",
                            "quotes")):
                 lines.append("Evidence: %s" % evidence)
-            claiming = _text(_field(finding, "claiming_unit",
-                                    "claiming_entry", "claiming"))
+            claiming = _text(_field(finding, "claiming_unit"))
             if claiming:
                 lines.append("Claiming unit: %s" %
                              escape_text(claiming))
@@ -800,7 +920,7 @@ def _census_lines(output):
                                "total"))
         lines.append("%s: %s" % (escape_text(name),
                                  _counted(count, "entry", "entries")))
-        rule = _text(_field(entry, "class_rule", "rule_statement"))
+        rule = _text(_field(entry, "class_rule_statement"))
         if rule:
             lines.append("Rule: %s" % escape_text(rule))
         head_count = _carried_number(_field(entry, "head_line_count"))
@@ -916,42 +1036,16 @@ def _reconciliation_lines(output):
     else:
         lines.append("Self check: sums agree" if ok else
                      "Self check: sums do not agree")
-    entry_total = _carried_number(
-        _field(recon, "entry_total", "headed_entry_count",
-               "entry_count"))
-    canonical_sum = 0
-    if isinstance(canonical, dict):
-        canonical_sum = sum(_number(value) for value in
-                            canonical.values())
-    ambiguous = _number(_field(recon, "ambiguous_count", "ambiguous"))
-    unparsed = _number(_field(recon, "unparsed_count",
-                              "unparsed_entries"))
-    occurrence = _carried_number(
-        _field(recon, "status_occurrence_total", "occurrence_total"))
-    if occurrence is None:
-        occurrence_clause = "the Status occurrence total is absent"
+    declarations = _items(_field(recon, "paired_total_declarations",
+                                 "paired_totals"))
+    declarations = [_text(item) for item in declarations]
+    declarations = [item for item in declarations if item]
+    if declarations:
+        for declaration in declarations:
+            lines.append("Paired totals: %s" %
+                         escape_text(declaration))
     else:
-        occurrence_clause = (
-            "the Status occurrence total of %d equals the sum of "
-            "the verbatim appendix rows, both views from the one "
-            "parse" % occurrence)
-    if entry_total is None:
-        lines.append(
-            "Paired totals: the entry total is absent and is not "
-            "stated as a number; the canonical rows total of %d "
-            "plus the Ambiguous reporting count of %d plus the "
-            "unparsed row of %d, both views from the one parse; "
-            "%s." % (canonical_sum, ambiguous, unparsed,
-                     occurrence_clause))
-    else:
-        lines.append(
-            "Paired totals: the entry total of %s equals the "
-            "canonical rows total of %d plus the Ambiguous "
-            "reporting count of %d plus the unparsed row of %d, "
-            "both views from the one parse; %s." % (
-                _counted(entry_total, "headed entry",
-                         "headed entries"), canonical_sum, ambiguous,
-                unparsed, occurrence_clause))
+        lines.append("Paired totals: absent")
     return lines
 
 
@@ -1125,12 +1219,7 @@ def _limbo_parts(output, entries):
             if count is None and ids is not None:
                 count = len(ids)
         if ids is None:
-            if key == "unparsed":
-                ids = [_entry_label(entry) for entry in entries
-                       if _entry_group(entry) == "Unparsed"]
-            else:
-                ids = [_entry_label(entry) for entry in entries
-                       if _entry_group(entry) == state]
+            ids = []
         if count is None:
             recon = _field(output, "reconciliation",
                            "reconciliation_block")
@@ -1150,6 +1239,31 @@ def _limbo_parts(output, entries):
     return result
 
 
+def _figure_unit(output, figure, key):
+    """The unit a figure stands in, as the model carries it.
+
+    The unit stands beside the figure itself where the figure
+    carries one, and otherwise in the counting units key of the
+    model under the figure name. Render supplies no unit of its
+    own.
+    """
+    unit = _text(_field(figure, "unit", "counting_unit"))
+    if unit:
+        return unit
+    units = _field(output, "counting_units")
+    return _text(_field(units, key))
+
+
+def _figure_text(output, figure, key):
+    carried = _carried_number(figure)
+    if carried is None:
+        return None
+    unit = _figure_unit(output, figure, key)
+    if unit:
+        return "%d %s" % (carried, escape_text(unit))
+    return _counted(carried, "entry", "entries")
+
+
 def _figures_lines(output, entries):
     lines = ["Figures", ""]
     waiting = _field(output, "waiting", "waiting_figure",
@@ -1162,13 +1276,12 @@ def _figures_lines(output, entries):
         waiting = _field(figures, "waiting", "waiting_count")
     if blocking is None and figures is not None:
         blocking = _field(figures, "blocking", "blocking_count")
-    waiting_carried = _carried_number(waiting)
-    if waiting_carried is None:
+    waiting_text = _figure_text(output, waiting, "waiting")
+    if waiting_text is None:
         lines.append("Waiting: absent. %s" % WAITING_FORMULA)
     else:
         lines.append("Waiting: %s. %s" % (
-            _counted(waiting_carried, "entry", "entries"),
-            WAITING_FORMULA))
+            waiting_text, WAITING_FORMULA))
     companion = _field(output, "companion_count", "companion")
     if companion is None and figures is not None:
         companion = _field(figures, "companion_count", "companion")
@@ -1179,12 +1292,11 @@ def _figures_lines(output, entries):
         lines.append("Companion count: %d entries." %
                      companion_carried)
     lines.append("Companion definition: %s" % COMPANION_DEFINITION)
-    blocking_carried = _carried_number(blocking)
-    if blocking_carried is None:
+    blocking_text = _figure_text(output, blocking, "blocking")
+    if blocking_text is None:
         lines.append("Blocking: absent.")
     else:
-        lines.append("Blocking: %s." % _counted(
-            blocking_carried, "entry", "entries"))
+        lines.append("Blocking: %s." % blocking_text)
     lines.append("Blocking list, in file order:")
     blocking_raw = _field(output, "blocking_list")
     blocking_list = _items(blocking_raw)
@@ -1248,8 +1360,43 @@ def _figures_lines(output, entries):
     return lines
 
 
+def _units_key_line(output):
+    """The units key line, from the counting units the model
+    carries, and from no render constant.
+
+    The counting units stand as name to unit pairs, as a mapping
+    or as the fields of the counting units key value. Where the
+    model carries no counting units, the key states absent, in
+    the form the other absent figures of this surface take.
+    """
+    units = _field(output, "counting_units")
+    pairs = []
+    if isinstance(units, dict):
+        pairs = [(str(name), _text(value))
+                 for name, value in units.items()]
+    elif units is not None:
+        for name in ("canonical_counts", "headed_entry_count",
+                     "residue_items", "supersession_chains",
+                     "waiting", "blocking"):
+            value = _text(_field(units, name))
+            if value is not None:
+                pairs.append((name.replace("_", " "), value))
+        if not pairs:
+            carried = getattr(units, "__dict__", None)
+            if isinstance(carried, dict):
+                pairs = [(str(name).replace("_", " "), _text(value))
+                         for name, value in carried.items()]
+    pairs = [(name, value) for name, value in pairs if value]
+    if not pairs:
+        return "Units key: absent"
+    clauses = ["%s count %s" % (escape_text(name),
+                                escape_text(value))
+               for name, value in pairs]
+    return "Units key: " + "; ".join(clauses) + "."
+
+
 def _counts_block(output):
-    lines = [UNITS_KEY_LINE, ""]
+    lines = [_units_key_line(output), ""]
     lines.extend(_crosswalk_lines(output))
     if lines[-1] != "":
         lines.append("")
@@ -1276,7 +1423,7 @@ def render_validate(validate_output):
     lines = _head_lines(validate_output)
     lines.append("")
     lines.extend(_validate_body(validate_output))
-    lines.extend(_group_sections(entries, False))
+    lines.extend(_group_sections(validate_output, entries, False))
     lines.extend(_counts_block(validate_output))
     lines.extend(_segment_claim_lines(validate_output))
     lines.extend(_figures_lines(validate_output, entries))
@@ -1299,7 +1446,7 @@ def render_summary(validate_output):
         "carries the phrasings as written.")
     lines.append("")
     lines.extend(_presentation_marking_lines())
-    lines.extend(_group_sections(entries, True))
+    lines.extend(_group_sections(validate_output, entries, True))
     lines.extend(_chain_lines(validate_output))
     lines.extend(_counts_block(validate_output))
     lines.extend(_segment_claim_lines(validate_output))

@@ -18,13 +18,14 @@ import re
 
 from .types import (
     CensusEntry,
+    CountingUnitsKey,
     DistinctPhrasingCount,
     EntryResult,
-    ExitDecision,
     FileFactsData,
     Finding,
     HeadedEntryCount,
     ReconciliationBlock,
+    ResidueItem,
     SelfCheckResult,
     Span,
     ValidateOutput,
@@ -41,7 +42,6 @@ __all__ = [
     "CensusEntry",
     "ReconciliationBlock",
     "VerbatimAppendixRow",
-    "ExitDecision",
     "FileFactsData",
     "SelfCheckResult",
     "HeadedEntryCount",
@@ -93,9 +93,20 @@ def _get(obj, name, default=None):
 
 def _display_id(entry):
     identifier = _get(entry, "identifier")
-    if identifier:
-        return identifier
     heading = _get(entry, "heading") or _get(entry, "heading_text") or ""
+    if identifier is not None and identifier != "":
+        # The identifier may stand in the DQNumber type the
+        # capture layer now carries; its string form is the DQ
+        # label as written, which is the form every validate
+        # comparison and display uses.
+        if str(identifier) == heading and (
+                heading == "R-7" or heading.startswith("R-7 ")):
+            # The named unnumbered form, PIN-06: under the D-06
+            # cure the entry identifier stands as the literal
+            # heading text of the R-7 heading, and the display
+            # identifier of that form is R-7.
+            return "R-7"
+        return str(identifier)
     if heading == "R-7" or heading.startswith("R-7 "):
         # The named unnumbered form, PIN-06: the literal R-7
         # heading. Its identifier is R-7; parse records no
@@ -105,8 +116,12 @@ def _display_id(entry):
 
 
 def _entry_number(entry):
-    identifier = _get(entry, "identifier") or ""
-    match = re.fullmatch(r"DQ-(\d+)", identifier)
+    identifier = _get(entry, "identifier")
+    if isinstance(identifier, bool):
+        return None
+    if isinstance(identifier, int):
+        return int(identifier)
+    match = re.fullmatch(r"DQ-(\d+)", identifier or "")
     if match:
         return int(match.group(1))
     return None
@@ -812,6 +827,72 @@ def _finding(rule_id, severity, entry_identifier, span, evidence,
         banked_question_id=banked_question_id)
 
 
+def _compose_unit_identifier(kind, start_line):
+    """The unit identifier form at plan Item 3, section 3.3: the
+    words file level unit, followed by the kind value, followed
+    by the start line of the span."""
+    return ("file level unit, kind %s, beginning at line %s"
+            % (kind, start_line))
+
+
+def _unit_identifier(model, span=None, segment=None):
+    """The identifier of the file level unit a file level finding
+    stands on, in the section 3.3 form. The unit is read from the
+    File shape units list where one covers the finding span or
+    the segment; where no unit stands in the list, the identifier
+    is composed from the segment kind and span, and where neither
+    stands, from the file header unit. The literal FILE stands
+    only where the model carries no unit at all, as on a model
+    double with an empty units list."""
+    units = list(_get(model, "units") or [])
+    wanted_start = None
+    if span is not None:
+        wanted_start = _get(span, "start_line")
+    if segment is not None and wanted_start is None:
+        segment_span = _get(segment, "span")
+        if segment_span is not None:
+            wanted_start = _get(segment_span, "start_line")
+    if wanted_start is not None:
+        for unit in units:
+            unit_span = _get(unit, "span")
+            if unit_span is None:
+                continue
+            start = _get(unit_span, "start_line")
+            end = _get(unit_span, "end_line")
+            if start is not None and start <= wanted_start and (
+                    end is None or wanted_start <= end):
+                identifier = _get(unit, "unit_identifier")
+                if identifier:
+                    return identifier
+                return _compose_unit_identifier(
+                    _get(unit, "kind"), start)
+    for unit in units:
+        if _get(unit, "kind") == "file header":
+            identifier = _get(unit, "unit_identifier")
+            if identifier:
+                return identifier
+            unit_span = _get(unit, "span")
+            return _compose_unit_identifier(
+                "file header",
+                _get(unit_span, "start_line") if unit_span else 0)
+    if segment is not None:
+        segment_span = _get(segment, "span")
+        start = (_get(segment_span, "start_line")
+                 if segment_span is not None else 0)
+        kind = _get(segment, "kind") or "other file level segment"
+        return _compose_unit_identifier(kind, start or 0)
+    if units:
+        unit = units[0]
+        identifier = _get(unit, "unit_identifier")
+        if identifier:
+            return identifier
+        unit_span = _get(unit, "span")
+        return _compose_unit_identifier(
+            _get(unit, "kind"),
+            _get(unit_span, "start_line") if unit_span else 0)
+    return FILE_ID
+
+
 def _rule_order_key(rule_id):
     if isinstance(rule_id, int):
         return (0, rule_id, "")
@@ -1228,7 +1309,7 @@ def _gap_naming_size(numbers):
     return digit_total + (missing_total - 1)
 
 
-def _check1(entries):
+def _check1(entries, model=None):
     findings = []
     by_number = {}
     for entry in entries:
@@ -1241,7 +1322,8 @@ def _check1(entries):
             lines = sorted(_get(e, "heading_line") for e in holders)
             named = " and ".join(str(n) for n in lines)
             findings.append(_finding(
-                1, "Error", FILE_ID, Span(lines[0], lines[-1]),
+                1, "Error", _unit_identifier(model),
+                Span(lines[0], lines[-1]),
                 "heading lines %s" % named,
                 "The entry number DQ-%03d is used more than once: "
                 "a duplicate entry number, heading lines %s."
@@ -1286,7 +1368,8 @@ def _check1(entries):
                 span = Span(0, 0)
             named = ", ".join(str(n) for n in missing)
             findings.append(_finding(
-                1, "Warning", FILE_ID, span, named,
+                1, "Warning", _unit_identifier(model, span=span),
+                span, named,
                 "Entry numbers missing from the sequence form a "
                 "gap in the sequence: %s." % named,
                 basis="a gap in the entry number sequence"))
@@ -1320,7 +1403,10 @@ def _check6(model, entries):
                          % ", ".join(str(n) for n in double_assigned))
         involved = unassigned + double_assigned
         findings.append(_finding(
-            6, "Error", FILE_ID, Span(min(involved), max(involved)),
+            6, "Error",
+            _unit_identifier(model, span=Span(min(involved),
+                                              max(involved))),
+            Span(min(involved), max(involved)),
             {"unassigned_lines": unassigned,
              "double_assigned_lines": double_assigned},
             " ".join(parts),
@@ -1355,7 +1441,9 @@ def _unmatched_heading_findings(model):
             continue
         heading_text = _get(segment, "heading_text") or ""
         findings.append(_finding(
-            5, "Warning", FILE_ID, _get(segment, "span"),
+            5, "Warning",
+            _unit_identifier(model, segment=segment),
+            _get(segment, "span"),
             heading_text,
             "The heading %s matches no recognised heading form; no "
             "entry is raised for it." % heading_text,
@@ -1430,7 +1518,7 @@ def _check8(model, entries, derived_by_id):
                 lines = [(span.start_line, _get(segment, "heading_text")
                           or "")]
         scan_citations(lines, ("segment", index),
-                       _get(segment, "heading_text") or "note section")
+                       _unit_identifier(model, segment=segment))
 
     def claim_finding(claiming_id, target_id, quoted, span):
         derived = derived_by_id.get(target_id)
@@ -1442,14 +1530,18 @@ def _check8(model, entries, derived_by_id):
         else:
             state_text = str(state)
         finding = _finding(
-            8, "Note", FILE_ID, span, quoted,
+            8, "Note", claiming_id, span, quoted,
             "%s records a claim about the state of %s: \"%s\" The "
             "claim is reported as a claim. The derived state of %s "
             "in this run is %s."
             % (claiming_id, target_id, quoted, target_id, state_text),
             basis="a cross entry state claim, reported as a claim")
         finding.named_entries = [target_id]
-        finding.claiming_entry = claiming_id
+        # The claiming entry stands in the declared claiming
+        # field of its own, under plan Item 3, section 3.6: the
+        # field is claiming_unit, and it carries the claiming
+        # unit or the claiming entry in that field alone.
+        finding.claiming_unit = claiming_id
         return finding
 
     seen_claims = set()
@@ -1541,7 +1633,8 @@ def _check8(model, entries, derived_by_id):
                     first_id = _display_id(entry)
         if present != claimed:
             findings.append(_finding(
-                8, "Warning", first_id or FILE_ID, span,
+                8, "Warning",
+                first_id or _unit_identifier(model, span=span), span,
                 _get(unit, "heading_text") or "",
                 "The section introduction states %d entries; %d "
                 "recognised entry headings stand in the section."
@@ -1619,9 +1712,11 @@ def _first_limb(sentence):
             or "are displaced" in lowered)
 
 
-def _pd_r7_finding(sentence, number_id, span):
+def _pd_r7_finding(sentence, number_id, span, identifier=None):
     return _finding(
-        "PD-R7", "Note", FILE_ID, span, sentence,
+        "PD-R7", "Note",
+        identifier if identifier is not None else FILE_ID,
+        span, sentence,
         "%s is cited, but no headed entry in the file carries "
         "that number: the cited number is reported once under "
         "PD-R7 only." % number_id,
@@ -1781,7 +1876,9 @@ def _supersession_unit(model, entries, derived_list):
         if key in pd_r7_seen:
             return
         pd_r7_seen.add(key)
-        findings.append(_pd_r7_finding(sentence, number_id, span))
+        findings.append(_pd_r7_finding(
+            sentence, number_id, span,
+            identifier=_unit_identifier(model, span=span)))
 
     for entry, derived in zip(entries, derived_list):
         if derived.get("unparsed"):
@@ -1977,22 +2074,22 @@ def _segment_claim_findings(model, entries):
     findings = []
     headed_set = {_display_id(e) for e in entries}
     for segment in _get(model, "orphan_segments") or []:
-        heading = _get(segment, "heading_text") or ""
         span = _get(segment, "span")
+        unit_id = _unit_identifier(model, segment=segment)
         claims = list(_get(segment, "claims") or [])
         if claims:
             for claim in claims:
                 statement = _get(claim, "statement") or ""
                 named = list(_get(claim, "named_entries") or [])
                 finding = _finding(
-                    "PIN-09", "Note", FILE_ID, span, statement,
+                    "PIN-09", "Note", unit_id, span, statement,
                     "A file level note section records a claim: %s "
                     "The claim is reported as a claim and is never "
                     "applied." % statement,
                     basis="a governing or state claim by a file "
                           "level note section, PIN-09")
                 finding.named_entries = named
-                finding.claiming_unit = heading
+                finding.claiming_unit = unit_id
                 findings.append(finding)
         else:
             seen_claims = set()
@@ -2003,7 +2100,7 @@ def _segment_claim_findings(model, entries):
                         continue
                     seen_claims.add(target)
                     finding = _finding(
-                        "PIN-09", "Note", FILE_ID,
+                        "PIN-09", "Note", unit_id,
                         Span(line_number, line_number), text,
                         "A file level note section records a claim "
                         "about %s: \"%s\" The claim is reported as "
@@ -2012,7 +2109,7 @@ def _segment_claim_findings(model, entries):
                         basis="a governing or state claim by a "
                               "file level note section, PIN-09")
                     finding.named_entries = [target]
-                    finding.claiming_unit = heading
+                    finding.claiming_unit = unit_id
                     findings.append(finding)
         seen_cited = set()
         for line_number, text in (_get(segment, "lines") or []):
@@ -2022,7 +2119,8 @@ def _segment_claim_findings(model, entries):
                     continue
                 seen_cited.add(target)
                 findings.append(_pd_r7_finding(
-                    text, target, Span(line_number, line_number)))
+                    text, target, Span(line_number, line_number),
+                    identifier=unit_id))
     return findings
 
 
@@ -2035,6 +2133,81 @@ def _head_element(entry):
         if element.kind == "line start Status line":
             return element
     return None
+
+
+_CLASS_RULE_STATEMENTS = {
+    "Banked head over a decided body": (
+        "An entry whose head line gives Banked and whose derived "
+        "state is a decided state or the Ambiguous reporting form "
+        "stands in this class."),
+    "Non header status value on a decided entry": (
+        "A decided entry carrying a status value that stands "
+        "outside its head line, in an embedded or variant "
+        "occurrence or in a later line, stands in this class."),
+    "Missing options block on a decided entry": (
+        "A decided entry carrying no options field in any recorded "
+        "form stands in this class."),
+    "Missing ruling date on a decided entry": (
+        "A decided entry carrying no recorded date stands in this "
+        "class."),
+    "Non numeric filing of a decided entry in the Ruled Record": (
+        "A decided entry in the Ruled Record section whose entry "
+        "number stands out of numeric order against its neighbours "
+        "in that section stands in this class."),
+    "Missing Owner line in a tail form entry": (
+        "A decided entry in the tail section carrying neither an "
+        "owner line nor the open entry fields stands in this "
+        "class."),
+    "Decided entry missing its question label or Cost field": (
+        "A decided entry in open form, outside the Ruled Record, "
+        "that carries one of its question label or its Cost field "
+        "and not the other stands in this class."),
+    "Open form fields carried by a decided entry in the Ruled "
+    "Record": (
+        "A decided entry in the Ruled Record section carrying an "
+        "open form field, its question, its cost of deciding late, "
+        "or its blocks field, stands in this class."),
+    "Unclassified status values": (
+        "An entry carrying a status element whose value the "
+        "vocabulary does not classify stands in this class."),
+    "Banked head evidence group: later Status line in the body": (
+        "A Banked head entry carrying a later Status line in its "
+        "body stands in this group, whatever else its body "
+        "carries, under the precedence at plan Item 3, section "
+        "3.8."),
+    "Banked head evidence group: level 4 decision block only": (
+        "A Banked head entry with no later Status line in its "
+        "body and with a level 4 decision block stands in this "
+        "group, under the precedence at plan Item 3, section 3.8."),
+    "Banked head evidence group: unheaded paragraphs only": (
+        "A Banked head entry with no later Status line and no "
+        "level 4 decision block, whose body carries unheaded "
+        "paragraphs, stands in this group, under the precedence "
+        "at plan Item 3, section 3.8."),
+    "Status occurrences at line start (file level census figure)": (
+        "Status occurrences whose occurrence kind is line start, "
+        "counted under the PIN-14 precedence, stand in this "
+        "figure; it is a file level census figure only and never "
+        "the status line total."),
+    "Unmatched heading word": (
+        "An entry whose heading carries a word with no canonical "
+        "mapping in this version stands in this class."),
+}
+
+
+def _class_rule_statement(class_name):
+    """The class rule statement in words for one census row, at
+    plan Item 3, section 3.6: the row states its class rule in
+    words, under PIN-13."""
+    if class_name in _CLASS_RULE_STATEMENTS:
+        return _CLASS_RULE_STATEMENTS[class_name]
+    if class_name.startswith("Canonical state: "):
+        state = class_name[len("Canonical state: "):]
+        return ("Entries whose derived effective state is %s "
+                "stand in this class." % state)
+    return ("Entries counted in the class named %s under its "
+            "class rule at PIN-13 stand in this class."
+            % class_name)
 
 
 def _census(entries, derived_list):
@@ -2153,7 +2326,9 @@ def _census(entries, derived_list):
         ("Unclassified status values", unclassified),
     ]
     rows = [CensusEntry(class_name=name, count=len(members),
-                        member_entry_ids=list(members))
+                        member_entry_ids=list(members),
+                        class_rule_statement=_class_rule_statement(
+                            name))
             for name, members in classes]
     for row in rows:
         row.counting_unit = "entries"
@@ -2185,7 +2360,9 @@ def _census(entries, derived_list):
             continue
         row = CensusEntry(
             class_name="Canonical state: %s" % state,
-            count=len(members), member_entry_ids=members)
+            count=len(members), member_entry_ids=members,
+            class_rule_statement=_class_rule_statement(
+                "Canonical state: %s" % state))
         row.counting_unit = "entries"
         row.body_derived_count = len(members)
         if state in head_views:
@@ -2204,7 +2381,9 @@ def _census(entries, derived_list):
         if not members:
             continue
         row = CensusEntry(class_name=name, count=len(members),
-                          member_entry_ids=list(members))
+                          member_entry_ids=list(members),
+                          class_rule_statement=_class_rule_statement(
+                              name))
         row.counting_unit = "entries"
         rows.append(row)
 
@@ -2224,7 +2403,10 @@ def _census(entries, derived_list):
     row = CensusEntry(
         class_name="Status occurrences at line start (file level "
                    "census figure)",
-        count=line_start_count, member_entry_ids=line_start_members)
+        count=line_start_count, member_entry_ids=line_start_members,
+        class_rule_statement=_class_rule_statement(
+            "Status occurrences at line start (file level census "
+            "figure)"))
     row.counting_unit = "Status lines"
     rows.append(row)
 
@@ -2242,7 +2424,9 @@ def _census(entries, derived_list):
         row = CensusEntry(
             class_name="Unmatched heading word",
             count=len(unmatched_heading),
-            member_entry_ids=unmatched_heading)
+            member_entry_ids=unmatched_heading,
+            class_rule_statement=_class_rule_statement(
+                "Unmatched heading word"))
         row.counting_unit = "entries"
         rows.append(row)
     return rows
@@ -2277,7 +2461,15 @@ def _banked_evidence_groups(entries, derived_list):
         if later:
             group1.append(display)
             continue
-        if _get(entry, "decision_blocks"):
+        if any(_get(block, "marking_form") == "H4 sub part"
+               for block in _get(entry, "decision_blocks") or []):
+            # The second group test is for a level 4 decision
+            # block only, under plan Item 3, section 3.8 and
+            # testing pin down 11: a decision block of any other
+            # marking form, a bold supersession segment or an
+            # unheaded labelled paragraph among them, is not a
+            # level 4 block and places the entry in no group on
+            # its own.
             group2.append(display)
             continue
         has_paragraph = False
@@ -2369,10 +2561,15 @@ def _appendix_rows(entries, vocabulary):
     result = []
     for phrasing, kind in order:
         data = rows[(phrasing, kind)]
-        result.append(VerbatimAppendixRow(
+        row = VerbatimAppendixRow(
             phrasing=phrasing, occurrence_count=data["count"],
-            kind=kind, member_entry_ids=data["members"],
-            unclassified=phrasing not in vocabulary.mapping))
+            kind=kind, member_entry_ids=data["members"])
+        # The separate named part membership for an unclassified
+        # phrasing: the row carries it as the flag the render
+        # surface reads, the phrasing standing in the vocabulary
+        # mapping or not, computed here once by validate.
+        row.unclassified = phrasing not in vocabulary.mapping
+        result.append(row)
     return result
 
 
@@ -2411,35 +2608,74 @@ def _crosswalk(entries, derived_list, vocabulary):
 
 
 # ---------------------------------------------------------------------
-# Unit 3g: the Exit decision
+# Unit 3g: the Exit decision supply point
 # ---------------------------------------------------------------------
 
-def _exit_decision(findings, ambiguous_count, unparsed_count,
-                   conditional_count, self_check):
-    if self_check is not None and not self_check.sums_agree:
-        return ExitDecision(
-            code=4,
-            reason_classes=[
-                "tool inconsistency: the reconciliation sums do not "
-                "agree"])
-    reasons = []
-    if ambiguous_count or conditional_count:
-        reasons.append(
-            "ambiguous or conditional entries govern the exit")
-    if unparsed_count:
-        reasons.append("an unparsed entry stands in the file")
-    if reasons:
-        return ExitDecision(code=4, reason_classes=reasons)
-    if any(f.severity in ("Error", "Warning") for f in findings):
-        return ExitDecision(
-            code=1,
-            reason_classes=["findings at error or warning grade"])
-    return ExitDecision(code=0, reason_classes=[])
+# Validate supplies no Exit decision. The exit decision field of
+# the render model stands unsupplied in the Validate output, and
+# shell supplies it at run time after validate returns, under the
+# supply point at plan Item 3, section 3.7. No decision builder
+# stands in this module.
 
 
 # ---------------------------------------------------------------------
 # The validate boundary
 # ---------------------------------------------------------------------
+
+# The disposition a canonical family gives, for the translation
+# below. The families the shipped vocabulary mapping states map
+# to the disposition of the same name, except the Closed as
+# decided family, whose disposition form is Closed. The Relative
+# family gives no disposition, as it gave none in the table this
+# translation replaces.
+_FAMILY_DISPOSITIONS = {
+    "Banked": "Banked",
+    "Open": "Open",
+    "Parked": "Parked",
+    "Presented": "Presented",
+    "Ruled": "Ruled",
+    "Settled": "Settled",
+    "Closed as decided": "Closed",
+}
+
+
+def _apply_vocabulary_translation(entries, vocabulary):
+    """Translate disposition-less Status values, validate side.
+
+    The translation of a verbatim phrasing to its canonical
+    family is validate work under the seam at plan Item 3,
+    section 3.5: parse records a Status element whose opening
+    forms state no disposition with no disposition, under
+    PIN-04, and validate alone performs every mapping. Where
+    such an element's verbatim value stands in the vocabulary
+    mapping by exact match, the family the mapping states gives
+    the element its disposition, in the family form above. No
+    normalisation is applied to the value, so a phrasing
+    standing in the table in one code point sequence does not
+    translate a canonically equivalent phrasing in another
+    sequence; that phrasing stands untranslatable. Elements
+    carrying a disposition from their opening forms, and
+    elements that carry no Status occurrence, are untouched.
+    """
+    mapping = _get(vocabulary, "mapping") or {}
+    for entry in entries:
+        for element in _get(entry, "status_elements") or []:
+            if _get(element, "occurrence_kind") is None:
+                continue
+            if _get(element, "disposition") is not None:
+                continue
+            family = mapping.get(_get(element, "verbatim"))
+            disposition = _FAMILY_DISPOSITIONS.get(family)
+            if disposition is None:
+                continue
+            try:
+                element.disposition = disposition
+            except Exception:
+                try:
+                    element["disposition"] = disposition
+                except Exception:
+                    pass
+
 
 def validate_model(model, vocabulary, output_form_edition=None):
     # The output form edition is a shell held constant of the tool
@@ -2451,11 +2687,32 @@ def validate_model(model, vocabulary, output_form_edition=None):
     entries = list(_get(model, "entries") or [])
     header_facts = _get(model, "header_facts") or _get(
         model, "file_header_facts")
+    _apply_vocabulary_translation(entries, vocabulary)
 
     derived_list = []
     for entry in entries:
         derived = _derive(entry)
         derived_list.append(derived)
+    # D-08: validate sets the two validate owned fields of the
+    # Status bearing element shape, at plan Item 3, section 3.5,
+    # fields 8 and 9. The determining flag stands on the one
+    # determining element of the entry, and the underlying state
+    # without condition stands on every element that carries a
+    # stated condition, computed by validate only.
+    for entry, derived in zip(entries, derived_list):
+        elements = list(_get(entry, "status_elements") or [])
+        determining = derived.get("determining")
+        for element in elements:
+            try:
+                element.determining_flag = element is determining
+            except Exception:
+                continue
+            if _get(element, "condition") is not None:
+                try:
+                    element.underlying_state_without_condition = (
+                        _underlying_state(entry, element, elements))
+                except Exception:
+                    pass
     derived_by_id = {}
     for entry, derived in zip(entries, derived_list):
         derived_by_id[_display_id(entry)] = derived
@@ -2497,8 +2754,10 @@ def validate_model(model, vocabulary, output_form_edition=None):
         if derived["unparsed"]:
             state = None
         result = EntryResult(
-            identifier=_get(entry, "identifier") or (
-                "R-7" if _display_id(entry) == "R-7" else None),
+            identifier=(_display_id(entry)
+                        if _get(entry, "identifier") is not None
+                        else ("R-7" if _display_id(entry) == "R-7"
+                              else None)),
             heading=_get(entry, "heading")
             or _get(entry, "heading_text") or "",
             title=_get(entry, "title") or "",
@@ -2542,6 +2801,11 @@ def validate_model(model, vocabulary, output_form_edition=None):
         result.competing_pair = list(derived["competing"])
         result.presence_results = derived.get("presence_results")
         result.supersession_pointers = []
+        # The Ambiguous reporting form stands in its own carrier
+        # on the result, apart from the effective state field, at
+        # plan Item 3, section 3.4, field 6.
+        result.reporting_form = (
+            "Ambiguous" if derived["state"] == "Ambiguous" else None)
         entry_results.append(result)
 
     (sup_pointers, sup_findings, sup_chains,
@@ -2550,6 +2814,52 @@ def validate_model(model, vocabulary, output_form_edition=None):
     for entry, result in zip(entries, entry_results):
         result.supersession_pointers = list(
             sup_pointers.get(_display_id(entry), []))
+    # D-07: validate fills the derived fields on the Entry itself,
+    # at plan Item 3, section 3.4. The three outcome carriers
+    # stand separate: the derived effective state holds a
+    # canonical state or nothing, the reporting form holds the
+    # Ambiguous reporting form or nothing, and the unparsed
+    # marker stands as parse left it. The remainder texts stand
+    # as a list, one text per remainder a part disposition names,
+    # in element order. Entry values handed to validate as plain
+    # mappings, as on a model double, carry no fields to fill and
+    # are passed over.
+    for entry, derived in zip(entries, derived_list):
+        if isinstance(entry, dict):
+            continue
+        elements = list(_get(entry, "status_elements") or [])
+        state = derived["state"]
+        try:
+            entry.effective_state = (
+                state if state in CANONICAL_STATES else None)
+            entry.reporting_form = (
+                "Ambiguous" if state == "Ambiguous" else None)
+            entry.decider_label = derived.get("decider_label")
+            entry.condition_text = derived.get("condition")
+            collected_remainders = []
+            for element in derived.get("effective_elements") or []:
+                if (_get(element, "scope") or "").startswith("Part"):
+                    text = _extract_remainder(element)
+                    if text:
+                        collected_remainders.append(text)
+            if not collected_remainders:
+                collected_remainders = list(
+                    derived.get("remainder_texts") or [])
+            entry.remainder_texts = collected_remainders
+            entry.supersession_pointers = list(
+                sup_pointers.get(_display_id(entry), []))
+            entry.underlying_state = derived.get("underlying_state")
+            if _pin12_shape(entry, elements,
+                            derived.get("effective_elements") or []):
+                note = None
+                for _line, text in _body_lines(entry):
+                    if any(pattern.search(text or "")
+                           for pattern in _PIN12_PROSE_PATTERNS):
+                        note = (text or "").strip()
+                        break
+                entry.internal_undecided_note = note
+        except Exception:
+            pass
     companion_count = 0
     for entry, derived in zip(entries, derived_list):
         display = _display_id(entry)
@@ -2558,17 +2868,23 @@ def validate_model(model, vocabulary, output_form_edition=None):
             companion_count += 1
 
     file_findings = []
-    file_findings.extend(_check1(entries))
+    file_findings.extend(_check1(entries, model))
     file_findings.extend(_unmatched_heading_findings(model))
     file_findings.extend(_segment_claim_findings(model, entries))
     check6_findings = _check6(model, entries)
+    # The whole file assignment finding of check 6 is the one
+    # check 6 finding that stands at file level; it is told apart
+    # by its basis, because a file level finding now carries its
+    # unit identifier and not the literal FILE.
     file_findings.extend(
-        f for f in check6_findings if f.entry_identifier == FILE_ID)
+        f for f in check6_findings
+        if f.basis == "lines assigned to no unit or to two units")
     file_findings.sort(key=_file_order_key)
 
     entry_findings = []
     entry_findings.extend(
-        f for f in check6_findings if f.entry_identifier != FILE_ID)
+        f for f in check6_findings
+        if f.basis != "lines assigned to no unit or to two units")
     for entry, derived in zip(entries, derived_list):
         display_id = _display_id(entry)
         elements = list(_get(entry, "status_elements") or [])
@@ -2630,48 +2946,87 @@ def validate_model(model, vocabulary, output_form_edition=None):
         findings_per_rule[finding.rule_id] = (
             findings_per_rule.get(finding.rule_id, 0) + 1)
 
+    # The reconciliation components, in the contract order at
+    # plan Item 3, section 3.8, in the footing order testing pin
+    # down 11 fixes: one, population footing; two, canonical
+    # footing; three, verbatim footing; four, component footing;
+    # five, whole file assignment. Component six, render
+    # agreement, stands as a component of the field but is not
+    # summed by the in run self check and is evaluated only
+    # externally after both subcommand outputs exist (plan Item
+    # 1, section 1.7).
     failed_components = []
+    component_failures = {1: [], 2: [], 3: [], 4: [], 5: []}
+
+    def fail(component, text):
+        component_failures[component].append(text)
+        failed_components.append(text)
+
+    # Component 1, population footing: the headed entry total and
+    # the DQ entry total against the File shape lists. Both
+    # stated totals are checked: the headed total against the
+    # parse owned entry unit count where a carrier records one,
+    # and the DQ entry total against the File number ledger,
+    # whose values hold one list entry per headed entry carrying
+    # that number.
     unit_counts = _get(header_facts, "unit_counts") or {}
     parse_entry_units = unit_counts.get("entry")
     if parse_entry_units is not None and parse_entry_units != entry_total:
-        failed_components.append(
-            "entry total: the entry list holds %d entries and the "
-            "parse owned count records %d entry units"
-            % (entry_total, parse_entry_units))
+        fail(1, "population footing: the entry list holds %d "
+                "entries and the parse owned count records %d "
+                "entry units" % (entry_total, parse_entry_units))
+    dq_entry_count = sum(1 for e in entries
+                         if _get(e, "identifier") is not None)
+    number_ledger = _get(model, "number_ledger")
+    if number_ledger is not None:
+        ledger_total = 0
+        for holders in number_ledger.values():
+            if isinstance(holders, (list, tuple)):
+                ledger_total += len(holders)
+            else:
+                ledger_total += 1
+        if ledger_total != dq_entry_count:
+            fail(1, "population footing: the DQ entry total is %d "
+                    "against %d entries in the File number ledger"
+                    % (dq_entry_count, ledger_total))
+    # Component 2, canonical footing: the eight canonical counts
+    # plus the Ambiguous reporting count plus the unparsed entry
+    # count against the headed entry total.
     canonical_sum = sum(canonical_counts.values())
     if canonical_sum + ambiguous_count + unparsed_count != entry_total:
-        failed_components.append(
-            "entry total: the canonical rows sum to %d, the Ambiguous "
-            "count is %d and the unparsed count is %d, against an "
-            "entry total of %d"
-            % (canonical_sum, ambiguous_count, unparsed_count,
-               entry_total))
+        fail(2, "canonical footing: the canonical rows sum to %d, "
+                "the Ambiguous count is %d and the unparsed count "
+                "is %d, against an entry total of %d"
+                % (canonical_sum, ambiguous_count, unparsed_count,
+                   entry_total))
+    # Component 3, verbatim footing: the appendix occurrence
+    # counts against the reported occurrence total.
     recounted_occurrences = 0
     for entry in entries:
         for element in _get(entry, "status_elements") or []:
             if element.occurrence_kind is not None:
                 recounted_occurrences += 1
     if recounted_occurrences != occurrence_total:
-        failed_components.append(
-            "status occurrence total: the verbatim appendix rows sum "
-            "to %d and the elements counted directly give %d"
-            % (occurrence_total, recounted_occurrences))
+        fail(3, "verbatim footing: the verbatim appendix rows sum "
+                "to %d and the elements counted directly give %d"
+                % (occurrence_total, recounted_occurrences))
+    # Component 4, component footing: every printed total
+    # recomputed from its printed components, which includes the
+    # findings views, the census group footing, and the crosswalk
+    # footing. The census group footing: the Banked head evidence
+    # groups sum against the Banked head population. A Banked
+    # head entry carrying none of the three evidence forms stands
+    # in no group, the footing fails, and the run takes the exit
+    # 4 tool inconsistency outcome with no finding against the
+    # file (plan Item 3, section 3.8).
     if sum(findings_per_severity.values()) != len(findings):
-        failed_components.append(
-            "findings per severity: the severity view sums to %d "
-            "against a findings list of %d"
-            % (sum(findings_per_severity.values()), len(findings)))
+        fail(4, "component footing: the severity view sums to %d "
+                "against a findings list of %d"
+                % (sum(findings_per_severity.values()), len(findings)))
     if sum(findings_per_rule.values()) != len(findings):
-        failed_components.append(
-            "findings per rule: the rule view sums to %d against a "
-            "findings list of %d"
-            % (sum(findings_per_rule.values()), len(findings)))
-    # Component 4, the census group footing: the Banked head
-    # evidence groups sum against the Banked head population. A
-    # Banked head entry carrying none of the three evidence forms
-    # stands in no group, the footing fails, and the run takes the
-    # exit 4 tool inconsistency outcome with no finding against
-    # the file (plan Item 3, section 3.8).
+        fail(4, "component footing: the rule view sums to %d "
+                "against a findings list of %d"
+                % (sum(findings_per_rule.values()), len(findings)))
     census_population, census_groups = _banked_evidence_groups(
         entries, derived_list)
     census_group_total = sum(len(members)
@@ -2679,13 +3034,12 @@ def validate_model(model, vocabulary, output_form_edition=None):
     census_footing_holds = (
         census_group_total == len(census_population))
     if not census_footing_holds:
-        failed_components.append(
-            "census group footing: the Banked head evidence groups "
-            "sum to %d against a Banked head population of %d"
-            % (census_group_total, len(census_population)))
-    # Component 5, the crosswalk footing: the Banked head
-    # crosswalk total against the count of entries carrying the
-    # Banked head phrasing.
+        fail(4, "component footing: the Banked head evidence "
+                "groups sum to %d against a Banked head population "
+                "of %d" % (census_group_total, len(census_population)))
+    # The crosswalk footing, a part of component footing: the
+    # Banked head crosswalk total against the count of entries
+    # carrying the Banked head phrasing.
     crosswalk_counts = _crosswalk(entries, derived_list, vocabulary)
     banked_head_population = sum(
         1 for e in entries
@@ -2696,11 +3050,24 @@ def validate_model(model, vocabulary, output_form_edition=None):
     crosswalk_footing_holds = (
         banked_crosswalk_total == banked_head_population)
     if not crosswalk_footing_holds:
-        failed_components.append(
-            "crosswalk footing: the Banked head crosswalk total is "
-            "%d against %d entries carrying the Banked head "
-            "phrasing"
-            % (banked_crosswalk_total, banked_head_population))
+        fail(4, "component footing: the Banked head crosswalk "
+                "total is %d against %d entries carrying the Banked "
+                "head phrasing"
+                % (banked_crosswalk_total, banked_head_population))
+    # Component 5, whole file assignment: every line assigned to
+    # exactly one unit or listed as unassigned. A line assigned
+    # to no unit, or to two units, fails this component, and the
+    # condition stands as a self check failure beside its check 6
+    # finding form.
+    unassigned_lines = list(_get(model, "unassigned_lines") or [])
+    double_assigned_lines = list(
+        _get(model, "double_assigned_lines") or [])
+    whole_file_assignment_holds = not (
+        unassigned_lines or double_assigned_lines)
+    if not whole_file_assignment_holds:
+        fail(5, "whole file assignment: %d lines assigned to no "
+                "unit and %d lines assigned to two units"
+                % (len(unassigned_lines), len(double_assigned_lines)))
     self_check = SelfCheckResult(
         sums_agree=not failed_components,
         failed_components=failed_components)
@@ -2710,34 +3077,29 @@ def validate_model(model, vocabulary, output_form_edition=None):
         # list is withheld in full, in the model as on the printed
         # surface (plan Item 9, section 9.7, OP-Q5). The findings
         # views in the reconciliation above were computed from the
-        # list as assembled, which is what component 3 checks.
+        # list as assembled, which is what component footing
+        # checks.
         findings = []
-    # The in run self check components, components 1 to 5 only.
-    # Component 6, render agreement, is evaluated only externally
-    # after both subcommand outputs exist; no in run self check
-    # result stands on it (plan Item 1, section 1.7).
+    # The in run self check components, components 1 to 5 only,
+    # in the contract order and under the contract names.
     component_results = [
-        {"component": 1, "name": "entry total",
-         "holds": not any("entry total" in text
-                          for text in failed_components)},
-        {"component": 2, "name": "status occurrence total",
-         "holds": not any("status occurrence total" in text
-                          for text in failed_components)},
-        {"component": 3, "name": "findings views",
-         "holds": not any("findings per" in text
-                          for text in failed_components)},
-        {"component": 4, "name": "census group footing",
-         "holds": census_footing_holds},
-        {"component": 5, "name": "crosswalk footing",
-         "holds": crosswalk_footing_holds},
+        {"component": 1, "name": "population footing",
+         "holds": not component_failures[1]},
+        {"component": 2, "name": "canonical footing",
+         "holds": not component_failures[2]},
+        {"component": 3, "name": "verbatim footing",
+         "holds": not component_failures[3]},
+        {"component": 4, "name": "component footing",
+         "holds": not component_failures[4]},
+        {"component": 5, "name": "whole file assignment",
+         "holds": whole_file_assignment_holds},
     ]
 
     reconciliation = ReconciliationBlock(
         entry_total=HeadedEntryCount(entry_total),
-        dq_entry_count=sum(1 for e in entries
-                           if _get(e, "identifier")),
+        dq_entry_count=dq_entry_count,
         unnumbered_entry_count=sum(1 for e in entries
-                                   if not _get(e, "identifier")),
+                                   if _get(e, "identifier") is None),
         headed_span_count=sum(len(_get(e, "spans") or [])
                               for e in entries),
         orphan_note_segment_count=sum(
@@ -2847,10 +3209,9 @@ def validate_model(model, vocabulary, output_form_edition=None):
     limbo_data["ambiguous"] = limbo_data["ambiguous_entry_ids"]
     limbo_data["unparsed"] = limbo_data["unparsed_entry_ids"]
 
-    conditional_count = canonical_counts.get("Conditional", 0)
-    exit_decision = _exit_decision(
-        findings, ambiguous_count, unparsed_count, conditional_count,
-        self_check)
+    # No Exit decision is formed here: the field stands
+    # unsupplied in the output below, for shell to supply at run
+    # time, under the supply point at plan Item 3, section 3.7.
 
     fired_rules = sorted({f.rule_id for f in findings},
                          key=_rule_order_key)
@@ -2870,20 +3231,28 @@ def validate_model(model, vocabulary, output_form_edition=None):
         if pin5_fired:
             clearing_forms["pin 5"] = _PIN5_CLEARING_FORM
 
-    file_facts = FileFactsData(
-        input_name=_get(header_facts, "input_name")
-        or _get(model, "input_name") or "",
-        byte_count=_get(header_facts, "byte_count") or 0,
-        line_count=_get(header_facts, "line_count") or 0,
-        entry_count=HeadedEntryCount(entry_total),
-        digest=_get(header_facts, "digest") or "")
+    # The file facts measurements stand on the File shape fields
+    # of the model itself, at plan Item 3, section 3.2; the header
+    # facts value is one verbatim text field and carries no
+    # measurement. A carrier that still records a measurement on
+    # the header facts value, as a model double does, stands as
+    # the fallback. Validate writes nothing into the parse owned
+    # model: the vocabulary version in force stands on the
+    # Validate output alone, at its vocabulary_version field.
+    def _measured(name, default):
+        value = _get(model, name)
+        if value is None:
+            value = _get(header_facts, name)
+        return default if value is None else value
 
-    if header_facts is not None and not isinstance(header_facts, dict):
-        if getattr(header_facts, "vocabulary_version", None) is None:
-            try:
-                header_facts.vocabulary_version = vocabulary.version
-            except Exception:
-                pass
+    file_facts = FileFactsData(
+        input_name=_measured("input_name", ""),
+        byte_count=_measured("byte_count", 0),
+        line_count=_measured("line_count", 0),
+        entry_count=HeadedEntryCount(entry_total),
+        digest=_measured("digest", ""),
+        source_designation=_get(model, "source_designation")
+        or "live")
 
     limits = _get(header_facts, "limits")
     if limits is None:
@@ -2901,12 +3270,62 @@ def validate_model(model, vocabulary, output_form_edition=None):
                 "reported_as": "claim",
             })
 
+    # The residue list, in the ResidueItem contract form at plan
+    # Item 3, section 3.6: one item per untranslatable phrasing
+    # per entry carrying it, with the phrasing as written, the
+    # identifier of the entry that carries it in the singular
+    # field, and its line span. An item is never forced to a
+    # nearest state and never assigned a canonical state.
+    residue_items = []
+    for row in appendix_rows:
+        if row.phrasing in vocabulary.mapping:
+            continue
+        for entry in entries:
+            display = _display_id(entry)
+            if display not in row.member_entry_ids:
+                continue
+            for element in _get(entry, "status_elements") or []:
+                if element.verbatim == row.phrasing and (
+                        element.occurrence_kind == row.kind):
+                    residue_items.append(ResidueItem(
+                        phrasing=row.phrasing,
+                        entry_identifier=display,
+                        line_span=Span(element.line, element.line)))
+                    break
+    residue_phrasings = {item.phrasing for item in residue_items}
+    residue_entries = []
+    for entry in entries:
+        for element in _get(entry, "status_elements") or []:
+            if element.verbatim in residue_phrasings:
+                residue_entries.append(_display_id(entry))
+                break
+    # The entry groups in render order, at plan Item 3, section
+    # 3.7, field 6, in the full group sequence that section
+    # states once: Open; Settled in part; Presented; Parked;
+    # Conditional; Ambiguous; Ruled; Settled; Closed as decided;
+    # and the unparsed entries last.
+    _GROUP_ORDER = (
+        "Open", "Settled in part", "Presented", "Parked",
+        "Conditional", "Ambiguous", "Ruled", "Settled",
+        "Closed as decided", "Unparsed")
+    grouped = {name: [] for name in _GROUP_ORDER}
+    for result, derived in zip(entry_results, derived_list):
+        if derived["unparsed"]:
+            grouped["Unparsed"].append(result)
+        elif derived["state"] == "Ambiguous":
+            grouped["Ambiguous"].append(result)
+        elif derived["state"] in grouped:
+            grouped[derived["state"]].append(result)
+    entry_groups = [
+        {"group": name, "name": name, "entries": grouped[name]}
+        for name in _GROUP_ORDER if grouped[name]]
+
     output = ValidateOutput(
         entries=entry_results,
+        entry_groups=entry_groups,
         findings=findings,
         census=census,
         reconciliation=reconciliation,
-        exit_decision=exit_decision,
         file_facts=file_facts,
         limits=limits,
         vocabulary_version=vocabulary.version,
@@ -2939,50 +3358,50 @@ def validate_model(model, vocabulary, output_form_edition=None):
         # so a consumer building an output from the declared
         # fields alone carries the Segment claims section.
         segment_claim_reports=segment_claim_reports,
-        fastest_item="not derivable from the file")
+        fastest_item="not derivable from the file",
+        # D-12: the canonical counts by state stand on the model
+        # itself, at plan Item 3, section 3.7, field 2, and not
+        # only inside the reconciliation block.
+        canonical_counts=dict(canonical_counts),
+        residue_items=residue_items,
+        # D-13: the residue share stands as its exact pair, the
+        # numerator in unit entries and the denominator the
+        # headed entry count in unit headed entries, carried as
+        # that pair and in no rounded form, at plan Item 3,
+        # section 3.7, field 9. The field authorises no printing.
+        residue_share=(len(residue_entries), entry_total),
+        supersession_chains=[list(chain)
+                             for chain, _flag in sup_chains],
+        # D-14: the counting units key stands populated, naming
+        # the unit of every count of this model, in the
+        # CountingUnitsKey shape at plan Item 3, section 3.7.
+        counting_units=CountingUnitsKey(
+            canonical_counts="entries",
+            headed_entry_count="headed entries",
+            residue_items="residue items",
+            supersession_chains="chains",
+            waiting="entries",
+            blocking="entries"))
     reconciliation.components = component_results
     reconciliation.component_results = component_results
+    # The rule set version in force, at plan Item 3, section 3.8:
+    # initial value 1, in the unsigned integer text form section
+    # 9.11 pins. The declared field for this value on the model
+    # stands with the types seat; the value is carried here so
+    # the version fields of the run stand complete on the output.
+    output.rule_set_version = "1"
     # Appendix aliases: the appendix rows under the names the
     # render model consumers read.
     output.verbatim_appendix = appendix_rows
     output.appendix = appendix_rows
     output.appendix_rows = appendix_rows
-    # The residue list: phrasings standing in the file that the
-    # vocabulary does not translate, with their counts, and the
-    # residue share, the entries resting on an untranslatable
-    # phrasing against the headed entries.
-    residue_items = []
-    for row in appendix_rows:
-        if row.unclassified:
-            residue_items.append({
-                "phrasing": row.phrasing,
-                "count": row.occurrence_count,
-                "occurrence_count": row.occurrence_count,
-                "kind": row.kind,
-                "entries": list(row.member_entry_ids),
-                "member_entry_ids": list(row.member_entry_ids),
-            })
-    residue_phrasings = {item["phrasing"] for item in residue_items}
-    residue_entries = []
-    for entry in entries:
-        for element in _get(entry, "status_elements") or []:
-            if element.verbatim in residue_phrasings:
-                residue_entries.append(_display_id(entry))
-                break
     output.residue = residue_items
     output.residue_list = residue_items
-    output.residue_items = residue_items
     output.residue_entries = residue_entries
-    output.residue_share_count = len(residue_entries)
-    output.residue_share_total = entry_total
-    output.residue_share = (
-        (len(residue_entries) / entry_total) if entry_total else 0.0)
     # The supersession map data and the companion count: entries
     # carrying a standing remainder whose entry carries a
     # supersession pointer, carried beside the waiting figure and
     # never merged into it (plan Item 3, section 3.7 field 10).
-    output.supersession_chains = [list(chain)
-                                  for chain, _flag in sup_chains]
     output.supersession_chain_records = [
         {"entries": list(chain), "cycle": flag,
          "is_cycle": flag}
