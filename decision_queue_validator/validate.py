@@ -516,13 +516,15 @@ def _listing_decider_label(entry, elements):
     # listing is the whitespace the decider check itself
     # takes: the check's body pattern ends at a word
     # boundary after "by", so a tab or a line break stands
-    # in that position as a space does, and the listing
-    # steps below each take one whitespace character of the
-    # same kinds there (finding A6-8-4). A doubled space
-    # stands exactly as it stood: no step here takes it,
-    # and the named phrase step below reads past it in the
-    # form Fix Seat Q recorded.
-    if re.search(r"by[ \t\r\n]Captain JP", body):
+    # in that position as a space does, and a vertical tab
+    # and a form feed stand there as word boundaries too,
+    # and the listing steps below each take one whitespace
+    # character of the same kinds there (findings A6-8-4
+    # and A7-8-2). A doubled space stands exactly as it
+    # stood: no step here takes it, and the named phrase
+    # step below reads past it in the form Fix Seat Q
+    # recorded.
+    if re.search(r"by[ \t\r\n\v\f]Captain JP", body):
         return "Ruled by Captain JP"
     # The Manager form stands only where the Manager phrase
     # itself stands in the body form the decider check
@@ -534,7 +536,7 @@ def _listing_decider_label(entry, elements):
     # check does not accept, and the listing claims no
     # decider from it (finding A5-8-3).
     if re.search(
-            r"\b(Ruled|Settled|Decided) by:?[ \t\r\n](the|The) Manager\b",
+            r"\b(Ruled|Settled|Decided) by:?[ \t\r\n\v\f](the|The) Manager\b",
             body):
         shim = type("ListingShim", (), {})()
         shim.decider = "a Manager grant form"
@@ -542,7 +544,7 @@ def _listing_decider_label(entry, elements):
         shim.statement = body
         shim.verbatim = ""
         return _decider_label(shim)
-    match = re.search(r"\b(Ruled|Settled|Decided) by:?[ \t\r\n]([^.,;]+)",
+    match = re.search(r"\b(Ruled|Settled|Decided) by:?[ \t\r\n\v\f]([^.,;]+)",
                       body)
     if match:
         named = match.group(2).strip()
@@ -1157,6 +1159,16 @@ _ATTRIBUTION_TOKENS = frozenset((
 ))
 
 
+# The person name words of the name only forms the round 7
+# papers evidence beside the decider initials: the surname
+# Morgan and the further name words Stanley and Mary. A
+# matter made only of these words, in any case, is a name
+# restated, not ruling matter.
+_NAME_TOKENS = frozenset((
+    "morgan", "stanley", "mary",
+))
+
+
 _MATTER_STOPWORDS = frozenset((
     "the", "a", "an", "and", "or", "of", "in", "on", "at", "to",
     "by", "for", "with", "from", "as", "it", "its", "this",
@@ -1186,36 +1198,81 @@ def _labelled_matter_tokens(text):
     word is that attribution in a punctuated spelling, and
     its runs are set aside with it, so "J.P." sets aside
     as "jp", "Cap-tain" as "captain", and "Man-ager" and
-    "Man.ager" as "manager" (finding A6-8-1). Where such a
-    fragmented attribution word stands and exactly one
-    further word carries a content token, and that word is
-    a capitalised word, the matter is a name in initials
-    form alone, as "J.P. Morgan" is: the capitalised word
-    stands as the surname of that name and is set aside
-    with it. A word carrying content in any other position
-    stands, so genuine ruling matter beside a fragmented
-    name still counts, and a name, a number, or a word
-    that stands whole and unrecorded still counts as it
-    did before.
+    "Man.ager" as "manager" (finding A6-8-1). The same
+    attribution and its name are read whole across a space
+    as well: two or three standing words whose runs join
+    to an attribution token or to a name token are that
+    attribution or that name in a spaced spelling, and
+    their runs are set aside with it, so "Cap tain" sets
+    aside as "captain", "Man ager" as "manager", "Gra nt"
+    as "grant", "Mor gan" as the surname "morgan", and the
+    spaced initials "J. P.", "J, P" and "J P" set aside as
+    "jp" (findings A7-2-1 and A7-8-1). Where such an
+    attribution word stands, fragmented inside the word or
+    spaced, and every further word carrying a content
+    token is a name word, capitalised or one of the name
+    tokens, the matter is a name in initials form alone,
+    as "J.P. Morgan" is: the name words stand as the name
+    of that attribution and are set aside with it, in one
+    word or in two, and in either case, so "J.P. morgan"
+    and "J.P. Morgan Stanley" set aside with "J.P.
+    Morgan". A word carrying content in any other position
+    stands, so genuine ruling matter beside such a name
+    still counts: a further word that is neither
+    capitalised nor a name token keeps the whole matter
+    standing, and a name, a number, or a word that stands
+    whole and unrecorded, with no fragmented or spaced
+    attribution word beside it, still counts as it did
+    before.
     """
     tokens = _matter_tokens(text) - _ATTRIBUTION_TOKENS
     words = []
-    fragmented = False
-    for word in (text or "").split():
+    removed = set()
+    anchored = False
+    for index, word in enumerate((text or "").split()):
         runs = re.findall(r"[a-z0-9]+", word.lower())
         joined = "".join(runs)
         if len(runs) > 1 and joined in _ATTRIBUTION_TOKENS:
-            fragmented = True
+            anchored = True
+            removed.add(index)
             tokens.difference_update(runs)
         words.append((word, runs, joined))
-    if fragmented:
-        others = [(word, runs) for word, runs, joined in words
-                  if runs and joined not in _ATTRIBUTION_TOKENS
+    entries = [index for index, (word, runs, joined)
+               in enumerate(words) if runs]
+    position = 0
+    while position < len(entries):
+        matched = 0
+        for size in (2, 3):
+            group = entries[position:position + size]
+            if len(group) < size:
+                continue
+            if any(len(words[index][1]) != 1 for index in group):
+                continue
+            joined = "".join(words[index][2] for index in group)
+            if joined in _ATTRIBUTION_TOKENS \
+                    or joined in _NAME_TOKENS:
+                matched = size
+                break
+        if matched:
+            anchored = True
+            for index in entries[position:position + matched]:
+                removed.add(index)
+                tokens.difference_update(words[index][1])
+            position += matched
+        else:
+            position += 1
+    if anchored:
+        others = [(word, runs, joined)
+                  for index, (word, runs, joined) in enumerate(words)
+                  if index not in removed and runs
+                  and joined not in _ATTRIBUTION_TOKENS
                   and joined not in _MATTER_STOPWORDS]
-        if len(others) == 1:
-            word, runs = others[0]
-            letters = [char for char in word if char.isalpha()]
-            if letters and letters[0].isupper():
+        if others and all(
+                joined in _NAME_TOKENS
+                or [char for char in word if char.isalpha()]
+                and [char for char in word if char.isalpha()][0].isupper()
+                for word, runs, joined in others):
+            for word, runs, joined in others:
                 tokens.difference_update(runs)
     return tokens
 
