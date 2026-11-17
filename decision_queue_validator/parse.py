@@ -166,6 +166,38 @@ def _partition_lines(text):
     return lines
 
 
+def _final_line_is_cut_off(line_text):
+    """Whether a final line with no terminator is cut off in form.
+
+    A missing terminator alone does not cut a line off: under
+    the terminator rule in _partition_lines a final line with
+    no terminator is a line, and a carriage return standing as
+    the last character of the text is part of the line ending
+    and not content, as the plan states at Item 3, section
+    9.3. The line is cut off only where its own form is
+    incomplete: a Status line or variant line carrying no
+    value, or a line of prose or field matter that closes no
+    sentence, ending mid statement with no sentence closing
+    punctuation. A line stands whole where it is a Status line
+    or a variant line carrying a value, or where it closes a
+    sentence, the closing punctuation standing before any
+    closing quote or bracket characters.
+    """
+    text = line_text
+    if text.endswith("\r"):
+        text = text[:-1]
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if stripped.startswith(_STATUS_MARKER):
+        return stripped[len(_STATUS_MARKER):].strip() == ""
+    if stripped.startswith(_VARIANT_MARKER):
+        return stripped[len(_VARIANT_MARKER):].strip() == ""
+    core = stripped.rstrip("\"')]}"
+                           "”’")
+    return not core.endswith((".", "?", "!"))
+
+
 def _first_word(text):
     match = re.match(r"[A-Za-z]+", text.lstrip())
     return match.group(0) if match else ""
@@ -1790,10 +1822,20 @@ def parse_queue(input_value, limits):
             _number > record.heading_line
             for _number, _text in record.body_lines)
         heading_is_last_line = record.heading_line == line_count
+        # The cut off form is narrower than an unterminated
+        # file: the entry is cut off only where its last body
+        # line is itself cut off in form, under
+        # _final_line_is_cut_off. A file whose final line
+        # stands whole and merely carries no line feed
+        # terminator, or a lone carriage return in the
+        # terminator position, is not cut off at all, under
+        # the terminator rule in _partition_lines, and no
+        # marker question arises for its last entry.
         cut_off = bool(
             not file_terminated and has_body_line and record.spans
             and max(span.end_line for span in record.spans) ==
-            line_count)
+            line_count
+            and _final_line_is_cut_off(lines_by_number[line_count]))
         # The unparsed marker, under the Entry shape at brief
         # section 5.5 and PIN-05: the express exception is the
         # heading borne determining element, the element PIN-05
@@ -1802,7 +1844,14 @@ def parse_queue(input_value, limits):
         # and no body element can be certified as determining
         # over a remainder that may have stood in the cut off
         # part, as the WV-8 truncation form at brief section
-        # 5.8 states in full.
+        # 5.8 states in full. That reasoning reaches only an
+        # entry whose last body line is cut off in form: where
+        # the file ends on a whole body line, as it ends on a
+        # complete Status line carrying its element, the entry
+        # is not in the cut off form at all, and the element
+        # extracted from that line governs under the exception
+        # the Entry shape and the plan at Item 3 state for an
+        # element extracted from any element of the entry.
         record.unparsed = bool(
             (heading_is_last_line or cut_off)
             and not any(

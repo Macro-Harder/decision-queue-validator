@@ -1196,12 +1196,34 @@ def _check5(entry, display_id, derived, elements):
                     or label.startswith("Where the settlement landed")
                     or label.startswith("Where the settlement is to land")
                     or label.startswith("Where it landed")
-                    or label in ("Landing", "Landing record", "Lands")):
+                    or label in ("Landing", "Landing record", "Lands",
+                                  "Landed")):
                 landing = True
                 break
     if not landing:
         for _line, text in _body_lines(entry):
             if re.search(r"\bWhere it landed\b", text or ""):
+                landing = True
+                break
+    if not landing:
+        # The Landed colon label form, in the construction the
+        # corpus itself carries it: a sentence opening with the
+        # label Landed and a colon, naming the place the ruling
+        # now stands by an in phrase, and stating that the named
+        # place now states the ruled matter, as entry DQ-167 on
+        # the corpus pin carries its landing (the warrant
+        # paragraph in PLAID.md section 1 now states the
+        # discernment form). PIN-08 states the test as no landing
+        # record in any form, and no brief or plan locus excludes
+        # this form, so a landing recorded in it satisfies the
+        # test. A Landed sentence stating only an outcome of the
+        # ruling, naming no place that now states it, is not
+        # this form and does not satisfy the test here.
+        for segment in _sentence_segments(body):
+            segment = segment.lstrip()
+            if (segment.startswith("Landed:")
+                    and re.search(r"\bin\b", segment)
+                    and "now states" in segment):
                 landing = True
                 break
     if not landing:
