@@ -8,10 +8,13 @@ assembly as an explicit run time step, composing the output in
 full, failure reports on the standard error channel, and return of
 the exit code the run carries. The shell assigns no state, grades
 no finding beyond the exit decision table, counts nothing beyond
-that table, decodes nothing and takes no limit measurement beyond
-the stat it performs before reading.
+that table and decodes nothing for its ordinary work. Where the
+pre read size refusal fires, the shell takes the line and per
+line measurements the refusal must name, from a read taken for
+that naming alone, so the refusal names every breached limit.
 """
 
+import errno
 import os
 import stat
 import sys
@@ -141,18 +144,35 @@ def _usage_error(message):
     return 2
 
 
-def _help():
-    try:
-        sys.stdout.write(
-            "usage: python3 -m decision_queue_validator "
-            "{validate|render} INPUT\n")
-        sys.stdout.flush()
-    except (OSError, AttributeError, ValueError) as exc:
-        _write_stderr(
-            "error: standard output was closed before the output "
-            "was delivered (%s)\n" % escape_text(str(exc)))
-        return 2
-    return 0
+def _os_error_cause(exc):
+    """The exact input not read cause an OS error names, or None.
+
+    Where the error carries one of the causes the surface can
+    state exactly, that cause stands in the detail in place of a
+    list of possibilities. Where the error names none of them,
+    None stands and the caller states only that the input could
+    not be read.
+    """
+    if isinstance(exc, FileNotFoundError):
+        return "it is missing"
+    if isinstance(exc, NotADirectoryError):
+        return "it is missing"
+    if isinstance(exc, PermissionError):
+        return "it is unreadable"
+    if isinstance(exc, IsADirectoryError):
+        return "it is a directory"
+    err = getattr(exc, "errno", None)
+    if err in (errno.ENOENT, errno.ENOTDIR):
+        return "it is missing"
+    if err in (errno.EACCES, errno.EPERM):
+        return "it is unreadable"
+    if err == errno.EISDIR:
+        return "it is a directory"
+    return None
+
+
+def _not_read_detail(input_name, cause):
+    return "%s: %s" % (escape_text(input_name), cause)
 
 
 def _not_read_output(input_name, detail):
@@ -460,6 +480,59 @@ def _supply_exit_decision(output, decision, masked):
             pass
 
 
+def _pre_read_fault_lines(input_name, byte_size):
+    """The fault lines of the pre read size refusal.
+
+    The byte breach stands from the stat. Every other breached
+    limit is measured from a read taken for this naming alone:
+    the line count under the terminator rule (a line feed ends a
+    line, a carriage return before it is part of the terminator,
+    and a final line with no terminator still counts), and the
+    longest line in characters where the bytes decode as UTF-8.
+    Where that read cannot be taken, the byte breach alone is
+    named. Each breached limit is named in the form the parse
+    layer uses, with its measured value and its limit in force.
+    """
+    breached = [("max bytes", byte_size, LIMITS.max_bytes)]
+    try:
+        with open(input_name, "rb") as stream:
+            raw = stream.read()
+    except OSError:
+        raw = None
+    if raw is not None:
+        line_count = raw.count(b"\n")
+        if raw and not raw.endswith(b"\n"):
+            line_count += 1
+        if line_count > LIMITS.max_lines:
+            breached.append(
+                ("max lines", line_count, LIMITS.max_lines))
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+        if text is not None:
+            parts = text.split("\n")
+            if text.endswith("\n"):
+                parts = parts[:-1]
+                terminated = len(parts)
+            else:
+                terminated = len(parts) - 1
+            longest = 0
+            for index, part in enumerate(parts):
+                if index < terminated and part.endswith("\r"):
+                    part = part[:-1]
+                if len(part) > longest:
+                    longest = len(part)
+            if longest > LIMITS.max_characters_per_line:
+                breached.append((
+                    "max characters per line", longest,
+                    LIMITS.max_characters_per_line))
+    return [
+        "Breached limit: %s, measured value %d. "
+        "The limit in force is %d." % (name, measured, limit)
+        for name, measured, limit in breached]
+
+
 def main(argv=None):
     """Run one command line invocation; return the exit code it carries."""
     try:
@@ -469,14 +542,12 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv[1:]
     argv = list(argv)
-    if argv and argv[0] in ("--help", "-h"):
-        return _help()
     if not argv:
         return _usage_error("a subcommand and an input file are required")
     if argv[0] not in ("validate", "render"):
         return _usage_error("unknown subcommand: %s" % argv[0])
     if len(argv) < 2:
-        return _usage_error("a subcommand and an input file are required")
+        return _usage_error("an input file is required")
     if len(argv) > 2:
         return _usage_error("unexpected argument: %s" % argv[2])
     subcommand = argv[0]
@@ -487,25 +558,27 @@ def main(argv=None):
     # value at exit 3, before any byte is read.
     try:
         input_stat = os.stat(input_name)
-    except OSError:
+    except OSError as exc:
+        cause = _os_error_cause(exc)
+        if cause is None:
+            cause = "it could not be read"
+        delivered = _deliver_stderr_run(_not_read_output(
+            input_name, _not_read_detail(input_name, cause)))
+        return delivered if delivered != 0 else 2
+    if stat.S_ISDIR(input_stat.st_mode):
         delivered = _deliver_stderr_run(_not_read_output(
             input_name,
-            "%s: it is missing, unreadable, a directory, or not a "
-            "regular file" % escape_text(input_name)))
+            _not_read_detail(input_name, "it is a directory")))
         return delivered if delivered != 0 else 2
     if not stat.S_ISREG(input_stat.st_mode):
         delivered = _deliver_stderr_run(_not_read_output(
             input_name,
-            "%s: the input is not a regular file" %
-            escape_text(input_name)))
+            _not_read_detail(
+                input_name, "it is not a regular file")))
         return delivered if delivered != 0 else 2
     if input_stat.st_size > LIMITS.max_bytes:
-        fault_lines = [
-            "Breached limit: bytes per file, measured value %d." %
-            input_stat.st_size,
-            "The limit in force is %d bytes per file." %
-            LIMITS.max_bytes,
-        ]
+        fault_lines = _pre_read_fault_lines(
+            input_name, input_stat.st_size)
         text = _refusal_output(
             input_name, fault_lines,
             _file_facts_line(input_stat.st_size, None, None),
@@ -517,11 +590,12 @@ def main(argv=None):
     try:
         with open(input_name, "rb") as stream:
             raw_bytes = stream.read()
-    except OSError:
+    except OSError as exc:
+        cause = _os_error_cause(exc)
+        if cause is None:
+            cause = "it could not be read"
         delivered = _deliver_stderr_run(_not_read_output(
-            input_name,
-            "%s: it is missing, unreadable, a directory, or not a "
-            "regular file" % escape_text(input_name)))
+            input_name, _not_read_detail(input_name, cause)))
         return delivered if delivered != 0 else 2
 
     vocabulary = build_vocabulary()

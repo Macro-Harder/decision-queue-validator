@@ -777,6 +777,17 @@ def _derive(entry):
             earlier = [e for e in effective[:-1]
                        if _effective_disposition(entry, e, elements)
                        in _DECIDED_DISPOSITIONS]
+            if earlier and all(
+                    e.kind == "heading borne evidence" for e in earlier):
+                # The tail form pair at PIN-11: a heading element
+                # against the closing sentence element of the
+                # single paragraph. The later unambiguous element
+                # governs under the governing rule, so the banked
+                # closing sentence determines the entry as Open
+                # and the heading element alone does not take the
+                # entry back to the decided state or into the
+                # Ambiguous form for earlier decision evidence.
+                return finish("Open")
             if (determining.kind in ("variant phrasing",
                                      "tail paragraph element",
                                      "closing prose")
@@ -985,6 +996,22 @@ def _check3(entry, display_id, derived, elements):
             denoted.setdefault(value, []).append(element)
     if len(denoted) < 2:
         return []
+    determining = derived["determining"]
+    if determining is not None:
+        # The tail form pair at PIN-11: the heading element and
+        # the closing sentence element of the single paragraph
+        # differ, and the later element governs. Where the
+        # heading element is the only element denoting a state
+        # other than the determining state, that pair takes no
+        # disagreement Warning: the plan WV-7 finding results
+        # name no such Warning for that shape.
+        others = [element for value, holders in denoted.items()
+                  if value != state for element in holders
+                  if element is not determining]
+        if others and all(
+                element.kind == "heading borne evidence"
+                for element in others):
+            return []
     head = None
     for element in elements:
         if element.kind == "line start Status line":
@@ -1081,7 +1108,7 @@ def _check5(entry, display_id, derived, elements):
     ruling_text = cross_reference
     if not ruling_text:
         for label in labels:
-            if label in ("Ruling text", "Ruling texts"):
+            if label in ("Ruling text", "Ruling texts", "Settlement"):
                 ruling_text = True
                 break
     if not ruling_text:
@@ -1220,6 +1247,18 @@ def _check9(entry, display_id, derived):
     if derived["state"] not in _EFFECTIVELY_OPEN_STATES:
         return []
     if derived.get("shape_a"):
+        return []
+    elements = list(_get(entry, "status_elements") or [])
+    if not any(element.kind in _STATUS_LINE_KINDS
+               for element in elements) and not _field_labels(entry):
+        # The tail single paragraph form: the entry carries no
+        # line start Status line and no field of any form, its
+        # whole body standing in one paragraph. The absence of
+        # the open form field set is the normal condition of
+        # that dialect under PIN-13, not a missing field, so
+        # the open entry field tests do not run on it. An open
+        # form entry, which carries a head Status line or field
+        # labels, is tested in full above this shape.
         return []
     labels = _field_labels(entry)
     missing = []
@@ -1457,7 +1496,7 @@ def _unmatched_heading_findings(model):
             continue
         heading_text = _get(segment, "heading_text") or ""
         findings.append(_finding(
-            5, "Warning",
+            "PIN-06", "Warning",
             _unit_identifier(model, segment=segment),
             _get(segment, "span"),
             heading_text,
@@ -2541,6 +2580,8 @@ _CLEARING_FORMS = {
         "label.",
     12: "Give the entry a body in a recognised form under its "
         "heading, or take the heading out of the file.",
+    "PIN-06": "Restate the heading in a recognised heading form, or take "
+        "the heading and the lines under it out of the file.",
 }
 
 # The pin 5 unmatched heading finding is filed under rule id 5,

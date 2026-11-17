@@ -224,6 +224,7 @@ def _find_disposition(text, start=0):
         (r"\bis closed\b", "Closed"),
         (r"\bClosed\.\s*$", "Closed"),
         (r"\bstays banked\b", "Banked"),
+        (r"\bstands banked\b", "Banked"),
         (r"\bremains banked\b", "Banked"),
         (r"\bstill banked\b", "Banked"),
         (r"\bnot finished\b", "Open"),

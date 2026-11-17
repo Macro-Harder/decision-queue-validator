@@ -11,8 +11,36 @@ release.
 
 The tool runs with Python 3.11 or later and uses only the standard
 library. Nothing else is installed and no network access is needed or
-used. Copy the `decision_queue_validator` package to a place on your
-Python path, or run it from the directory that holds the package.
+used. Check your version before the first run:
+
+```
+python3 --version
+```
+
+If it prints a version earlier than 3.11, use a newer python3 for
+this tool.
+
+To run it from the place you unpacked or cloned it, the directory
+that holds the package must be your current working directory when
+you type the command:
+
+```
+cd /the/directory/that/holds/the/package
+python3 -m decision_queue_validator validate QUEUE.md
+```
+
+Run from any other directory in that form, the command fails before
+the tool starts, with a Python error saying no module named
+decision_queue_validator. To run it from anywhere else, copy the
+package to a directory of your own and name that directory on the
+Python path for the run:
+
+```
+mkdir -p ~/dqv-lib
+cp -r decision_queue_validator ~/dqv-lib/
+PYTHONPATH=~/dqv-lib python3 -m decision_queue_validator validate QUEUE.md
+```
+
 Each run takes exactly one input file, reads it once, and prints its
 output to standard output. The tool never edits its input file and
 writes nothing else: no log file and no run record.
@@ -38,18 +66,25 @@ Every output opens with the same five head lines:
    of rulings, landings in other documents, companion file contents,
    and decider authority are not checked.
 2. The input name, exactly as you supplied it.
-3. The file facts: whether the file is the live file or a pinned
-   copy, its line count and byte count, and a short form of its
-   digest.
+3. The file facts: its line count and byte count, a short form of
+   its digest, and a source designation. In this version the
+   designation reads live on every readable file, on the live file
+   and on any copy of it alike: the designation does not tell you
+   whether the file you ran is the live file or a copy of it. The
+   digest on the same line identifies the bytes the run actually
+   read, so two runs whose digests differ read different bytes,
+   whatever their designations say.
 4. The limits in force.
 5. The version fields: vocabulary version, output form edition, and
    rule set version.
 
-Every output ends with two lines. The first points at the other
-subcommand, which shows the other view of the same file. The last is
-the closing exit line. It states the exit code, the reasons for that
-code in plain words, and the sentence the code carries: this code is
-a findings signal and not a step verdict.
+A completed output ends with two lines. The first points at the
+other subcommand, which shows the other view of the same file. The
+last is the closing exit line. It states the exit code, the reasons
+for that code in plain words, and the sentence the code carries:
+this code is a findings signal and not a step verdict. Refusal
+outputs and usage outputs carry one closing line: the closing exit
+line alone, with no line pointing at the other subcommand.
 
 The validate report carries, in order: a compact index of the per
 entry findings; the full findings grouped by entry, under a line
@@ -113,7 +148,9 @@ and the decision evidence recorded inside entries. The input must be
 a regular file. A file with no recognisable queue structure is
 refused as a whole, as described under exit code 3 below.
 
-A minimal example of a queue file in those forms:
+Save the example below to a file named QUEUE.md in the directory
+you are running from, then run the commands under Running it on
+that file. A minimal example of a queue file in those forms:
 
 ```
 # Decision queue
@@ -121,12 +158,47 @@ A minimal example of a queue file in those forms:
 ### DQ-001: A sample open question
 
 Status: Banked
+
+This question is waiting for a decision.
 ```
+
+The plain paragraph in the example is one of the three counted
+elements described below, an unheaded paragraph. It is ordinary
+prose recording what the entry is about, and it is not one of the
+labelled fields.
 
 Running `validate` on that example reports Warning findings for
 DQ-001, because the entry records no question, no options, no cost
-of deciding late, and no blocks field. Recording those four fields
-on the entry clears the warnings.
+of deciding late, and no blocks field. Record those four fields
+each as its own labelled paragraph, in this form:
+
+```
+Question: Which option should we take?
+
+Options: Option A, Option B
+
+Cost of deciding late: Work stays blocked.
+
+Blocks: DQ-002
+```
+
+Recording those four fields in that form, on an entry that also
+carries a counted element, clears the warnings.
+
+Banked entries and the census. A Banked head entry is counted in
+the census in exactly three evidence groups, assigned in this
+order: (1) entries with a later Status line in the body; (2)
+entries with a level 4 decision block and no later Status line in
+the body; (3) entries with unheaded paragraphs in the body and
+neither of the other two. Labelled field paragraphs count toward
+none of the three groups. An entry carrying only labelled fields,
+or nothing beyond its Status line, is counted in no group. Where
+any Banked entry is counted in no group, the evidence groups fail
+to foot to the Banked head population, the run is withheld in full
+as a tool inconsistency at exit 4, and no findings are reported for
+any entry in the file. So a Banked entry must carry at least one
+of the three counted elements, in addition to any labelled fields,
+if its file is to be reported on at all.
 
 Three size limits apply, and a file that breaches one is refused as
 a whole:
@@ -174,6 +246,25 @@ queue itself is valid or invalid.
   edit the queue file on the basis of that run. No finding counts
   print on that report.
 
+### If a run is withheld as a tool fault
+
+If a run is withheld as a tool fault, report the run as a tool
+fault, as the report itself advises, and do not edit the queue file
+on the basis of that run, because it reported no findings. Where
+the failed component named in the report is the Banked head
+evidence footing, the file side cause to check is set out under
+Input above: check each Banked entry in the file for one of the
+three counted elements. An entry that carries none takes this
+outcome for the whole file. Adding labelled fields alone does not
+change this outcome: a passing Banked entry carries at least one
+counted element, a later Status line in the body, a level 4
+decision block, or unheaded paragraphs in the body, in addition to
+any labelled fields it records, and the four fields are recorded
+each as its own labelled paragraph in the form shown under Input.
+Shaping the entries in that form is a change to the file form, made
+on the strength of this section, not on the strength of the
+withheld run.
+
 ## Round close procedure for the Decision-queue Clerk
 
 At the close of every queue round, before the round is recorded as
@@ -218,6 +309,22 @@ verdict.
   not read companion files, does not check that a ruling landed in
   another document, and does not check whether a named decider held
   authority. A clean report says nothing about any of those.
+- Redirecting a report onto the file it reports on: Do not redirect
+  a report onto the input file own path, as in
+  `validate QUEUE.md > QUEUE.md`. The tool never edits its input,
+  but the shell empties the target file before the tool runs, so
+  the run reads an empty file, refuses it at exit 3, and the
+  original contents are gone. Redirect to a different file, or to
+  none.
+
+## The tests directory
+
+The tests directory in this repo holds the tool own test suite and
+the queue files it runs on. You do not need the tests to run the
+tool. To run the suite, from the directory that holds the package,
+run: `python3 -m unittest discover -s tests`. The bytecode files
+shipped beside the sources are byproducts and carry no part of the
+tool.
 
 ## Licence
 

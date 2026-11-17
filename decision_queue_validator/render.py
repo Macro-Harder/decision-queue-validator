@@ -8,6 +8,8 @@ computed once. The closing exit line is not part of what render
 prints: shell prints it as the last line of the output.
 """
 
+import textwrap
+
 __all__ = [
     "render_validate",
     "render_summary",
@@ -171,6 +173,41 @@ def _items(value):
 
 def _counted(count, singular, plural):
     return "%d %s" % (count, singular if count == 1 else plural)
+
+
+def _carried_unit_counted(count, unit):
+    """The counted form in the counting unit a row carries.
+
+    The unit prints as the model carries it, never as a unit
+    render supplies. The entries unit keeps its own singular.
+    Any other carried unit prints in its carried form, and at
+    a count of one in the singular formed by dropping a
+    trailing s, the shape the carried units of this build take
+    (Status lines at one prints as Status line).
+    """
+    if unit in ("entry", "entries"):
+        return _counted(count, "entry", "entries")
+    if count == 1 and unit.endswith("s"):
+        return "%d %s" % (count, unit[:-1])
+    return "%d %s" % (count, unit)
+
+
+def _wrapped_member_lines(members):
+    """The census member list in the OP-Q10 wrapped form.
+
+    The identifiers print as a wrapped list under their row:
+    no printed line stands over 72 characters, continuation
+    lines stand indented under the first identifier, and no
+    identifier is split across lines. A list that fits on one
+    line at that width prints on one line, as before.
+    """
+    text = "Members: " + ", ".join(
+        escape_text(item) for item in members)
+    if len(text) <= 72:
+        return [text]
+    return textwrap.wrap(
+        text, width=72, subsequent_indent=" " * len("Members: "),
+        break_long_words=False, break_on_hyphens=False)
 
 
 def _rule_text(raw):
@@ -574,8 +611,9 @@ def _model_entry_groups(output):
     mapping or a value carrying a group name and its entries.
     None stands where the model carries no entry groups field at
     all, or where the field carries no named group: only then
-    does the print fall back to the entries as carried, grouped
-    by the group each entry itself carries.
+    does the print fall back to the entries as carried, printed
+    under Ungrouped entries with no group derived for any of
+    them.
     """
     if isinstance(output, dict):
         if "entry_groups" not in output:
@@ -650,26 +688,12 @@ def _group_sections(output, entries, include_all_headings):
         ungrouped = [entry for entry in entries
                      if id(entry) not in covered]
     else:
-        groups = {}
-        for entry in entries:
-            groups.setdefault(_entry_group(entry), []).append(entry)
-        for state in _GROUP_ORDER:
-            chosen = groups.get(state) or []
-            if not chosen and not include_all_headings:
-                continue
-            lines.append(_group_title(state))
-            lines.append("")
-            for entry in chosen:
-                lines.extend(_entry_row_lines(entry))
-                lines.append("")
-        unparsed = groups.get("Unparsed") or []
-        if unparsed or include_all_headings:
-            lines.append("Unparsed entries")
-            lines.append("")
-            for entry in unparsed:
-                lines.extend(_entry_row_lines(entry))
-                lines.append("")
-        ungrouped = groups.get(None) or []
+        # No entry groups stand carried in the model, so no
+        # grouping stands for render to print: sectioning derives
+        # no group from an entry own fields, and every entry the
+        # model carries prints under Ungrouped entries, in the
+        # order the model carries them.
+        ungrouped = list(entries)
     if ungrouped:
         lines.append("Ungrouped entries")
         lines.append("")
@@ -918,8 +942,15 @@ def _census_lines(output):
                             "kind")) or "class"
         count = _number(_field(entry, "count", "member_count",
                                "total"))
-        lines.append("%s: %s" % (escape_text(name),
-                                 _counted(count, "entry", "entries")))
+        unit = _text(_field(entry, "counting_unit", "unit"))
+        if unit:
+            lines.append("%s: %s" % (
+                escape_text(name), _carried_unit_counted(
+                    count, escape_text(unit))))
+        else:
+            lines.append("%s: %s" % (escape_text(name),
+                                     _counted(count, "entry",
+                                              "entries")))
         rule = _text(_field(entry, "class_rule_statement"))
         if rule:
             lines.append("Rule: %s" % escape_text(rule))
@@ -936,8 +967,7 @@ def _census_lines(output):
                    "member_ids", "entry_ids"))]
         members = [item for item in members if item]
         if members:
-            lines.append("Members: " + ", ".join(
-                escape_text(item) for item in members))
+            lines.extend(_wrapped_member_lines(members))
     return lines
 
 
