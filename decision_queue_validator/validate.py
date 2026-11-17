@@ -514,8 +514,18 @@ def _listing_decider_label(entry, elements):
                 return label
     if "by Captain JP" in body:
         return "Ruled by Captain JP"
-    if re.search(r"by the Manager\b", body) or re.search(
-            r"(Settled|SETTLED) by:? The Manager\b", body):
+    # The Manager form stands only where the Manager phrase
+    # itself stands in the body form the decider check
+    # accepts, "(Ruled|Settled|Decided) by", with the colon
+    # variant the check's own pattern also takes: a bare
+    # "by the Manager" mention in prose, in a sentence that
+    # states a decision in a form the check does not take or
+    # in a sentence stating no decision at all, is a form the
+    # check does not accept, and the listing claims no
+    # decider from it (finding A5-8-3).
+    if re.search(
+            r"\b(Ruled|Settled|Decided) by:? (the|The) Manager\b",
+            body):
         shim = type("ListingShim", (), {})()
         shim.decider = "a Manager grant form"
         shim.decider_text = "The Manager"
@@ -1126,6 +1136,17 @@ _DECIDER_LINE_RE = re.compile(
     r"^\s*(Ruled|Settled|Decided) by:?\s+[^.]*\.?\s*$")
 
 
+# The tokens of a decider attribution standing alone: the
+# decider names the recorded forms carry, the grant words of
+# the recorded Manager grant form, and the disposition words
+# themselves. Matter made only of these tokens attributes a
+# decision or restates its disposition; it records no ruling.
+_ATTRIBUTION_TOKENS = frozenset((
+    "captain", "jp", "manager", "grant", "under",
+    "ruled", "settled", "decided", "closed",
+))
+
+
 _MATTER_STOPWORDS = frozenset((
     "the", "a", "an", "and", "or", "of", "in", "on", "at", "to",
     "by", "for", "with", "from", "as", "it", "its", "this",
@@ -1154,9 +1175,48 @@ def _ruling_matter_tokens(entry):
     the Landed segments themselves and the Origin and Status
     segments. A Landed segment never counts toward its own
     ruling text, so a matter named only inside the landing
-    claim itself earns nothing.
+    claim itself earns nothing. The landing claim runs to the
+    end of its paragraph, a paragraph being a run of body
+    lines standing between blank lines, the segmentation the
+    parse stage itself uses: every segment standing after a
+    Landed segment in the same paragraph is part of that
+    claim and counts toward the ruling text no more than the
+    Landed segment itself does, so a matter named only in
+    such a segment, a trailing sentence repeating the stated
+    matter among them, earns nothing (finding A5-8-1).
+    Segments standing before the Landed segment in its
+    paragraph, the ruling segment of the DQ-167 shape among
+    them, and segments standing in any other paragraph,
+    count under the rules above as they did before.
     """
-    segments = _sentence_segments(_body_text(entry))
+    body = _body_text(entry)
+    segments = _sentence_segments(body)
+    # The paragraph each segment stands in, by the character
+    # offset the segment starts at. Paragraphs are the runs
+    # of non blank lines of the body, split on blank lines.
+    paragraph_starts = [0]
+    offset = 0
+    for line in body.split("\n"):
+        offset += len(line) + 1
+        if line.strip() == "":
+            paragraph_starts.append(offset)
+    segment_paragraphs = []
+    cursor = 0
+    for segment in segments:
+        found = body.find(segment, cursor)
+        if found < 0:
+            found = cursor
+        cursor = found + len(segment)
+        paragraph = 0
+        for start in paragraph_starts:
+            if start <= found:
+                paragraph += 1
+        segment_paragraphs.append(paragraph)
+    landed_in_paragraph = {}
+    for index, segment in enumerate(segments):
+        if segment.lstrip().startswith("Landed:"):
+            landed_in_paragraph.setdefault(
+                segment_paragraphs[index], index)
     ruled_start = None
     for index, segment in enumerate(segments):
         if segment.lstrip().startswith(("Ruled:", "Ruling:")):
@@ -1166,6 +1226,10 @@ def _ruling_matter_tokens(entry):
     for index, segment in enumerate(segments):
         stripped = segment.lstrip()
         if stripped.startswith("Landed:"):
+            continue
+        landed_index = landed_in_paragraph.get(
+            segment_paragraphs[index])
+        if landed_index is not None and index > landed_index:
             continue
         if ruled_start is not None and index < ruled_start:
             continue
@@ -1280,7 +1344,14 @@ def _check5(entry, display_id, derived, elements):
         # paragraph opening with the Ruled by label is a decider
         # line, not this form, and a paragraph opening with the
         # Ruling outcome label is an outcome record, not this
-        # form: neither satisfies the test here.
+        # form: neither satisfies the test here. The matter
+        # under the label must itself stand as ruling matter:
+        # a paragraph carrying nothing beyond the label, or
+        # nothing beyond a decider attribution (the decider
+        # name, the grant words of the recorded grant form, and
+        # the disposition words themselves), records no ruling
+        # text, as fixture F-12 pins for the Ruled by and Ruling
+        # outcome labels, and does not satisfy the test here.
         for element in derived["effective_elements"]:
             statement = (element.statement or "").lstrip()
             if (element.kind == "labelled paragraph element"
@@ -1288,8 +1359,10 @@ def _check5(entry, display_id, derived, elements):
                     in _DECIDED_DISPOSITIONS
                     and not _is_decider_line(statement)
                     and statement.startswith(("Ruled:", "Settled:"))):
-                ruling_text = True
-                break
+                matter = statement.split(":", 1)[1]
+                if _matter_tokens(matter) - _ATTRIBUTION_TOKENS:
+                    ruling_text = True
+                    break
     outcome = cross_reference
     if not outcome:
         for label in labels:
