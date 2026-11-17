@@ -121,7 +121,7 @@ def _entry_number(entry):
         return None
     if isinstance(identifier, int):
         return int(identifier)
-    match = re.fullmatch(r"DQ-(\d+)", identifier or "")
+    match = re.fullmatch(r"DQ-([0-9]+)", identifier or "")
     if match:
         return int(match.group(1))
     return None
@@ -212,7 +212,8 @@ def _is_bare_closing_sentence(element):
     if element.kind != "tail paragraph element":
         return False
     text = (element.verbatim or element.statement or "").strip().lower()
-    return text in ("closed.", "closed", "status: closed.")
+    return text in ("closed.", "closed", "status: closed.",
+                    "it is closed.", "it is closed")
 
 
 def _heading_decided_disposition(elements):
@@ -302,12 +303,14 @@ def _effective_elements(entry, elements):
         elif (heading_decided is not None
                 and element.kind == "closing prose"
                 and element.disposition == "Closed"
-                and re.search(r"(?:^|[.!?]\s+)closed\.\s*$",
+                and re.search(r"(?:^|[.!?]\s+)(?:it is\s+)?closed\.\s*$",
                               statement.strip(), re.IGNORECASE)):
             # The PIN-11 concordance form at paragraph scale:
             # a closing prose paragraph whose final sentence is
             # the bare closing sentence, stating closed and
-            # nothing more, standing in an entry whose heading
+            # nothing more (the pronoun form "It is closed."
+            # stands in the same form, Step 17 round 2 charge
+            # CH-8, A2-10-F1), standing in an entry whose heading
             # element denotes Ruled or Settled, confirms that
             # heading disposition and denotes no separate
             # Closed state, so the paragraph element is set
@@ -403,6 +406,10 @@ _REMAINDER_PATTERNS = (
     re.compile(r"([Tt]he remainder) stays\b"),
     re.compile(r"[Tt]he remainder, (.+?), (?:also )?(?:still )?"
                r"stands open\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?(?:still )?"
+               r"(?:stands open|stays\b)"),
+    re.compile(r"([Tt]he rest) (?:also )?(?:still )?"
+               r"(?:stands open|stays banked|stands banked)\b"),
 )
 
 
@@ -442,24 +449,77 @@ _PART_SCOPE_PATTERNS = (
 )
 
 
-def _scope_of(element):
+def _scope_of(element, entry=None):
     """The scope a disposition statement carries, read in
     validate where the recorded scope does not already state
     it: scope is Part where the statement in words limits the
-    act to a named part of the entry and a remainder is named
-    for the rest, under the PIN-01 extraction rule (Step 17
-    charge A10-F5). A statement limiting nothing, or naming
-    no remainder, states no part scope here."""
+    act to a named part of the entry, under the PIN-01
+    extraction rule (Step 17 charge A10-F5, widened at round 2
+    charge CH-9, A2-10-F4). The part limit stands in the
+    statement itself, so it states part scope whether the
+    remainder is named in the same statement, in the words
+    the rest, in a later paragraph of the entry, or not named
+    at all: a part act with a named remainder derives Settled
+    in part, and a part act naming no remainder takes the
+    PIN-03 Ambiguous row in derivation, as the Status line
+    form of the same shape does. A statement limiting nothing
+    states no part scope here."""
     recorded = element.scope or ""
     if recorded.startswith("Part"):
         return recorded
     statement = element.statement or element.verbatim or ""
-    if not _extract_remainder(element):
-        return recorded
     for pattern in _PART_SCOPE_PATTERNS:
         if pattern.search(statement):
             return "Part"
+    if re.search(r"\bin part\b", statement, re.IGNORECASE) and (
+            _extract_remainder(element)
+            or (entry is not None
+                and _entry_body_remainder(entry))):
+        return "Part"
     return recorded
+
+
+def _entry_body_remainder(entry):
+    """The remainder named anywhere in the entry body, in the
+    remainder forms _extract_remainder reads, or None. A part
+    disposition whose remainder stands in its own paragraph
+    after the disposition statement names its remainder there,
+    and the body is the only place that naming stands
+    (Step 17 round 2 charge CH-9, A2-10-F4)."""
+    body = _body_text(entry)
+    if not body:
+        return None
+    for pattern in _REMAINDER_PATTERNS:
+        match = pattern.search(body)
+        if match:
+            text = match.group(1).strip().rstrip(".")
+            if text:
+                return text
+    match = re.search(r"[Ss]tays banked: (.+?)(?:, and this item"
+                      r"|\.\s*$|\.$|$)", body, re.MULTILINE)
+    if match:
+        text = match.group(1).strip().rstrip(".")
+        if text:
+            return text
+    return None
+
+
+def _part_remainder(entry, element):
+    """The remainder a part element names, for derivation:
+    the remainder the element itself names where it names
+    one, and otherwise, where the element carries part
+    scope, the remainder the entry body names. An element
+    carrying no part scope takes no remainder from the body,
+    so a remainder named for another act never attaches to
+    a whole act."""
+    found = _extract_remainder(element)
+    if found:
+        return found
+    if entry is None:
+        return None
+    if not _scope_of(element).startswith("Part"):
+        return None
+    return _entry_body_remainder(entry)
 
 
 def _entry_decision_evidence(entry, elements):
@@ -693,12 +753,12 @@ def _denoted_state(entry, element, elements):
     if disposition in ("Banked", "Relative"):
         return "Open"
     if (disposition in ("Ruled", "Settled")
-            and _scope_of(element).startswith("Part")
-            and _extract_remainder(element)):
+            and _scope_of(element, entry).startswith("Part")
+            and _part_remainder(entry, element)):
         return "Settled in part"
     if disposition in ("Ruled", "Settled", "Closed", "Banked", "Open",
                        "Presented", "Parked") and (
-            _scope_of(element).startswith("Part")):
+            _scope_of(element, entry).startswith("Part")):
         return "Ambiguous"
     return disposition
 
@@ -718,8 +778,8 @@ def _underlying_state(entry, element, elements):
     if disposition in ("Banked", "Relative"):
         return "Open"
     if (disposition in ("Ruled", "Settled")
-            and _scope_of(element).startswith("Part")
-            and _extract_remainder(element)):
+            and _scope_of(element, entry).startswith("Part")
+            and _part_remainder(entry, element)):
         return "Settled in part"
     return disposition
 
@@ -860,7 +920,7 @@ def _derive(entry):
                 break
     result["determining"] = determining
     disposition = _effective_disposition(entry, determining, elements)
-    scope = _scope_of(determining)
+    scope = _scope_of(determining, entry)
     condition = _effective_condition(determining)
 
     def finish(state, sub_label=None, label_element=None):
@@ -886,7 +946,7 @@ def _derive(entry):
             listing_label = _listing_decider_label(entry, elements)
         result["listing_decider_label"] = listing_label
         result["condition"] = condition
-        result["remainder"] = _extract_remainder(determining)
+        result["remainder"] = _part_remainder(entry, determining)
         if result["remainder"]:
             result["remainder_texts"] = [result["remainder"]]
         result["underlying_state"] = _underlying_state(
@@ -944,7 +1004,7 @@ def _derive(entry):
         # condition both carried (plan Item 9, section 9.4). A
         # closure stated as decided for a part takes Closed as
         # decided for that part only and never Settled in part.
-        if not _extract_remainder(determining):
+        if not _part_remainder(entry, determining):
             result["state"] = "Ambiguous"
             result["sub_label"] = "Single element"
             result["competing"] = [determining]
@@ -980,11 +1040,20 @@ def _derive(entry):
         # in silence (Step 17 charge S17-ATK7-04, bounded to
         # closing prose standing as the determining element).
         claim_statement = determining.statement or ""
-        if (re.search(r"\b(?:ruled|settled) by\b", claim_statement,
-                      re.IGNORECASE)
+        # The two readings are stated in the neighbouring plain
+        # words of the same contradiction, not only in the two
+        # fixed phrases of the first cure: the decision verb
+        # stands with a by phrase, with a time word, or with no
+        # decider named at all, and the closure stands as now
+        # closed, is closed, stands closed, been closed, closed
+        # in full, or the bare word closed (Step 17 round 2
+        # charge CH-8, S17-ATK2-7-02).
+        if (re.search(r"\b(?:ruled|settled|decided)\b",
+                      claim_statement, re.IGNORECASE)
                 and re.search(r"\b(?:now closed|is closed|"
-                              r"stands closed)\b", claim_statement,
-                              re.IGNORECASE)):
+                              r"stands closed|been closed|"
+                              r"closed in full|closed)\b",
+                              claim_statement, re.IGNORECASE)):
             others = [e for e in effective
                       if e is not determining
                       and _denoted_state(entry, e, elements)
@@ -1025,7 +1094,7 @@ def _derive(entry):
                 result["determining"] = determining
                 disposition = _effective_disposition(entry, determining,
                                                      elements)
-                scope = _scope_of(determining)
+                scope = _scope_of(determining, entry)
                 condition = _effective_condition(determining)
                 if condition:
                     return finish("Conditional")
@@ -1175,14 +1244,67 @@ _QUESTION_LABELS = ("The question",)
 _PROSE_OPTIONS_LINE = "The options, stated plainly:"
 
 
+def _decision_block_line_numbers(entry):
+    """The entry body line numbers standing inside a decision
+    block: every line from a block heading line to its span
+    end line, inclusive. Lines inside a decision block are
+    the block's own, and no entry level presence scan reads
+    them (Step 17 charge F-17-09, extended to the prose
+    options limb by round 2 charge CH-22)."""
+    numbers = set()
+    for block in _get(entry, "decision_blocks") or []:
+        span = _get(block, "span")
+        if span is None:
+            continue
+        start = _get(span, "start_line")
+        if start is None:
+            start = _get(span, "start")
+        end = _get(span, "end_line")
+        if end is None:
+            end = _get(span, "end")
+        if start is None:
+            continue
+        if end is None:
+            end = start
+        for number in range(int(start), int(end) + 1):
+            numbers.add(number)
+    return numbers
+
+
+def _options_alias_label(lowered):
+    """Whether a lowered recorded label stands in one of the
+    bounded Options alias forms: the words the options, or
+    the three options, standing as whole words at the head
+    of the label. The alias takes a word boundary after the
+    options word: a label that merely opens with those
+    letters and continues the word (a nonsense label opening
+    the optionsXYZ) is no alias form (round 2 charge CH-22,
+    finding S17-ATK2-17-03)."""
+    for prefix in ("the three options", "the options"):
+        if lowered == prefix:
+            return True
+        if lowered.startswith(prefix):
+            following = lowered[len(prefix)]
+            if not (following.isalnum() or following == "_"):
+                return True
+    return False
+
+
 def _prose_options_line_index(entry):
     """The body line index of the corpus prose options heading,
     the line "The options, stated plainly:", or None where no
     body line stands in that exact form. The test is equality
     of the whole stripped line, not a prefix: it restores the
     one prose form the corpus carries, and it takes no form
-    of the Options label itself."""
-    for index, (_line, text) in enumerate(_body_lines(entry)):
+    of the Options label itself. A prose heading standing
+    inside a level 4 decision block counts for nothing: the
+    block's lines are the block's own, as every sibling
+    presence test already reads them (round 2 charge CH-22,
+    finding S17-ATK2-17-04)."""
+    blocked = _decision_block_line_numbers(entry)
+    for index, (line, text) in enumerate(_body_lines(entry)):
+        if line in blocked:
+            continue
         if (text or "").strip() == _PROSE_OPTIONS_LINE:
             return index
     return None
@@ -1206,8 +1328,7 @@ def _has_options_field(entry):
     # form and reopens none of the charged forms.
     for label in _field_labels(entry):
         lowered = label.lower()
-        if (label == "Options" or lowered.startswith("the options")
-                or lowered.startswith("the three options")):
+        if label == "Options" or _options_alias_label(lowered):
             return True
     return _prose_options_line_index(entry) is not None
 
@@ -1237,8 +1358,7 @@ def _options_value_present(entry):
     for f in _get(entry, "fields") or []:
         label = str(_get(f, "label", "") or "")
         lowered = label.lower()
-        if (lowered.startswith("the options")
-                or lowered.startswith("the three options")):
+        if _options_alias_label(lowered):
             return bool((_get(f, "value") or "").strip())
     # The corpus prose form, reached only where no recorded
     # Options field stands at all, so the empty value ground
@@ -1666,13 +1786,78 @@ def _is_decider_line(statement):
     return bool(_DECIDER_LINE_RE.match(statement or ""))
 
 
+_DECIDER_VERB_BY_RE = re.compile(
+    r"\b(?:Ruled|Settled|Decided) by\b")
+
+
+def _decider_verb_form_present(body):
+    """Whether the body carries the decider verb form with
+    decider matter standing after "by": the verb form (Ruled,
+    Settled, or Decided, followed by "by" ending at a word
+    boundary) counts only where a word character stands after
+    "by" in the same paragraph, past the separator characters
+    standing between "by" and the matter. The separator run
+    takes every boundary character the Step 16 pins record:
+    punctuation of every kind, doubled and triple separators,
+    punctuation standing directly against the name, whitespace
+    of every class including the line break and the non
+    breaking space, and the boundary marks. The bare field
+    line "Ruled by:" standing alone in its paragraph carries
+    no word character after "by" in that paragraph, so it
+    records no decider (Step 17 round 2 charge CH-6,
+    S17-ATK2-7-01, narrowed at the fix wave 2 closing, defect
+    D1, so the Step 16 bound forms the first cure reading
+    lost stand recorded again)."""
+    for match in _DECIDER_VERB_BY_RE.finditer(body or ""):
+        rest = (body or "")[match.end():]
+        paragraph_rest = re.split(
+            r"\n\s*\n", rest, maxsplit=1)[0]
+        if re.search(r"\w", paragraph_rest):
+            return True
+    return False
+
+
 _GHOST_SUBJECT_PATTERNS = (
-    re.compile(r"\bDQ-(\d+)\s+is\s+(?:decided|closed|settled|"
+    re.compile(r"\bDQ-([0-9]+)\s+is\s+(?:decided|closed|settled|"
                r"ruled)\b", re.IGNORECASE),
+    # The verb first pattern reads its verbs in either case:
+    # a verb standing lower case in a parenthetical on the
+    # entry own Status line is the same form (Step 17 round 2
+    # charge CH-7, S17-ATK2-7-04).
     re.compile(r"\b(?:Settle|Settles|Close|Closes|Rule|Rules)\s+"
-               r"DQ-(\d+)\b"),
-    re.compile(r"\bquestion for DQ-(\d+)\b", re.IGNORECASE),
+               r"DQ-([0-9]+)\b", re.IGNORECASE),
+    re.compile(r"\bquestion for DQ-([0-9]+)\b", re.IGNORECASE),
 )
+
+
+_GHOST_FIELD_LABELS = (
+    "Ruling text", "Ruling texts", "Settlement", "Ruling outcome",
+    "Ruled", "Question as put", "The question that was open")
+
+
+def _ghost_subject_texts(entry, derived, elements, field_span):
+    """The texts the ghost subject scan reads, in one place, so
+    every scan that defers to it defers to the same surfaces:
+    the decision bearing statements of the entry, its effective
+    elements carrying a decided disposition and its recorded
+    decision field values, and the heading lines of its level
+    4 decision blocks. A block heading is part of the recorded
+    decision block form, so a ghost named in it stands on this
+    ground (Step 17 round 2 charge CH-7, S17-ATK2-7-05)."""
+    texts = []
+    for element in derived["effective_elements"]:
+        if _effective_disposition(entry, element, elements) \
+                in _DECIDED_DISPOSITIONS:
+            texts.append((element.statement or "",
+                          Span(element.line, element.line)))
+    for f in _get(entry, "fields") or []:
+        label = str(_get(f, "label", "") or "")
+        if label in _GHOST_FIELD_LABELS:
+            texts.append((_get(f, "value") or "", field_span))
+    for line_number, text in _body_lines(entry):
+        if (text or "").strip().startswith("####"):
+            texts.append((text or "", Span(line_number, line_number)))
+    return texts
 
 
 def _check5(entry, display_id, derived, elements,
@@ -1728,8 +1913,18 @@ def _check5(entry, display_id, derived, elements,
                 decider = True
                 break
     if not decider:
-        decider = bool(re.search(
-            r"\b(Ruled|Settled|Decided) by\b", body)) or (
+        # Presence is tested on the value, not on the label
+        # alone: the verb form counts only where decider
+        # matter stands after "by" in the same paragraph, so
+        # the bare field line "Ruled by:" with an empty value
+        # records no decider (Step 17 round 2 charge CH-6,
+        # S17-ATK2-7-01, narrowed at the fix wave 2 closing,
+        # defect D1: the first cure reading, an optional
+        # single colon and whitespace on the same line, took
+        # none of the boundary character forms the Step 16
+        # pins record as accepted by this check, and those
+        # pins stand again under the narrowed reading).
+        decider = _decider_verb_form_present(body) or (
                 "by Captain JP" in body)
     if not decider:
         heading = _get(entry, "heading") or ""
@@ -1743,10 +1938,11 @@ def _check5(entry, display_id, derived, elements,
                 break
     ruling_text = cross_reference
     if not ruling_text:
-        for label in labels:
-            if label in ("Ruling text", "Ruling texts", "Settlement"):
-                ruling_text = True
-                break
+        # Presence on the value, as at the decider test above:
+        # the label alone, carrying an empty value, records no
+        # ruling text (charge CH-6).
+        ruling_text = _field_value_present(
+            entry, ("Ruling text", "Ruling texts", "Settlement"))
     if not ruling_text:
         for element in derived["effective_elements"]:
             if (element.kind in ("decision block matter", "closing prose",
@@ -1828,13 +2024,12 @@ def _check5(entry, display_id, derived, elements,
                     break
     outcome = cross_reference
     if not outcome:
-        for label in labels:
-            if (label.startswith("Ruling outcome")
-                    or label.startswith("Form outcome")
-                    or label == "Decision"
-                    or label in ("Outcome", "Outcome of this decision")):
-                outcome = True
-                break
+        # Presence on the value, as at the ruling text test:
+        # an outcome label carrying an empty value records no
+        # outcome (charge CH-6).
+        outcome = _field_value_present(
+            entry, ("Decision", "Outcome", "Outcome of this decision"),
+            prefixes=("Ruling outcome", "Form outcome"))
     if not outcome:
         for element in derived["effective_elements"]:
             statement = element.statement or ""
@@ -1862,20 +2057,42 @@ def _check5(entry, display_id, derived, elements,
                 outcome = True
                 break
     if not outcome:
-        for label in labels:
-            if label in ("Ruled", "Settlement", "Fill-in"):
-                outcome = True
-                break
+        outcome = _field_value_present(
+            entry, ("Ruled", "Settlement", "Fill-in"))
     landing = cross_reference
     if not landing:
-        for label in labels:
-            if (label.startswith("Where the ruling landed")
-                    or label.startswith("Where the settlement landed")
-                    or label.startswith("Where the settlement is to land")
-                    or label.startswith("Where it landed")
-                    or label in ("Landing", "Landing record", "Lands",
-                                  "Landed")):
-                landing = True
+        # Presence on the value, as at the tests above, with
+        # one collected lines form standing beside it: a
+        # landing label carrying an empty value whose record
+        # stands as the bullet lines under the label, the
+        # corpus form, records a landing; the bare label with
+        # nothing under it records none (charge CH-6,
+        # S17-ATK2-17-05).
+        landing = _field_value_present(
+            entry,
+            ("Landing", "Landing record", "Lands", "Landed"),
+            prefixes=("Where the ruling landed",
+                      "Where the settlement landed",
+                      "Where the settlement is to land",
+                      "Where it landed"))
+    if not landing:
+        body_lines = _body_lines(entry)
+        for index, (_line, text) in enumerate(body_lines):
+            stripped = (text or "").strip()
+            if not re.match(
+                    r"(?:Where the ruling landed|Where the "
+                    r"settlement landed|Where the settlement is "
+                    r"to land|Where it landed|Landing|Landing "
+                    r"record|Lands|Landed):\s*$", stripped):
+                continue
+            for _next_line, next_text in body_lines[index + 1:]:
+                next_stripped = (next_text or "").strip()
+                if not next_stripped:
+                    continue
+                if next_stripped.startswith("- "):
+                    landing = True
+                break
+            if landing:
                 break
     if not landing:
         for _line, text in _body_lines(entry):
@@ -1981,18 +2198,7 @@ def _check5(entry, display_id, derived, elements,
         # elements and its recorded field values.
         host_number = _entry_number(entry)
         ghost_seen = {}
-        texts = []
-        for element in derived["effective_elements"]:
-            if _effective_disposition(entry, element, elements) \
-                    in _DECIDED_DISPOSITIONS:
-                texts.append((element.statement or "",
-                              Span(element.line, element.line)))
-        for f in _get(entry, "fields") or []:
-            label = str(_get(f, "label", "") or "")
-            if label in ("Ruling text", "Ruling texts", "Settlement",
-                         "Ruling outcome", "Ruled", "Question as put",
-                         "The question that was open"):
-                texts.append((_get(f, "value") or "", span))
+        texts = _ghost_subject_texts(entry, derived, elements, span)
         for text, text_span in texts:
             for pattern in _GHOST_SUBJECT_PATTERNS:
                 for match in pattern.finditer(text):
@@ -2350,30 +2556,42 @@ def _unmatched_heading_findings(model):
 # Unit 3d: cross entry check (check 8)
 # ---------------------------------------------------------------------
 
+# Digit reading in this file stands pinned to ASCII digits
+# only (round 2 charge CH-24, finding F-3 of seat 4): a
+# citation, claim, or count written in any other decimal
+# digit script is not read as a number, in either direction,
+# on any runtime. The pin reaches every DQ number pattern
+# in this file and the introduction count pattern below, so
+# the count claim surface at the F-15-2-1 locus reads ASCII
+# digits only as well. The one wider class left standing is
+# a rejection guard, not a reading: the citation patterns
+# refuse a match where the number continues in any decimal
+# digit script, so a mixed script token is never read in
+# part as its ASCII head.
 _CITATION_PATTERNS = (
-    re.compile(r"\bunder DQ-(\d+)(?![\d:])"),
-    re.compile(r"\bunder the DQ-(\d+)(?![\d:])"),
-    re.compile(r"\bat DQ-(\d+)(?![\d:])"),
-    re.compile(r"\bsee DQ-(\d+)(?![\d:])"),
-    re.compile(r"\bper DQ-(\d+)(?![\d:])"),
-    re.compile(r"\bcross reference to DQ-(\d+)(?![\d:])"),
+    re.compile(r"\bunder DQ-([0-9]+)(?![\d:])"),
+    re.compile(r"\bunder the DQ-([0-9]+)(?![\d:])"),
+    re.compile(r"\bat DQ-([0-9]+)(?![\d:])"),
+    re.compile(r"\bsee DQ-([0-9]+)(?![\d:])"),
+    re.compile(r"\bper DQ-([0-9]+)(?![\d:])"),
+    re.compile(r"\bcross reference to DQ-([0-9]+)(?![\d:])"),
 )
 
 _CLAIM_PATTERNS = (
-    re.compile(r"\bDQ-(\d+)\s+is\s+"
+    re.compile(r"\bDQ-([0-9]+)\s+is\s+"
                r"(Settled|Ruled|Open|Banked|Closed|Parked|Presented)\b"),
-    re.compile(r"\bDQ-(\d+)\b[^.;]{0,110}?\b"
+    re.compile(r"\bDQ-([0-9]+)\b[^.;]{0,110}?\b"
                r"(stays|remains|stands|left)\s+"
                r"(banked|open|settled|ruled|closed)\b"),
 )
 
 _INTRODUCTION_PATTERN = re.compile(
-    r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"\b([0-9]+|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
     r"eighteen|nineteen|twenty)\s+(entries|questions|items|decisions)\b")
 
 
-def _check8(model, entries, derived_by_id):
+def _check8(model, entries, derived_by_id, derived_lists=None):
     findings = []
     numbers = set()
     for entry in entries:
@@ -2498,12 +2716,30 @@ def _check8(model, entries, derived_by_id):
         derived = derived_by_id.get(source_id)
         if derived is not None and derived.get("state") in \
                 DECIDED_OUTCOMES:
-            for _line_number, text in _body_lines(entry):
+            # The suppression stands only for a number the
+            # _check5 ghost scan itself reads, on the surfaces
+            # _ghost_subject_texts names: a number standing
+            # only on a body line the ghost scan does not read
+            # is not suppressed here (charge CH-7,
+            # S17-ATK2-7-05).
+            elements = list(_get(entry, "status_elements") or [])
+            for text, _text_span in _ghost_subject_texts(
+                    entry, derived, elements, None):
                 for pattern in _GHOST_SUBJECT_PATTERNS:
                     for match in pattern.finditer(text or ""):
                         skip.add(int(match.group(1)))
         scan_plain_citations(_body_lines(entry), source_id,
                              source_id, skip_numbers=skip)
+        # The entry heading line is a citation surface of the
+        # entry: a ghost number named in its title is reported
+        # here as it is on a body line (charge CH-7,
+        # S17-ATK2-7-06).
+        heading_line = _get(entry, "heading_line")
+        heading_text = _get(entry, "heading") or ""
+        if heading_line is not None and heading_text:
+            scan_plain_citations(
+                [(heading_line, heading_text)], source_id,
+                source_id, skip_numbers=skip)
     header_lines = list(_get(model, "lines") or [])
     for unit in _get(model, "units") or []:
         if _get(unit, "kind") != "file header":
@@ -2523,11 +2759,39 @@ def _check8(model, entries, derived_by_id):
         derived = derived_by_id.get(target_id)
         if derived is None:
             return None
-        state = derived["state"]
-        if state == "Ambiguous":
-            state_text = "Ambiguous (%s)" % (derived["sub_label"] or "")
-        else:
-            state_text = str(state)
+
+        def state_text_of(one):
+            if one["state"] == "Ambiguous":
+                return "Ambiguous (%s)" % (one["sub_label"] or "")
+            return str(one["state"])
+
+        # Where two standing copies share the target identifier,
+        # the Note states the derived state of every copy, in
+        # file order: keying the statement on the identifier
+        # alone stated the last copy state as the state of the
+        # number, contradicting a standing copy in both orders
+        # (Step 17 round 2 charge CH-7, seat 6 Finding 2).
+        copies = (derived_lists or {}).get(target_id) or []
+        distinct = []
+        for one in copies:
+            text = state_text_of(one)
+            if text not in distinct:
+                distinct.append(text)
+        if len(distinct) > 1:
+            statement = (
+                "%s records a claim about the state of %s: \"%s\" "
+                "The claim is reported as a claim. The derived "
+                "states of %s in this run are %s, one for each "
+                "standing copy."
+                % (claiming_id, target_id, quoted, target_id,
+                   " and ".join(distinct)))
+            finding = _finding(
+                8, "Note", claiming_id, span, quoted, statement,
+                basis="a cross entry state claim, reported as a claim")
+            finding.named_entries = [target_id]
+            finding.claiming_unit = claiming_id
+            return finding
+        state_text = state_text_of(derived)
         finding = _finding(
             8, "Note", claiming_id, span, quoted,
             "%s records a claim about the state of %s: \"%s\" The "
@@ -2544,10 +2808,10 @@ def _check8(model, entries, derived_by_id):
         return finding
 
     seen_claims = set()
-    token_pattern = re.compile(r"\bDQ-(\d+)\b")
+    token_pattern = re.compile(r"\bDQ-([0-9]+)\b")
     predicate_patterns = (
-        re.compile(r"DQ-\d+\s+is\s+(Settled|Ruled|Open|Banked|Closed|"
-                   r"Parked|Presented)\b"),
+        re.compile(r"DQ-[0-9]+\s+is\s+(Settled|Ruled|Open|Banked|Closed|"
+                   r"Parked|Presented|Decided|decided)\b"),
         re.compile(r"[^.;]{0,110}?\b(stays|remains|stands|left)\s+"
                    r"(banked|open|settled|ruled|closed)\b"),
         # The still forms of the same claims, in the ordinary
@@ -2555,16 +2819,57 @@ def _check8(model, entries, derived_by_id):
         # still standing before it, and the waiting form that
         # states an open claim in words (Step 17 charge
         # F-11-06).
-        re.compile(r"DQ-\d+\s+is\s+still\s+(settled|ruled|open|"
+        re.compile(r"DQ-[0-9]+\s+is\s+still\s+(settled|ruled|open|"
                    r"banked|closed|parked|presented)\b",
                    re.IGNORECASE),
         re.compile(r"[^.;]{0,110}?\bstill waiting\b"),
+        # The past tense forms of the same claims, and the is
+        # decided form: the state word list of the first
+        # pattern carries decided, and a claim stated with was
+        # or has been takes the same Note (Step 17 round 2
+        # charge CH-7, S17-ATK2-7-07 and S17-ATK2-7-08).
+        re.compile(r"DQ-[0-9]+\s+was\s+(settled|ruled|closed|"
+                   r"decided|banked|parked|presented|open)\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+\s+has\s+been\s+(settled|ruled|"
+                   r"closed|decided)\b", re.IGNORECASE),
     )
+    verb_claim_pattern = re.compile(
+        r"\b(?:Settle|Settles|Rule|Rules|Close|Closes|Decide|"
+        r"Decides)\s+DQ-([0-9]+)\b")
     for entry in entries:
         claiming_id = _display_id(entry)
         for line_number, text in _body_lines(entry):
             if text.startswith("Status:"):
                 continue
+            # The verb first form inside a decision evidence
+            # line: a ruling text or outcome line that names
+            # another entry as the subject of the act, in the
+            # form "Settle DQ-238 as follows.", is a claim
+            # about that entry and takes the same Note (charge
+            # CH-7, S17-ATK2-7-07).
+            stripped = (text or "").lstrip()
+            label_head = stripped.split(":", 1)[0] if ":" in stripped \
+                else ""
+            if label_head in _GHOST_FIELD_LABELS:
+                for match in verb_claim_pattern.finditer(text or ""):
+                    target_id = "DQ-%03d" % int(match.group(1))
+                    if target_id == claiming_id:
+                        continue
+                    quoted = (text or "")[match.start():]
+                    end = quoted.find(".")
+                    if end >= 0:
+                        quoted = quoted[:end + 1]
+                    quoted = quoted.strip()
+                    key = (claiming_id, target_id, quoted)
+                    if key in seen_claims:
+                        continue
+                    seen_claims.add(key)
+                    finding = claim_finding(
+                        claiming_id, target_id, quoted,
+                        Span(line_number, line_number))
+                    if finding is not None:
+                        findings.append(finding)
             for token in token_pattern.finditer(text):
                 target_id = "DQ-%03d" % int(token.group(1))
                 if target_id == claiming_id:
@@ -2670,20 +2975,20 @@ def _check8(model, entries, derived_by_id):
 # level claim and cited number reports (PIN-10, PIN-09, PD-R7)
 # ---------------------------------------------------------------------
 
-_DQ_TOKEN_RE = re.compile(r"\bDQ-(\d+)\b")
+_DQ_TOKEN_RE = re.compile(r"\bDQ-([0-9]+)\b")
 
 _IDENTIFICATION_PATTERNS = (
     re.compile(r"displaces the rulings? at "
-               r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)"),
-    re.compile(r"displaces ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\b"),
-    re.compile(r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+"
+               r"((?:DQ-[0-9]+)(?:\s+and\s+DQ-[0-9]+)*)"),
+    re.compile(r"displaces ((?:DQ-[0-9]+)(?:\s+and\s+DQ-[0-9]+)*)\b"),
+    re.compile(r"((?:DQ-[0-9]+)(?:\s+and\s+DQ-[0-9]+)*)\s+"
                r"(?:is|are) the superseded entr"),
-    re.compile(r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+"
+    re.compile(r"((?:DQ-[0-9]+)(?:\s+and\s+DQ-[0-9]+)*)\s+"
                r"(?:is|are) the entr\w+ it stands in place of"),
-    re.compile(r"replaces ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+as\b"),
-    re.compile(r"supersedes ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\b"),
+    re.compile(r"replaces ((?:DQ-[0-9]+)(?:\s+and\s+DQ-[0-9]+)*)\s+as\b"),
+    re.compile(r"supersedes ((?:DQ-[0-9]+)(?:\s+and\s+DQ-[0-9]+)*)\b"),
     re.compile(r"supersedes\b[^.;]{0,120}?\bat "
-               r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\b"),
+               r"((?:DQ-[0-9]+)(?:\s+and\s+DQ-[0-9]+)*)\b"),
 )
 
 
@@ -2702,7 +3007,7 @@ def _identifications(sentence):
     return ordered
 
 
-_CASE_VARIANT_TOKEN_RE = re.compile(r"\b(?:DQ|Dq|dQ|dq)-(\d+)\b")
+_CASE_VARIANT_TOKEN_RE = re.compile(r"\b(?:DQ|Dq|dQ|dq)-([0-9]+)\b")
 
 
 def _case_variant_identifications(sentence):
@@ -2795,28 +3100,84 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
     sep = len(_MAP_SEPARATOR)
     mark = len(_MAP_CYCLE_MARK)
 
-    reachable = {}
-
-    def reach_set(start):
-        if start in reachable:
-            return reachable[start]
-        seen = set()
-        stack = [start]
-        while stack:
-            current = stack.pop()
-            for nxt in pointers.get(current, []):
-                if nxt not in seen:
-                    seen.add(nxt)
-                    stack.append(nxt)
-        reachable[start] = seen
-        return seen
+    # The reach information this computation reads stands in
+    # two places, and neither needs a per entry reach closure.
+    # The first is the continuation frame key, which filters an
+    # entry's ancestors to the ancestors its own reach set
+    # holds. A frame's ancestors stand on a pointer path down
+    # to the entry: the root ancestors stand on such a path by
+    # the cycle prefix form of the second continuation call
+    # site, and each child frame extends the path by the one
+    # pointer it follows. An ancestor on that path stands in
+    # the reach set of the entry exactly where the entry also
+    # reaches the ancestor, which is exactly where the two
+    # stand in one strongly connected component of the pointer
+    # graph. The components are computed once here, in time
+    # standing in the size of the graph, by two walks over it.
+    # The second place is the set of entries any start reaches,
+    # read further below by one walk that starts from every
+    # start at once. The per entry closure form computed and
+    # stored a full reach set for every entry, which on a chain
+    # stores about N squared over two entry references in
+    # total (Step 17, CH-12: seat 5 Finding 1 limb one and
+    # A2-21-2).
+    graph = {}
+    for entry_id in headed_ids:
+        if entry_id not in graph:
+            graph[entry_id] = list(pointers.get(entry_id, []))
+    for source, holders in pointers.items():
+        if source not in graph:
+            graph[source] = list(holders)
+        for holder in holders:
+            if holder not in graph:
+                graph[holder] = list(pointers.get(holder, []))
+    for cycle in pointer_cycles:
+        for entry_id in cycle:
+            if entry_id not in graph:
+                graph[entry_id] = list(pointers.get(entry_id, []))
+    reverse_graph = {entry_id: [] for entry_id in graph}
+    for source, holders in graph.items():
+        for holder in holders:
+            reverse_graph[holder].append(source)
+    finish_order = []
+    walked = set()
+    for node in graph:
+        if node in walked:
+            continue
+        walk = [(node, False)]
+        while walk:
+            current, expanded = walk.pop()
+            if expanded:
+                finish_order.append(current)
+                continue
+            if current in walked:
+                continue
+            walked.add(current)
+            walk.append((current, True))
+            for nxt in graph[current]:
+                if nxt not in walked:
+                    walk.append((nxt, False))
+    component = {}
+    component_count = 0
+    for node in reversed(finish_order):
+        if node in component:
+            continue
+        walk = [node]
+        component[node] = component_count
+        while walk:
+            current = walk.pop()
+            for prev in reverse_graph[current]:
+                if prev not in component:
+                    component[prev] = component_count
+                    walk.append(prev)
+        component_count += 1
 
     memo = {}
 
     def continuation(root, root_ancestors):
         # The continuation of an entry, computed with an
         # explicit stack instead of recursion, and with the
-        # reach set of each entry read once per frame: the
+        # ancestor filter of each entry read once per frame: the
         # recursive form re-read the reach set once per
         # ancestor at every step of a chain, and its depth
         # stood bounded by the interpreter recursion limit on
@@ -2829,9 +3190,11 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
         # widened by the entry and the separator once per
         # chain it carries, every total capped at the cap.
         def make_frame(entry, ancestors):
-            reach = reach_set(entry)
+            entry_component = component.get(entry)
             key = (entry, frozenset(
-                a for a in ancestors if a in reach))
+                a for a in ancestors
+                if entry_component is not None
+                and component.get(a) == entry_component))
             return {
                 "entry": entry, "ancestors": ancestors,
                 "key": key, "holders": None, "index": 0,
@@ -2908,10 +3271,18 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
               if entry_id in pointers
               and entry_id not in superseding_set]
     total = len(_MAP_HEAD_LINE) + 1
-    reached_entries = set()
-    for start in starts:
-        reached_entries.add(start)
-        reached_entries.update(reach_set(start))
+    # The entries any start reaches, read by one walk that
+    # starts from every start at once: the same union the per
+    # start reach sets gave, read in time standing in the size
+    # of the graph.
+    reached_entries = set(starts)
+    walk_stack = list(starts)
+    while walk_stack:
+        current = walk_stack.pop()
+        for nxt in pointers.get(current, []):
+            if nxt not in reached_entries:
+                reached_entries.add(nxt)
+                walk_stack.append(nxt)
     for start in starts:
         _count, chars = continuation(start, [])
         total = min(cap, total + chars)
@@ -3044,6 +3415,15 @@ def _supersession_unit(model, entries, derived_list):
                 variant_named = []
                 for target in variants:
                     handled.add(target)
+                    if target in identified:
+                        # A case variant naming of a target the
+                        # same statement already identified in the
+                        # standard form is the same naming, not a
+                        # near miss: the pointer stands for that
+                        # target, and no not recognised Note stands
+                        # against it (Step 17 round 2, Finding 2
+                        # of seat 9).
+                        continue
                     if target in headed_set:
                         variant_named.append(target)
                     else:
@@ -3090,15 +3470,30 @@ def _supersession_unit(model, entries, derived_list):
         # from an absent one.
         runs = []
         run = []
+        quote_open = False
         for line_number, text in body:
-            if text and text.strip() and (
-                    not run or line_number == run[-1][0] + 1):
-                run.append((line_number, text))
-            else:
+            if not (text and text.strip()):
+                # A blank line does not break the run while a
+                # quoted statement stands open across it: a
+                # statement split across a paragraph break inside
+                # its quotation is read over the joined run on
+                # the same terms as one split across the lines
+                # of one paragraph (Step 17 round 2, F-11R2-03).
+                if run and quote_open:
+                    continue
                 if run:
                     runs.append(run)
-                run = ([(line_number, text)]
-                       if text and text.strip() else [])
+                    run = []
+                quote_open = False
+                continue
+            if not run or quote_open or (
+                    line_number == run[-1][0] + 1):
+                run.append((line_number, text))
+            else:
+                runs.append(run)
+                run = [(line_number, text)]
+            quote_open = (
+                " ".join(t for _n, t in run).count('"') % 2 == 1)
         if run:
             runs.append(run)
         for run in runs:
@@ -3148,59 +3543,127 @@ def _supersession_unit(model, entries, derived_list):
             displaces.setdefault(holder, []).append(target)
 
     def find_cycles(relation, seeds):
-        # The search follows every target of each entry, not
-        # only the first: a cycle reached through a second
-        # displacement target stands found on the same terms as
-        # one reached through the first. The search is a depth
-        # first walk with a finished set and a position index
-        # over the walk stack, so its cost stands in the size
-        # of the relation: a walk that re-follows the chain
-        # from every seed, testing each step against a list of
-        # the path so far, pays for the chain again at every
-        # entry of it, which is the chain cost charged at M2.
-        found_cycles = []
-        seen_keys = set()
-        finished = set()
+        # Every distinct simple cycle of the relation stands
+        # found, not only the first cycle a walk reaches through
+        # each entry: a cycle that shares an entry with an
+        # earlier walked branch was lost where the earlier walk
+        # had finished the shared entry, so validate and render
+        # disagreed on the cycle inventory (Step 17 round 2,
+        # Finding 1 of seat 9). The search first takes the
+        # strongly connected components of the relation, in the
+        # size of the relation: an entry in no component of more
+        # than one entry, and carrying no self edge, stands in
+        # no cycle, so a chain and any other acyclic shape pay
+        # only the component pass, which is the chain cost form
+        # charged at M2. Inside a component, the search
+        # enumerates the simple cycles through each entry in
+        # file order, reading a cycle only from its earliest
+        # entry in file order, so each distinct cycle stands
+        # found exactly once, in chain order from that entry.
+        adjacency = {}
         for seed in seeds:
-            if seed not in relation and seed not in pointers:
+            if seed not in headed_set:
                 continue
-            if seed in finished or seed not in headed_set:
+            targets = []
+            for nxt in relation.get(seed, []):
+                if nxt in headed_set and nxt not in targets:
+                    targets.append(nxt)
+            adjacency[seed] = targets
+        for targets in list(adjacency.values()):
+            for nxt in targets:
+                if nxt not in adjacency:
+                    adjacency[nxt] = [
+                        t for t in relation.get(nxt, [])
+                        if t in headed_set]
+        # Strongly connected components, Kosaraju form, both
+        # passes iterative.
+        visited = set()
+        finish_order = []
+        for root in adjacency:
+            if root in visited:
                 continue
-            path = [seed]
-            position = {seed: 0}
-            work = [(seed, iter(relation.get(seed, [])))]
-            while work:
-                node, edges = work[-1]
+            stack = [(root, iter(adjacency[root]))]
+            visited.add(root)
+            while stack:
+                node, edges = stack[-1]
                 descended = False
                 for nxt in edges:
-                    if nxt not in headed_set:
-                        continue
-                    if nxt in position:
-                        cycle = path[position[nxt]:]
-                        pivot = min(
-                            range(len(cycle)),
-                            key=lambda i: file_order.get(
-                                cycle[i], 0))
-                        rotated = tuple(
-                            cycle[pivot:] + cycle[:pivot])
-                        if rotated not in seen_keys:
-                            seen_keys.add(rotated)
-                            found_cycles.append(list(rotated))
-                        continue
-                    if nxt in finished:
-                        continue
-                    position[nxt] = len(path)
-                    path.append(nxt)
-                    work.append(
-                        (nxt, iter(relation.get(nxt, []))))
-                    descended = True
-                    break
-                if descended:
+                    if nxt not in visited:
+                        visited.add(nxt)
+                        stack.append(
+                            (nxt, iter(adjacency[nxt])))
+                        descended = True
+                        break
+                if not descended:
+                    finish_order.append(node)
+                    stack.pop()
+        reversed_adjacency = {node: [] for node in adjacency}
+        for node, targets in adjacency.items():
+            for nxt in targets:
+                reversed_adjacency[nxt].append(node)
+        components = []
+        assigned = set()
+        for root in reversed(finish_order):
+            if root in assigned:
+                continue
+            component = []
+            stack = [root]
+            assigned.add(root)
+            while stack:
+                node = stack.pop()
+                component.append(node)
+                for nxt in reversed_adjacency[node]:
+                    if nxt not in assigned:
+                        assigned.add(nxt)
+                        stack.append(nxt)
+            components.append(component)
+        found_cycles = []
+        seen_keys = set()
+        for component in components:
+            if len(component) == 1:
+                only = component[0]
+                if only not in adjacency[only]:
                     continue
-                work.pop()
-                path.pop()
-                del position[node]
-                finished.add(node)
+            members = set(component)
+            ordered = sorted(
+                members, key=lambda n: file_order.get(n, 0))
+            for start in ordered:
+                start_order = file_order.get(start, 0)
+                # Simple paths from start through entries of the
+                # component that stand at or after start in file
+                # order; an edge back to start closes a cycle.
+                path = [start]
+                in_path = {start}
+                work = [(start, iter(adjacency[start]))]
+                while work:
+                    node, edges = work[-1]
+                    descended = False
+                    for nxt in edges:
+                        if nxt == start:
+                            key = tuple(path)
+                            if key not in seen_keys:
+                                seen_keys.add(key)
+                                found_cycles.append(list(path))
+                            continue
+                        if nxt not in members or nxt in in_path:
+                            continue
+                        if file_order.get(nxt, 0) < start_order:
+                            continue
+                        in_path.add(nxt)
+                        path.append(nxt)
+                        work.append(
+                            (nxt, iter(adjacency[nxt])))
+                        descended = True
+                        break
+                    if descended:
+                        continue
+                    work.pop()
+                    path.pop()
+                    in_path.discard(node)
+        found_cycles.sort(
+            key=lambda cycle: (
+                file_order.get(cycle[0], 0),
+                [file_order.get(n, 0) for n in cycle]))
         return found_cycles
 
     cycles = find_cycles(displaces, headed_ids)
@@ -3308,9 +3771,27 @@ def _supersession_unit(model, entries, derived_list):
 
 
 _SEGMENT_CLAIM_RE = re.compile(
-    r"\bDQ-(\d+)\b[^.]{0,90}?\b(was|is|stands|remains|stays|left)\b"
+    r"\bDQ-([0-9]+)\b[^.]{0,90}?\b(was|is|stands|remains|stays|left)\b"
     r"[^.]{0,60}?\b(settled|ruled|closed|banked|open|parked|"
     r"presented)\b", re.IGNORECASE)
+
+
+def _quarantined_heading_line(segment, span):
+    """The heading line of a segment whose record carries
+    unmatched_heading, or None: the supplementary cure
+    quarantines that line, and every scan of the segment
+    lines stands outside it, for claims as for citations
+    (Step 17 round 2 charge CH-7, seat 4 F-1)."""
+    if not _get(segment, "unmatched_heading"):
+        return None
+    if span is not None:
+        line = _get(span, "start_line")
+        if line is not None:
+            return line
+    segment_lines = _get(segment, "lines") or []
+    if segment_lines:
+        return segment_lines[0][0]
+    return None
 
 
 def _segment_claim_findings(model, entries):
@@ -3319,6 +3800,8 @@ def _segment_claim_findings(model, entries):
     for segment in _get(model, "orphan_segments") or []:
         span = _get(segment, "span")
         unit_id = _unit_identifier(model, segment=segment)
+        quarantined_heading_line = _quarantined_heading_line(
+            segment, span)
         claims = list(_get(segment, "claims") or [])
         if claims:
             for claim in claims:
@@ -3337,6 +3820,9 @@ def _segment_claim_findings(model, entries):
         else:
             seen_claims = set()
             for line_number, text in (_get(segment, "lines") or []):
+                if quarantined_heading_line is not None and \
+                        line_number == quarantined_heading_line:
+                    continue
                 for match in _SEGMENT_CLAIM_RE.finditer(text or ""):
                     target = "DQ-%03d" % int(match.group(1))
                     if target in seen_claims:
@@ -3355,14 +3841,6 @@ def _segment_claim_findings(model, entries):
                     finding.claiming_unit = unit_id
                     findings.append(finding)
         seen_cited = set()
-        quarantined_heading_line = None
-        if _get(segment, "unmatched_heading"):
-            if span is not None:
-                quarantined_heading_line = _get(span, "start_line")
-            if quarantined_heading_line is None:
-                segment_lines = _get(segment, "lines") or []
-                if segment_lines:
-                    quarantined_heading_line = segment_lines[0][0]
         for line_number, text in (_get(segment, "lines") or []):
             if quarantined_heading_line is not None and \
                     line_number == quarantined_heading_line:
@@ -3561,7 +4039,16 @@ def _census(entries, derived_list):
     unclassified = []
     for entry, derived in pairs:
         for element in _get(entry, "status_elements") or []:
-            if element.disposition is None:
+            # The class rule counts an entry carrying a status
+            # element whose value the vocabulary does not
+            # classify. An element carrying no status occurrence
+            # states no status value at all: a heading borne
+            # evidence element stands in that form, with no
+            # disposition and no occurrence, on every one word
+            # titled entry, and it places its entry in no class
+            # here (Step 17, A2-10-F3 merged with F-15-2-2).
+            if element.disposition is None and \
+                    _get(element, "occurrence_kind") is not None:
                 unclassified.append(_display_id(entry))
                 break
 
@@ -3686,11 +4173,86 @@ def _census(entries, derived_list):
     return rows
 
 
+_INVISIBLE_LINE_CHARS = frozenset(
+    "\u00ad\u180e\u200b\u200c\u200d\u200e\u200f"
+    "\u202a\u202b\u202c\u202d\u202e\u2060\ufeff")
+
+_OPEN_FIELD_LABELS_FOR_CENSUS = frozenset({
+    "question", "the question", "question as put", "options",
+    "cost of deciding late", "cost", "what it blocks", "blocks",
+})
+
+
+def _line_carries_content(text):
+    """Whether a body line carries record content, for the
+    Banked head evidence groups (Step 17 round 2 charge
+    CH-19, F2-8-1 and F2-8-2, taken in one act in
+    _banked_evidence_groups). Invisible format characters
+    are removed first, so a line of a zero width space or a
+    left to right mark alone carries nothing. What remains
+    must hold word matter: at least one word of two or more
+    letters or digits, or at least two words. A line of
+    punctuation alone (a full stop, a rule line) and a
+    single letter alone carry no disposition and no record
+    content, and state no content here."""
+    visible = "".join(
+        char for char in (text or "")
+        if char not in _INVISIBLE_LINE_CHARS)
+    words = re.findall(r"[^\W_]+", visible)
+    if any(len(word) >= 2 for word in words):
+        return True
+    return len(words) >= 2
+
+
+def _is_heading_shaped_line(text):
+    """Whether a body line is a heading in its container: a
+    line whose text, after any blockquote or list item
+    prefix characters standing before it are read off, opens
+    with a hash. A quoted or listed genuine prose paragraph
+    is not heading shaped and keeps its paragraph reading
+    (Step 17 round 2 charge CH-19, F2-8-2, bounded by its
+    control G2)."""
+    stripped = (text or "").strip()
+    while True:
+        if stripped.startswith(">"):
+            stripped = stripped[1:].lstrip()
+            continue
+        match = re.match(r"(?:[-*+]|\d{1,3}[.)])\s+", stripped)
+        if match:
+            stripped = stripped[match.end():].lstrip()
+            continue
+        break
+    return stripped.startswith("#")
+
+
+def _is_open_field_labelled_line(text):
+    """Whether a body line is a labelled line of one of the
+    open entry field families, the labels parse records in
+    its open field label set. The README states labelled
+    field paragraphs count toward none of the three Banked
+    head evidence groups, and a repeated open field line
+    inside a level 4 block is such a line (Step 17 round 2
+    charge CH-19, F2-8-1, its labelled field form). The
+    decision evidence labels a block exists to carry stand
+    outside this set and keep their content reading."""
+    stripped = (text or "").strip()
+    match = re.match(r"^([A-Za-z][A-Za-z ]{0,40}):", stripped)
+    if not match:
+        return False
+    return match.group(1).strip().lower() in (
+        _OPEN_FIELD_LABELS_FOR_CENSUS)
+
+
 def _h4_block_has_body(entry, block):
     """Whether a level 4 decision block carries a body: at
-    least one non blank body line of the entry standing after
-    the block heading line and within the block span. A block
-    whose span holds its heading line alone has no body."""
+    least one body line of the entry standing after the
+    block heading line and within the block span, carrying
+    record content under _line_carries_content. A block
+    whose span holds its heading line alone has no body,
+    and a non content line, a heading shaped line, or a
+    repeated open field labelled line standing alone in
+    the span is no body either (Step 17, F-8-1, widened at
+    round 2 charge CH-19, F2-8-1)."""
     span = _get(block, "span")
     start = _get(span, "start_line", "start")
     end = _get(span, "end_line", "end")
@@ -3701,7 +4263,11 @@ def _h4_block_has_body(entry, block):
             continue
         if end is not None and number > end:
             continue
-        if (text or "").strip():
+        if _is_heading_shaped_line(text):
+            continue
+        if _is_open_field_labelled_line(text):
+            continue
+        if _line_carries_content(text):
             return True
     return False
 
@@ -3764,9 +4330,26 @@ def _banked_evidence_groups(entries, derived_list):
         has_paragraph = False
         for _line, text in _body_lines(entry):
             stripped = (text or "").strip()
-            if not stripped or stripped.startswith("#"):
+            if not stripped:
+                continue
+            if _is_heading_shaped_line(text):
+                # A heading shaped line is no unheaded
+                # paragraph, whether the hash opening stands
+                # at the line start or behind one prefix
+                # character in a blockquote or list item
+                # container (Step 17 round 2 charge CH-19,
+                # F2-8-2). A quoted or listed genuine prose
+                # paragraph is not heading shaped and keeps
+                # its credit below.
                 continue
             if re.match(r"^[A-Z][A-Za-z ]{0,40}:", stripped):
+                continue
+            if not _line_carries_content(text):
+                # The same content test as the level 4 group
+                # test above, in one act: a non content line
+                # that takes no group 2 credit takes no
+                # group 3 credit in its place either
+                # (charge CH-19, F2-8-1).
                 continue
             has_paragraph = True
             break
@@ -3831,23 +4414,32 @@ _PIN5_CLEARING_FORM = (
 
 
 def _preamble_status_occurrences(model):
-    """The status occurrences standing in the file header unit.
+    """The status occurrences standing outside every entry.
 
     A Status line standing in the queue preamble, before the
-    first entry heading, is a status occurrence in the file:
-    parse assigns those lines to the file header unit, and the
-    occurrences are read from that unit text here, under the
-    same marker and kind rules parse applies inside entries
-    (Step 17, S17-ATK7-03). Each occurrence is returned as
+    first entry heading, is a status occurrence in the file,
+    and so is a Status line standing in any other file level
+    unit: a section introduction, a note section standing
+    between entries, or a trailing file level segment. Parse
+    assigns every line outside an entry to one file level unit,
+    and the occurrences are read from every unit text here,
+    under the same marker and kind rules parse applies inside
+    entries (Step 17, S17-ATK7-03; round 2, A2-3-F4 and
+    S17-ATK2-7-03). Each occurrence is returned as
     (verbatim, occurrence kind, line, position in line), and
     stands in the appendix under the file level member FILE.
+
+    The variant marker stands in its full form, as parse reads
+    it inside entries: the verbatim phrasing is the whole
+    marker text with its value, Status unchanged standing at
+    its head, and the occurrence kind is variant (round 2,
+    A2-3-F3). The plain marker reads its value alone, at kind
+    line start or embedded by its position in the line.
     """
     occurrences = []
     if model is None:
         return occurrences
     for unit in _get(model, "units") or []:
-        if _get(unit, "kind") != "file header":
-            continue
         span = _get(unit, "span")
         first_line = _get(span, "start_line", "start") or 1
         text = _get(unit, "text") or ""
@@ -3863,6 +4455,14 @@ def _preamble_status_occurrences(model):
                 end = start + len(marker)
                 stop = (markers[index + 1][0]
                         if index + 1 < len(markers) else None)
+                if marker == "Status unchanged":
+                    if not line_text[end:stop].strip():
+                        continue
+                    verbatim = line_text[start:stop].strip()
+                    occurrences.append(
+                        (verbatim, "variant",
+                         first_line + offset, start))
+                    continue
                 verbatim = line_text[end:stop].strip()
                 if not verbatim:
                     continue
@@ -4030,6 +4630,59 @@ def _apply_vocabulary_translation(entries, vocabulary):
                     pass
 
 
+_BLOCKS_NO_ITEM_VALUES = frozenset({
+    "none", "nothing", "nothing else", "nothing else at all",
+    "no items", "no item",
+})
+
+
+def _blocks_names_an_item(blocks):
+    """Whether a Blocks field value names at least one item,
+    under OP-Q12 as corrected (Step 17 round 2 charge CH-10,
+    A2-10-F2). The value is read in its ordinary sentence
+    form: case does not matter, a trailing full stop on the
+    value or on a part of it does not matter, and a value
+    made of parts joined by commas or by and names an item
+    only where at least one part stands outside the no item
+    values (none, nothing, nothing else, nothing else at
+    all, no items). A value naming a real reference beside
+    a no item part, DQ-002, none among them, names that
+    reference and counts. The corpus form nothing named.
+    stands outside this set by the Fix C3 bound recorded at
+    observation O4 of the seat 10 round 2 paper, and keeps
+    its standing treatment: it is not a no item value here.
+    One exact form stands apart from the sentence form
+    reading, on the same Fix C3 bound: a part that is
+    exactly the word nothing with its full stop, in any
+    case, is one of the value forms that paper records as
+    standing in the corpus and in the restart pins and
+    keeping their standing treatment, and the CH-10 charge
+    as prepared names the bare word nothing and the cured
+    values with a full stop added, not that form. Such a
+    part therefore names an item and counts, as the
+    governed Step 15 pin for the unit carrying the value
+    Nothing. records (fix wave 2 closing, Defect Repair
+    Seat D2 narrowing).
+    """
+    value = (blocks or "").strip().lower()
+    if not value:
+        return False
+    parts = []
+    for chunk in value.split(","):
+        for part in re.split(r"\s+and\s+", chunk):
+            part = part.strip()
+            if part:
+                parts.append(part)
+    if not parts:
+        return False
+    for part in parts:
+        if part == "nothing.":
+            return True
+        if part.rstrip(".") not in _BLOCKS_NO_ITEM_VALUES:
+            return True
+    return False
+
+
 def validate_model(model, vocabulary, output_form_edition=None):
     # The output form edition is a shell held constant of the tool
     # version. It arrives here as a received value beside the
@@ -4067,8 +4720,11 @@ def validate_model(model, vocabulary, output_form_edition=None):
                 except Exception:
                     pass
     derived_by_id = {}
+    derived_lists = {}
     for entry, derived in zip(entries, derived_list):
         derived_by_id[_display_id(entry)] = derived
+        derived_lists.setdefault(_display_id(entry), []).append(
+            derived)
 
     entry_results = []
     for entry, derived in zip(entries, derived_list):
@@ -4193,8 +4849,9 @@ def validate_model(model, vocabulary, output_form_edition=None):
             entry.condition_text = derived.get("condition")
             collected_remainders = []
             for element in derived.get("effective_elements") or []:
-                if (_get(element, "scope") or "").startswith("Part"):
-                    text = _extract_remainder(element)
+                if (_get(element, "scope") or "").startswith("Part") \
+                        or _scope_of(element, entry).startswith("Part"):
+                    text = _part_remainder(entry, element)
                     if text:
                         collected_remainders.append(text)
             if not collected_remainders:
@@ -4240,6 +4897,15 @@ def validate_model(model, vocabulary, output_form_edition=None):
     entry_findings.extend(
         f for f in check6_findings
         if f.basis != "lines assigned to no unit or to two units")
+    # The headed number set is the same set for every entry of
+    # the run: it is built once, before the per entry loop, and
+    # handed to each _check5 call unchanged. Building it inside
+    # the loop rebuilt the full set once per entry, a quadratic
+    # term on every file (Step 17, CH-11: seat 5 Finding 1 limb
+    # two and A2-21-1).
+    headed_numbers = {number for number in
+                      (_entry_number(other) for other in entries)
+                      if number is not None}
     for entry, derived in zip(entries, derived_list):
         display_id = _display_id(entry)
         elements = list(_get(entry, "status_elements") or [])
@@ -4251,10 +4917,7 @@ def validate_model(model, vocabulary, output_form_edition=None):
         entry_findings.extend(_check4(entry, display_id, derived))
         entry_findings.extend(_check5(
             entry, display_id, derived, elements,
-            headed_numbers={number for number in
-                            (_entry_number(other)
-                             for other in entries)
-                            if number is not None}))
+            headed_numbers=headed_numbers))
         entry_findings.extend(_check9(entry, display_id, derived))
         entry_findings.extend(_check10(entry, display_id, derived))
         if len(entries) == 1 and derived.get("shape_a"):
@@ -4281,7 +4944,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
                     "status element."
                     % (sole.verbatim or sole.statement or ""),
                     basis="an unclassified status value"))
-    entry_findings.extend(_check8(model, entries, derived_by_id))
+    entry_findings.extend(_check8(model, entries, derived_by_id,
+                                  derived_lists))
     entry_findings.extend(sup_findings)
     for result, derived in zip(entry_results, derived_list):
         result.presence_results = derived.get("presence_results")
@@ -4566,10 +5230,10 @@ def validate_model(model, vocabulary, output_form_edition=None):
         # An entry counts in the blocking figure only where its
         # blocks field names at least one item, under OP-Q12 as
         # corrected: a blocks field whose whole value is one of
-        # the no item values, none or nothing else, names no
-        # item and does not count (Step 17, A10-F2).
-        if blocks and (blocks or "").strip().lower() not in (
-                "none", "nothing else"):
+        # the no item values names no item and does not count
+        # (Step 17, A10-F2, widened at round 2 charge CH-10,
+        # A2-10-F2, in _blocks_names_an_item).
+        if blocks and _blocks_names_an_item(blocks):
             blocking += 1
             blocking_list.append({
                 "entry_id": _display_id(entry),
@@ -4692,7 +5356,12 @@ def validate_model(model, vocabulary, output_form_edition=None):
         # no claim the findings recognise is dropped from the
         # render output, which prints no findings list.
         seen_reported = set()
+        report_quarantined_line = _quarantined_heading_line(
+            segment, _get(segment, "span"))
         for _line_number, text in (_get(segment, "lines") or []):
+            if report_quarantined_line is not None and \
+                    _line_number == report_quarantined_line:
+                continue
             for match in _SEGMENT_CLAIM_RE.finditer(text or ""):
                 target = "DQ-%03d" % int(match.group(1))
                 if target in seen_reported:
@@ -4864,5 +5533,14 @@ def validate_model(model, vocabulary, output_form_edition=None):
     output.gap_over_bound = gap_over_bound
     output.gap_naming_over_bound = gap_over_bound
     output.gap_naming_size = gap_naming_size
+    # The one gap naming measure of the run, in total form:
+    # the single naming size multiplied by the number of
+    # printings, the measure _check1 suppresses the gap class
+    # on and _gap_refusal_signal sets the flag on. The shell
+    # refusal reads this measure from the output, so the
+    # Warning and the refusal stand on the one measure at
+    # every size (Step 17 round 2, CH-18).
+    output.gap_naming_total_size = (
+        gap_naming_size * _GAP_NAMING_PRINTINGS)
     output.waiting_entry_ids = sorted(set(waiting_ids))
     return output

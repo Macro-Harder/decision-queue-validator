@@ -474,7 +474,8 @@ class FileLevelFailure:
     where a limit breach kind is present, the measured value of
     every breached limit where more than one breach stands, a statement of what
     recognisable queue structure is missing where a structure kind is
-    present, and the Exit decision for the run.
+    present, the byte offset of the first invalid byte where an
+    invalid bytes kind is present, and the Exit decision for the run.
     """
 
     failure_kinds: list
@@ -487,6 +488,7 @@ class FileLevelFailure:
     breached_limits: list = field(default_factory=list)
     breached_measured_values: dict = field(default_factory=dict)
     missing_structure: Optional[str] = None
+    invalid_byte_offset: Optional[int] = None
     exit_decision: Optional[ExitDecision] = None
 
     @property

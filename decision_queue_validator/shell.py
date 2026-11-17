@@ -188,14 +188,23 @@ def _is_flag_token(token):
     """Whether a token in the file position carries a flag form.
 
     The tool defines no flags. A long form (two dashes, the bare
-    double dash separator included) or a short form (one dash
-    and one character) standing where the input file is expected
-    is a flag token, not a file name. A dash leading file name
-    of any other shape, such as -dashfile.md, is a file name:
-    such names validate directly with no separator.
+    double dash separator included), a short form (one dash
+    and one character), or a bundled short form (one dash
+    carrying two or more ASCII letters and nothing else, as in
+    -ab, several single letter flags bundled into one token)
+    standing where the input file is expected is a flag token,
+    not a file name. A dash leading file name of any other
+    shape, such as -dashfile.md, or -ab.md, or -a1, is a file
+    name: such names validate directly with no separator.
     """
-    return token.startswith("--") or (
-        token.startswith("-") and len(token) == 2)
+    if token.startswith("--"):
+        return True
+    if not token.startswith("-") or len(token) < 2:
+        return False
+    body = token[1:]
+    if len(body) == 1:
+        return True
+    return body.isascii() and body.isalpha()
 
 
 def _unexpected_token(argv):
@@ -212,6 +221,12 @@ def _unexpected_token(argv):
 
 
 def _usage_error(message):
+    """The usage error surface, delivered as every other
+    standard error surface is delivered: through
+    _deliver_stderr_run, so where standard error cannot take
+    the surface its closing exit line is delivered on standard
+    output and the decided code 2 stands in every case.
+    """
     lines = [
         "Call fault: usage error. No run took place and no file "
         "was read as a queue.",
@@ -220,8 +235,7 @@ def _usage_error(message):
         "{validate|render} INPUT",
         closing_line(2, "usage error"),
     ]
-    _write_stderr("\n".join(lines) + "\n")
-    return 2
+    return _deliver_stderr_run("\n".join(lines) + "\n", 2)
 
 
 def _os_error_cause(exc):
@@ -236,14 +250,16 @@ def _os_error_cause(exc):
     if isinstance(exc, FileNotFoundError):
         return "it is missing"
     if isinstance(exc, NotADirectoryError):
-        return "it is missing"
+        return "part of its path is not a directory"
     if isinstance(exc, PermissionError):
         return "it is unreadable"
     if isinstance(exc, IsADirectoryError):
         return "it is a directory"
     err = getattr(exc, "errno", None)
-    if err in (errno.ENOENT, errno.ENOTDIR):
+    if err == errno.ENOENT:
         return "it is missing"
+    if err == errno.ENOTDIR:
+        return "part of its path is not a directory"
     if err in (errno.EACCES, errno.EPERM):
         return "it is unreadable"
     if err == errno.EISDIR:
@@ -252,6 +268,10 @@ def _os_error_cause(exc):
         return "it is a symlink loop"
     if err == errno.ENAMETOOLONG:
         return "its name is too long"
+    if err == errno.EMFILE:
+        return "too many files are open"
+    if err == errno.EIO:
+        return "an input/output error occurred"
     return None
 
 
@@ -279,7 +299,12 @@ def _not_read_output(input_name, detail):
 
 def _refusal_output(input_name, fault_lines, facts_line,
                     reason_text):
-    lines = _head_lines(input_name, facts_line)
+    """The whole file refusal surface. Its head is built from
+    the bounded echo of the input name, as the not read surface
+    builds its head: this surface prints on standard error, so
+    the argument echo bound applies to it in full.
+    """
+    lines = _head_lines(_bounded_echo(input_name), facts_line)
     lines.append("")
     lines.append("File fault: this file was not validated.")
     lines.extend(fault_lines)
@@ -327,6 +352,12 @@ def _failure_output(failure):
         fault_lines.append(
             "Missing structure: %s" % escape_text(
                 str(failure.missing_structure)))
+    invalid_byte_offset = getattr(
+        failure, "invalid_byte_offset", None)
+    if invalid_byte_offset is not None:
+        fault_lines.append(
+            "Invalid byte offset: %s" % escape_text(
+                str(invalid_byte_offset)))
     reason_text = "whole file refusal"
     decision = failure.exit_decision
     if decision is not None and decision.reason_classes:
@@ -410,14 +441,30 @@ def _gap_naming_size(output):
     return digit_total + (missing_total - 1)
 
 
-def _gap_refusal_output(input_name, facts_line, size):
-    fault_lines = [
-        "Gap naming size limit: the gap naming size stands over "
-        "the limit of 2000000 characters; the measured gap naming "
-        "size is %d characters." % size,
-        "The numeric gap class does not fire on this run, and no "
-        "part of the missing set is named.",
-    ]
+def _gap_refusal_output(input_name, facts_line, size,
+                        total_size=None):
+    if total_size is not None and total_size != size:
+        # The one measure of the bound is the run total naming
+        # output: the measured single naming size, and the total
+        # it stands at over the run's printings, which is the
+        # measure that stands over the limit.
+        fault_lines = [
+            "Gap naming size limit: the run total gap naming "
+            "output stands over the limit of 2000000 characters; "
+            "the measured gap naming size is %d characters, and "
+            "the run total naming output is %d characters."
+            % (size, total_size),
+            "The numeric gap class does not fire on this run, "
+            "and no part of the missing set is named.",
+        ]
+    else:
+        fault_lines = [
+            "Gap naming size limit: the gap naming size stands "
+            "over the limit of 2000000 characters; the measured "
+            "gap naming size is %d characters." % size,
+            "The numeric gap class does not fire on this run, "
+            "and no part of the missing set is named.",
+        ]
     return _refusal_output(
         input_name, fault_lines, facts_line,
         "whole file refusal: a limit breach")
@@ -686,8 +733,22 @@ def main(argv=None):
     # in that precedence. The refusal surface stands on standard
     # error, naming the limit and the measured size, and no part
     # of the missing set is named.
+    # The bound stands on one measure in both places (Step 17
+    # round 2, CH-18): the measure is the run total naming
+    # output that validate suppresses the gap class on, carried
+    # on the output as its gap over bound flag and its total
+    # naming size. The refusal reads that measure from the
+    # output and does not recompute a second measure of its
+    # own; where an output carries no flag, the single naming
+    # size measure stands as the fallback.
     gap_size = _gap_naming_size(output)
-    if gap_size > GAP_NAMING_LIMIT:
+    gap_total_size = _get(output, "gap_naming_total_size")
+    gap_over_bound = _get(
+        output, "gap_naming_over_bound", "gap_over_bound")
+    if gap_over_bound is None:
+        gap_over_bound = gap_size > GAP_NAMING_LIMIT
+        gap_total_size = None
+    if gap_over_bound:
         facts = _get(output, "file_facts", "file_facts_data")
         facts_line = None
         if facts is not None:
@@ -697,7 +758,8 @@ def main(argv=None):
                 _get(facts, "digest"),
                 _get(facts, "source_designation"))
         return _deliver_stderr_run(_gap_refusal_output(
-            input_name, facts_line, gap_size), 3)
+            input_name, facts_line, gap_size,
+            total_size=gap_total_size), 3)
 
     if subcommand == "render":
         signal = _map_refusal_signal(output)

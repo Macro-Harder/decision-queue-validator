@@ -8,6 +8,7 @@ computed once. The closing exit line is not part of what render
 prints: shell prints it as the last line of the output.
 """
 
+import re
 import textwrap
 
 __all__ = [
@@ -67,6 +68,25 @@ _U_FORM.update(range(0x2061, 0x2065))
 _U_FORM.update(range(0x206A, 0x2070))
 _U_FORM.update([0x2028, 0x2029])
 _U_FORM.update([0x180E, 0xFFF9, 0xFFFB, 0x034F, 0xFE0F])
+# Step 17 fix wave 2, CH-14: the variation selectors stand on
+# the same ground as U+FE0F above (an invisible format
+# function, default ignorable, no glyph of its own, selecting
+# a presentation form), so the whole of both ranges stands in
+# the table, with the Mongolian free variation selectors
+# U+180B to U+180F beside the cured U+180E.
+_U_FORM.update(range(0xFE00, 0xFE10))
+_U_FORM.update(range(0xE0100, 0xE01F0))
+_U_FORM.update(range(0x180B, 0x1810))
+# CH-14, the category Cf remainder: every format character
+# the table did not already carry, U+FFFA the interlinear
+# annotation separator among them, sibling of the cured
+# anchor U+FFF9 and terminator U+FFFB.
+_U_FORM.update(range(0x0600, 0x0606))
+_U_FORM.update([0x06DD, 0x070F, 0x0890, 0x0891, 0x08E2, 0xFFFA,
+                0x110BD, 0x110CD])
+_U_FORM.update(range(0x13430, 0x13440))
+_U_FORM.update(range(0x1BCA0, 0x1BCA4))
+_U_FORM.update(range(0x1D173, 0x1D17B))
 _TAG_FORM = set([0xE0001])
 _TAG_FORM.update(range(0xE0020, 0xE0080))
 
@@ -115,6 +135,33 @@ def escape_text(value):
         else:
             out.append(char)
     return "".join(out)
+
+
+_FINDINGS_INDEX_FORM = re.compile(
+    r"^\S+ \S+ (?:Error|Warning|Note) "
+    r"(?:line [0-9]+|lines [0-9]+ to [0-9]+"
+    r"|no line span recorded)")
+
+
+def _column_zero_phrasing(value):
+    """The printed form of a Status phrasing standing at
+    column 0 on the crosswalk, appendix, and residue surfaces.
+
+    Step 17 fix wave 2, CH-23: a phrasing whose printed form
+    opens with one of the closing line anchors (the exit line
+    form, the waiting figure form, or the findings index line
+    form) stands in double quotes on those surfaces, so an
+    operator supplied phrasing cannot stand at column 0 in a
+    form a line anchored extraction would take for a genuine
+    exit, waiting, or findings index line. Every other
+    phrasing prints in its escaped form, as before.
+    """
+    text = escape_text(_text(value) or "")
+    if text.startswith("Exit: code ") or \
+            text.startswith("Waiting: ") or \
+            _FINDINGS_INDEX_FORM.match(text):
+        return '"%s"' % text
+    return text
 
 
 def _field(value, *names, default=None):
@@ -928,15 +975,15 @@ def _crosswalk_lines(output):
                     parts.append(
                         "Ambiguous reporting count %d" %
                         _number(ambiguous))
-                lines.append("%s: %s" % (escape_text(_text(phrasing)),
+                lines.append("%s: %s" % (_column_zero_phrasing(phrasing),
                                          ", ".join(parts)))
             else:
-                lines.append("%s: %d" % (escape_text(_text(phrasing)),
+                lines.append("%s: %d" % (_column_zero_phrasing(phrasing),
                                          _number(row)))
     elif isinstance(crosswalk, (list, tuple)) and crosswalk:
         lines.append("Crosswalk for the Banked head phrasing:")
         for row in crosswalk:
-            lines.append(escape_text(_text(row)))
+            lines.append(_column_zero_phrasing(row))
     return lines
 
 
@@ -1118,7 +1165,7 @@ def _appendix_lines(output):
     unclassified = []
     for row in rows:
         if isinstance(row, str):
-            lines.append(escape_text(row))
+            lines.append(_column_zero_phrasing(row))
             continue
         phrasing = _text(_field(row, "phrasing", "status_phrasing",
                                 "verbatim_phrasing", "value")) or ""
@@ -1129,7 +1176,7 @@ def _appendix_lines(output):
             _field(row, "member_entry_ids", "members", "entry_ids",
                    "entries"))]
         line = "%s | %s | %s" % (
-            escape_text(phrasing), escape_text(kind),
+            _column_zero_phrasing(phrasing), escape_text(kind),
             _counted(count, "occurrence", "occurrences"))
         members = [item for item in members if item]
         if members:
@@ -1154,7 +1201,7 @@ def _residue_lines(output):
     lines = ["Residue list", ""]
     for item in items:
         if isinstance(item, str):
-            lines.append(escape_text(item))
+            lines.append(_column_zero_phrasing(item))
             continue
         phrasing = _text(_field(item, "phrasing", "verbatim",
                                 "value")) or ""
@@ -1162,7 +1209,7 @@ def _residue_lines(output):
                              "identifier")) or ""
         span = _field(item, "line_span", "span")
         lines.append("%s | %s | %s" % (
-            escape_text(phrasing), escape_text(ident),
+            _column_zero_phrasing(phrasing), escape_text(ident),
             _span_text(span)))
     return lines
 

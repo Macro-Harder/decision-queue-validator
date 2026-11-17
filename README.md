@@ -51,7 +51,11 @@ there.
 
 Each run takes exactly one input file, reads it once, and prints its
 output to standard output. The tool never edits its input file and
-writes nothing else: no log file and no run record.
+writes no log file and no run record. A run creates bytecode cache
+files beside the package: when Python imports the package, it
+creates a __pycache__ directory inside the package directory,
+holding one bytecode file per module, in a directory that allows
+the write. Nothing outside the package directory is written.
 
 ## Running it
 
