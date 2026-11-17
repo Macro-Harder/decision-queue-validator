@@ -66,6 +66,7 @@ _U_FORM.update(range(0x200B, 0x200E))
 _U_FORM.update(range(0x2061, 0x2065))
 _U_FORM.update(range(0x206A, 0x2070))
 _U_FORM.update([0x2028, 0x2029])
+_U_FORM.update([0x180E, 0xFFF9, 0xFFFB, 0x034F, 0xFE0F])
 _TAG_FORM = set([0xE0001])
 _TAG_FORM.update(range(0xE0020, 0xE0080))
 
@@ -83,7 +84,10 @@ def escape_text(value):
     separator print in that same form, so no operator supplied
     text can break the line structure of an output. Tag
     characters print as backslash, u, and five uppercase
-    hexadecimal digits. Every other character prints as itself.
+    hexadecimal digits. Lone surrogate code points, which have
+    no UTF-8 encoding, print in the backslash, u, and four
+    uppercase hexadecimal digit form. Every other character
+    prints as itself.
     """
     if value is None:
         return ""
@@ -105,6 +109,8 @@ def escape_text(value):
         elif code in _TAG_FORM:
             out.append("\\u%05X" % code)
         elif code in _U_FORM:
+            out.append("\\u%04X" % code)
+        elif 0xD800 <= code <= 0xDFFF:
             out.append("\\u%04X" % code)
         else:
             out.append(char)

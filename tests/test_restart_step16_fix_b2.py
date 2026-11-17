@@ -54,11 +54,12 @@ class ByteAndPerLineShellRefusalTest(unittest.TestCase):
             "Breached limit: max bytes, measured value 2000053.",
             body)
         self.assertIn(str(MAX_BYTES), body)
-        self.assertIn(
-            "Breached limit: max characters per line, "
-            "measured value 2000052.", body)
-        self.assertIn(str(MAX_CHARS), body)
-        self.assertGreaterEqual(len(breached_lines(body)), 2)
+        self.assertNotIn(
+            "Breached limit: max characters per line", body)
+        self.assertNotIn("max lines", body)
+        lines = breached_lines(body)
+        self.assertEqual(len(lines), 1, body)
+        self.assertIn("max bytes", lines[0])
 
 
 class ByteOnlyShellRefusalTest(unittest.TestCase):

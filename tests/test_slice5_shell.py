@@ -919,5 +919,395 @@ class DeterminismTest(unittest.TestCase):
             self.assertEqual(out_one, out_two)
 
 
+class Step17FixC6Test(unittest.TestCase):
+    """Step 17 fix wave 1, cluster C6: error surface and delivery.
+
+    Three separate charges stand in this class, kept separate as
+    the triage draft group 28 ruling requires for the first and
+    the third: A3-3-F1 (a completed run must not crash delivering
+    its report when the file name bytes decode to lone
+    surrogates), F1 of seat 13 (the input not read cause names the
+    exact cause for a symlink loop and for a name past the
+    filesystem limit), and F-14-1 (a delivery failure does not
+    replace the run decided exit code with 2 and the closing line
+    is not lost).
+    """
+
+    # Charge A3-3-F1: delivery encode crash on surrogate names.
+
+    def test_a3_3_f1_escape_text_escapes_surrogate_code_points(self):
+        render = h.import_module("render")
+        result = render.escape_text("a\ud800b\udcff")
+        for char in result:
+            self.assertFalse(0xD800 <= ord(char) <= 0xDFFF)
+        result.encode("utf-8")
+        self.assertIn("\\uD800", result)
+        self.assertIn("\\uDCFF", result)
+
+    def test_a3_3_f1_deliver_stdout_survives_surrogate_text(self):
+        import io
+        import sys as _sys
+        shell = h.import_module("shell")
+
+        class FakeStdout:
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+            def close(self):
+                pass
+
+        fake = FakeStdout()
+        saved = _sys.stdout
+        _sys.stdout = fake
+        try:
+            shell._deliver_stdout("report \ud800 end\n")
+        finally:
+            _sys.stdout = saved
+        data = fake.buffer.getvalue()
+        data.decode("utf-8")
+        self.assertIn(b"\\uD800", data)
+
+    def test_a3_3_f1_completed_run_with_surrogate_file_name(self):
+        import subprocess
+        import sys as _sys
+        with tempfile.TemporaryDirectory() as tmp:
+            name_bytes = b"queue-\xed\xa0\x80.md"
+            path_bytes = os.fsencode(tmp) + b"/" + name_bytes
+            with open(path_bytes, "wb") as handle:
+                handle.write(h.fixture_bytes("S5"))
+            proc = subprocess.run(
+                [_sys.executable, "-m", h.PACKAGE, "validate",
+                 path_bytes],
+                cwd=str(h.PRODUCT_ROOT), env=h.cli_env(h.SEED_ONE),
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(proc.returncode, 0)
+            self.assertNotIn(b"Traceback", proc.stderr)
+            text = proc.stdout.decode("utf-8")
+            self.assertIn("Exit: code 0", text)
+
+    # Charge F1 of seat 13: exact cause for two OS level errors.
+
+    def test_f1_seat13_os_error_cause_names_symlink_loop(self):
+        import errno as _errno
+        shell = h.import_module("shell")
+        cause = shell._os_error_cause(
+            OSError(_errno.ELOOP, "too many levels of links"))
+        self.assertEqual(cause, "it is a symlink loop")
+
+    def test_f1_seat13_os_error_cause_names_over_limit_name(self):
+        import errno as _errno
+        shell = h.import_module("shell")
+        cause = shell._os_error_cause(
+            OSError(_errno.ENAMETOOLONG, "name too long"))
+        self.assertEqual(cause, "its name is too long")
+
+    def test_f1_seat13_symlink_loop_run_names_the_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            loop_a = Path(tmp) / "loop-a.md"
+            loop_b = Path(tmp) / "loop-b.md"
+            os.symlink(loop_b, loop_a)
+            os.symlink(loop_a, loop_b)
+            code, _out, err = h.run_cli("validate", loop_a)
+            self.assertEqual(code, 2)
+            text = err.decode("utf-8", errors="replace")
+            self.assertIn("symlink loop", text)
+            self.assertNotIn("it could not be read", text)
+
+    def test_f1_seat13_over_limit_name_run_names_the_cause(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / ("a" * 252 + ".mdx")
+            self.assertEqual(len(target.name), 256)
+            code, _out, err = h.run_cli("validate", target)
+            self.assertEqual(code, 2)
+            text = err.decode("utf-8", errors="replace")
+            self.assertIn("name is too long", text)
+            self.assertNotIn("it could not be read", text)
+
+    # Charge F-14-1: delivery failure keeps the decided code and
+    # the closing line.
+
+    def _run_with_stdout_dev_full(self, target):
+        import subprocess
+        import sys as _sys
+        with open("/dev/full", "wb") as full:
+            proc = subprocess.run(
+                [_sys.executable, "-m", h.PACKAGE, "validate",
+                 str(target)],
+                cwd=str(h.PRODUCT_ROOT), env=h.cli_env(h.SEED_ONE),
+                stdout=full, stderr=subprocess.PIPE)
+        return proc.returncode, proc.stderr
+
+    def _run_with_stderr_dev_full(self, target):
+        import subprocess
+        import sys as _sys
+        with open("/dev/full", "wb") as full:
+            proc = subprocess.run(
+                [_sys.executable, "-m", h.PACKAGE, "validate",
+                 str(target)],
+                cwd=str(h.PRODUCT_ROOT), env=h.cli_env(h.SEED_ONE),
+                stdout=subprocess.PIPE, stderr=full)
+        return proc.returncode, proc.stdout
+
+    def test_f14_1_stdout_failure_keeps_clean_code_and_closing_line(self):
+        code, err = self._run_with_stdout_dev_full(
+            h.corpus_path("S5"))
+        self.assertEqual(code, 0)
+        text = err.decode("utf-8", errors="replace")
+        self.assertIn("Exit: code 0", text)
+        self.assertNotIn("Traceback", text)
+
+    def test_f14_1_stdout_failure_keeps_findings_code_and_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "queue.md"
+            target.write_bytes(
+                b"# Decision queue\n\n"
+                b"### DQ-001: A sample open question\n\n"
+                b"Status: Banked\n\n"
+                b"This question is waiting for a decision.\n")
+            code, err = self._run_with_stdout_dev_full(target)
+            self.assertEqual(code, 1)
+            text = err.decode("utf-8", errors="replace")
+            self.assertIn("Exit: code 1", text)
+
+    def test_f14_1_stderr_failure_keeps_refusal_code_and_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "prose.md"
+            target.write_bytes(
+                b"Some prose with no queue structure at all.\n")
+            code, out = self._run_with_stderr_dev_full(target)
+            self.assertEqual(code, 3)
+            text = out.decode("utf-8", errors="replace")
+            self.assertIn("Exit: code 3", text)
+
+
+class ByteLimitPreReadRefusalStep17C8Test(unittest.TestCase):
+    """Restart Step 17 fix wave 1, seat C8, charge one.
+
+    Finding 1 of seat 5 (High), merged with Finding 3 of seat 5
+    (Low) as its output form limb, counted under both names.
+    The README states the byte limit is checked from the file
+    size before the file is read, an oversize file is refused
+    without being read into the tool, and a file refused on the
+    byte limit prints the byte count only, with no line count
+    and no digest. The cure is confined to the pre read path in
+    shell.py and to removing the second breach line a byte
+    refusal prints.
+    """
+
+    def _byte_limit_run(self, subcommand):
+        data, _facts = h.limit_bytes_input()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "big.md"
+            target.write_bytes(data)
+            code, out, err = h.run_cli(subcommand, target)
+        text = (out + err).decode("utf-8", errors="replace")
+        return code, text, len(data)
+
+    def test_byte_refusal_names_only_the_byte_breach(self):
+        for subcommand in ("validate", "render"):
+            with self.subTest(subcommand=subcommand):
+                code, text, byte_count = self._byte_limit_run(
+                    subcommand)
+                self.assertEqual(code, 3)
+                self.assertIn("Breached limit: max bytes", text)
+                self.assertIn(str(byte_count), text)
+                self.assertNotIn("max lines", text)
+                self.assertNotIn(
+                    "max characters per line", text)
+
+    def test_byte_refusal_facts_line_prints_byte_count_only(self):
+        code, text, byte_count = self._byte_limit_run("validate")
+        self.assertEqual(code, 3)
+        facts_lines = [line for line in text.splitlines()
+                       if line.startswith("File:")]
+        self.assertEqual(len(facts_lines), 1)
+        self.assertIn("%d bytes" % byte_count, facts_lines[0])
+        self.assertNotIn("lines", facts_lines[0])
+        self.assertNotIn("digest", facts_lines[0])
+
+    def test_byte_refusal_does_not_open_the_input_file(self):
+        import builtins
+        import io as _io
+        import sys as _sys
+        from unittest import mock
+        shell = h.import_module("shell")
+        data, _facts = h.limit_bytes_input()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "big.md"
+            target.write_bytes(data)
+            opened = []
+            real_open = builtins.open
+
+            def recording_open(file, *args, **kwargs):
+                try:
+                    name = os.fspath(file)
+                except TypeError:
+                    name = None
+                if name is not None and os.path.abspath(name) == \
+                        os.path.abspath(str(target)):
+                    opened.append(name)
+                return real_open(file, *args, **kwargs)
+
+            saved_stderr = _sys.stderr
+            capture = _io.StringIO()
+            _sys.stderr = capture
+            try:
+                with mock.patch("builtins.open", recording_open):
+                    code = shell.main(["validate", str(target)])
+            finally:
+                _sys.stderr = saved_stderr
+            self.assertEqual(code, 3)
+            self.assertEqual(
+                opened, [],
+                "the byte limit refusal opened the input file: "
+                "the limit must be checked from the file size "
+                "before the file is read")
+            self.assertIn("max bytes", capture.getvalue())
+
+    def test_line_limit_only_refusal_still_names_its_breach(self):
+        # Guard: the cure is confined to the byte limit refusal.
+        # A file under the byte limit that breaches the line
+        # limit alone still takes the parse layer refusal naming
+        # that breach, with the full file facts form.
+        data, facts = h.limit_lines_input()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "many_lines.md"
+            target.write_bytes(data)
+            code, out, err = h.run_cli("validate", target)
+        self.assertEqual(code, 3)
+        text = (out + err).decode("utf-8", errors="replace")
+        self.assertIn("Breached limit: max lines", text)
+        self.assertIn(str(facts["lines"]), text)
+        facts_lines = [line for line in text.splitlines()
+                       if line.startswith("File:")]
+        self.assertEqual(len(facts_lines), 1)
+        self.assertIn("lines", facts_lines[0])
+        self.assertIn("digest", facts_lines[0])
+
+
+class Step17FixC5ArityNamingTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C5, charge 1: Finding 2 of seat 12.
+
+    The main arity check names the token that is unexpected, and
+    the file token is examined. A flag form or the double dash
+    separator standing in the file position is the unexpected
+    token; the valid file token that follows it is not named.
+    A genuine second file keeps the present naming.
+    """
+
+    def _run_argv(self, argv):
+        import subprocess
+        import sys as _sys
+        proc = subprocess.run(
+            [_sys.executable, "-m", h.PACKAGE] + argv,
+            cwd=str(h.PRODUCT_ROOT), env=h.cli_env(h.SEED_ONE),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return (proc.returncode, proc.stdout,
+                proc.stderr.decode("utf-8", errors="replace"))
+
+    def test_long_flag_before_file_names_the_flag(self):
+        code, out, err = self._run_argv(
+            ["validate", "--help", "realfile.md"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertIn("unexpected argument: --help", err)
+        self.assertNotIn("realfile.md", err)
+
+    def test_short_flag_before_file_names_the_flag(self):
+        code, out, err = self._run_argv(
+            ["validate", "-x", "realfile.md"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertIn("unexpected argument: -x", err)
+        self.assertNotIn("realfile.md", err)
+
+    def test_separator_before_file_names_the_separator(self):
+        code, out, err = self._run_argv(
+            ["validate", "--", "realfile.md"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertIn("unexpected argument: --", err)
+        self.assertNotIn("realfile.md", err)
+
+    def test_separator_before_dash_file_names_the_separator(self):
+        code, out, err = self._run_argv(
+            ["validate", "--", "-dashfile.md"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertIn("unexpected argument: --", err)
+        self.assertNotIn("-dashfile.md", err)
+
+    def test_two_files_still_name_the_second_file(self):
+        code, out, err = self._run_argv(
+            ["validate", "first.md", "second.md"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertIn("unexpected argument: second.md", err)
+
+    def test_flag_after_file_still_names_the_flag(self):
+        code, out, err = self._run_argv(
+            ["validate", "realfile.md", "--help"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertIn("unexpected argument: --help", err)
+
+
+class Step17FixC5EchoBoundTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C5, charge 2: Finding 4 of seat 12.
+
+    Echoed argument text carries a length bound on the usage
+    error surface and on the input not read surface, and a file
+    name is echoed once on the input not read surface: in the
+    Input head line, and not again in the detail line, which
+    states the cause alone.
+    """
+
+    def _run_argv(self, argv):
+        import subprocess
+        import sys as _sys
+        proc = subprocess.run(
+            [_sys.executable, "-m", h.PACKAGE] + argv,
+            cwd=str(h.PRODUCT_ROOT), env=h.cli_env(h.SEED_ONE),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return (proc.returncode, proc.stdout,
+                proc.stderr.decode("utf-8", errors="replace"))
+
+    def test_long_unknown_subcommand_echo_is_bounded(self):
+        code, out, err = self._run_argv(["A" * 100000])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertLess(len(err), 2000)
+        self.assertNotIn("A" * 1000, err)
+
+    def test_long_extra_argument_echo_is_bounded(self):
+        code, out, err = self._run_argv(
+            ["validate", "realfile.md", "E" * 100000])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertLess(len(err), 2000)
+        self.assertNotIn("E" * 1000, err)
+
+    def test_long_file_name_echo_is_bounded(self):
+        code, out, err = self._run_argv(["validate", "N" * 100000])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertLess(len(err), 2000)
+        self.assertNotIn("N" * 1000, err)
+
+    def test_long_file_name_is_echoed_once_in_bounded_form(self):
+        code, out, err = self._run_argv(["validate", "N" * 100000])
+        self.assertEqual(code, 2)
+        self.assertEqual(err.count("N" * 120), 1)
+
+    def test_file_name_is_echoed_once_on_not_read_output(self):
+        code, out, err = self._run_argv(
+            ["validate", "missing_name_xyz.md"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, b"")
+        self.assertIn("Input: missing_name_xyz.md", err)
+        self.assertEqual(err.count("missing_name_xyz.md"), 1)
+        self.assertIn("Input not read: it is missing", err)
+
+
 if __name__ == "__main__":
     unittest.main()

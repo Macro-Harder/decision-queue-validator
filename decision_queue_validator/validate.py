@@ -299,6 +299,21 @@ def _effective_elements(entry, elements):
                         and other.line == element.line
                         for other in kept)):
             drop = True
+        elif (heading_decided is not None
+                and element.kind == "closing prose"
+                and element.disposition == "Closed"
+                and re.search(r"(?:^|[.!?]\s+)closed\.\s*$",
+                              statement.strip(), re.IGNORECASE)):
+            # The PIN-11 concordance form at paragraph scale:
+            # a closing prose paragraph whose final sentence is
+            # the bare closing sentence, stating closed and
+            # nothing more, standing in an entry whose heading
+            # element denotes Ruled or Settled, confirms that
+            # heading disposition and denotes no separate
+            # Closed state, so the paragraph element is set
+            # aside exactly as the bare closing sentence form
+            # above is (Step 17 charge A10-F1).
+            drop = True
         if (element.kind == "closing prose"
                 and element.disposition == "Closed"
                 and statement.startswith("- DQ-")
@@ -350,6 +365,26 @@ def _effective_condition(element):
     """
     condition = element.condition
     if condition is None:
+        # A conditional clause standing inside a Status line
+        # value itself, in the form the value carries it (a
+        # disposition word followed by an if clause, as in
+        # "Ruled if the ferry runs"), states the condition of
+        # that element although no condition tuple stands
+        # recorded for it: the clause is extracted from the
+        # value, under the PIN-03 extraction rule, so the
+        # element takes its Conditional treatment instead of
+        # the clause being dropped (Step 17 charge F-11-04).
+        if element.kind in _STATUS_LINE_KINDS:
+            value = (element.verbatim or element.statement
+                     or "").strip()
+            match = re.match(
+                r"(?:RULED|Ruled|SETTLED|Settled|CLOSED|Closed|"
+                r"BANKED|Banked|Parked|Presented)"
+                r"(?:, closed)?\s+if\s+(.+?)\s*$", value)
+            if match:
+                text = match.group(1).strip().rstrip(".")
+                if text:
+                    return text
         return None
     cleaned = condition.strip().strip(".").lower()
     if cleaned in _NEGATED_CONDITIONS or cleaned.startswith(
@@ -366,6 +401,8 @@ _REMAINDER_PATTERNS = (
                r"|\.\s*$|\.$|$)"),
     re.compile(r"[Rr]emainder, (.+?), stays\b"),
     re.compile(r"([Tt]he remainder) stays\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?(?:still )?"
+               r"stands open\b"),
 )
 
 
@@ -392,6 +429,37 @@ def _extract_remainder(element):
             if text:
                 return text
     return None
+
+
+_PART_SCOPE_PATTERNS = (
+    re.compile(r"\bthe (?:first|second|third|fourth|fifth|sixth|"
+               r"seventh|eighth|ninth|tenth) part is "
+               r"(?:ruled|settled|closed)\b", re.IGNORECASE),
+    re.compile(r"\ba part of (?:this entry|the entry) is "
+               r"(?:ruled|settled|closed)\b", re.IGNORECASE),
+    re.compile(r"\bpart of this entry\b[^.]{0,60}?"
+               r"\b(?:ruled|settled)\b", re.IGNORECASE),
+)
+
+
+def _scope_of(element):
+    """The scope a disposition statement carries, read in
+    validate where the recorded scope does not already state
+    it: scope is Part where the statement in words limits the
+    act to a named part of the entry and a remainder is named
+    for the rest, under the PIN-01 extraction rule (Step 17
+    charge A10-F5). A statement limiting nothing, or naming
+    no remainder, states no part scope here."""
+    recorded = element.scope or ""
+    if recorded.startswith("Part"):
+        return recorded
+    statement = element.statement or element.verbatim or ""
+    if not _extract_remainder(element):
+        return recorded
+    for pattern in _PART_SCOPE_PATTERNS:
+        if pattern.search(statement):
+            return "Part"
+    return recorded
 
 
 def _entry_decision_evidence(entry, elements):
@@ -625,12 +693,12 @@ def _denoted_state(entry, element, elements):
     if disposition in ("Banked", "Relative"):
         return "Open"
     if (disposition in ("Ruled", "Settled")
-            and (element.scope or "").startswith("Part")
+            and _scope_of(element).startswith("Part")
             and _extract_remainder(element)):
         return "Settled in part"
     if disposition in ("Ruled", "Settled", "Closed", "Banked", "Open",
                        "Presented", "Parked") and (
-            element.scope or "").startswith("Part"):
+            _scope_of(element).startswith("Part")):
         return "Ambiguous"
     return disposition
 
@@ -650,7 +718,7 @@ def _underlying_state(entry, element, elements):
     if disposition in ("Banked", "Relative"):
         return "Open"
     if (disposition in ("Ruled", "Settled")
-            and (element.scope or "").startswith("Part")
+            and _scope_of(element).startswith("Part")
             and _extract_remainder(element)):
         return "Settled in part"
     return disposition
@@ -792,7 +860,7 @@ def _derive(entry):
                 break
     result["determining"] = determining
     disposition = _effective_disposition(entry, determining, elements)
-    scope = determining.scope or ""
+    scope = _scope_of(determining)
     condition = _effective_condition(determining)
 
     def finish(state, sub_label=None, label_element=None):
@@ -899,6 +967,38 @@ def _derive(entry):
         return finish("Closed as decided")
     if condition:
         return finish("Conditional")
+    if (determining.kind == "closing prose"
+            and disposition in ("Banked", "Open")
+            and not _decision_evidence(elements, exclude=determining)):
+        # Closing prose the tool itself treats as a status
+        # bearing element and names as the determining element,
+        # stating in words that the entry was ruled or settled
+        # and is closed, claims a decided state against the
+        # open state its own disposition denotes: the two
+        # readings disagree, and the entry takes the status
+        # elements disagree treatment instead of deriving Open
+        # in silence (Step 17 charge S17-ATK7-04, bounded to
+        # closing prose standing as the determining element).
+        claim_statement = determining.statement or ""
+        if (re.search(r"\b(?:ruled|settled) by\b", claim_statement,
+                      re.IGNORECASE)
+                and re.search(r"\b(?:now closed|is closed|"
+                              r"stands closed)\b", claim_statement,
+                              re.IGNORECASE)):
+            others = [e for e in effective
+                      if e is not determining
+                      and _denoted_state(entry, e, elements)
+                      == "Open"]
+            if others:
+                result["state"] = "Ambiguous"
+                result["sub_label"] = "Conflict"
+                result["competing"] = [determining] + others
+                result["denoted_states"] = (
+                    ["Closed as decided"]
+                    + [_denoted_state(entry, e, elements)
+                       for e in others])
+                result["condition"] = condition
+                return result
     if disposition in ("Banked", "Open", "Relative"):
         if _decision_evidence(elements, exclude=determining):
             earlier = [e for e in effective[:-1]
@@ -925,7 +1025,7 @@ def _derive(entry):
                 result["determining"] = determining
                 disposition = _effective_disposition(entry, determining,
                                                      elements)
-                scope = determining.scope or ""
+                scope = _scope_of(determining)
                 condition = _effective_condition(determining)
                 if condition:
                     return finish("Conditional")
@@ -1072,19 +1172,102 @@ _OPTIONS_LABELS = ("Options",)
 _QUESTION_LABELS = ("The question",)
 
 
+_PROSE_OPTIONS_LINE = "The options, stated plainly:"
+
+
+def _prose_options_line_index(entry):
+    """The body line index of the corpus prose options heading,
+    the line "The options, stated plainly:", or None where no
+    body line stands in that exact form. The test is equality
+    of the whole stripped line, not a prefix: it restores the
+    one prose form the corpus carries, and it takes no form
+    of the Options label itself."""
+    for index, (_line, text) in enumerate(_body_lines(entry)):
+        if (text or "").strip() == _PROSE_OPTIONS_LINE:
+            return index
+    return None
+
+
 def _has_options_field(entry):
+    # The Options presence test stands at the same exactness
+    # as its sibling field tests: it reads the recorded field
+    # labels, with no stripped line fallback over the body
+    # lines for the Options label itself, so a leading space,
+    # a tab separator, or a missing space form that every
+    # sibling label rejects is rejected here too (Step 17
+    # charge F-17-07). One bounded restoration stands beside
+    # that exactness: the corpus prose options heading, the
+    # line "The options, stated plainly:", for which parse
+    # records no Options field, counts as the field standing
+    # present, as it did before fix wave 1 (Step 17 fix wave 1
+    # supplementary repair, seat D1, triage items U1 and U2).
+    # The restoration is the whole line equality test in
+    # _prose_options_line_index; it names no Options label
+    # form and reopens none of the charged forms.
     for label in _field_labels(entry):
         lowered = label.lower()
         if (label == "Options" or lowered.startswith("the options")
                 or lowered.startswith("the three options")):
             return True
-    for _line, text in _body_lines(entry):
-        stripped = text.strip()
-        lowered = stripped.lower()
-        if (stripped.startswith("Options:")
-                or lowered.startswith("the options")
-                or lowered.startswith("the three options")):
+    return _prose_options_line_index(entry) is not None
+
+
+def _options_value_present(entry):
+    """Whether an Options field stands present on its value:
+    a recorded Options field carrying a non empty value, or
+    the label alone with its option lines standing as the
+    following body lines, the shape whose collected lines are
+    the field value (Step 17 charge F-17-02)."""
+    value = _field_value(entry, "Options")
+    if value is not None:
+        if value.strip():
             return True
+        collected = False
+        for _line, text in _body_lines(entry):
+            stripped = (text or "").strip()
+            if stripped.startswith("Options:"):
+                collected = True
+                continue
+            if collected:
+                if stripped.startswith("- "):
+                    return True
+                if stripped:
+                    break
+        return False
+    for f in _get(entry, "fields") or []:
+        label = str(_get(f, "label", "") or "")
+        lowered = label.lower()
+        if (lowered.startswith("the options")
+                or lowered.startswith("the three options")):
+            return bool((_get(f, "value") or "").strip())
+    # The corpus prose form, reached only where no recorded
+    # Options field stands at all, so the empty value ground
+    # above is untouched: the prose heading line counts as
+    # value present only where its option lines stand as the
+    # following body lines, blank lines aside, in the same
+    # collected lines shape the label alone form takes (Step
+    # 17 fix wave 1 supplementary repair, seat D1).
+    prose_index = _prose_options_line_index(entry)
+    if prose_index is not None:
+        for _line, text in _body_lines(entry)[prose_index + 1:]:
+            stripped = (text or "").strip()
+            if not stripped:
+                continue
+            return stripped.startswith("- ")
+    return False
+
+
+def _field_value_present(entry, labels, prefixes=()):
+    """Whether a field stands present on its value, not on
+    its label alone: a recorded field whose label matches and
+    whose value carries non empty matter (Step 17 charge
+    F-17-02)."""
+    for f in _get(entry, "fields") or []:
+        label = str(_get(f, "label", "") or "")
+        if label in labels or any(
+                label.startswith(prefix) for prefix in prefixes):
+            if (_get(f, "value") or "").strip():
+                return True
     return False
 
 
@@ -1483,7 +1666,17 @@ def _is_decider_line(statement):
     return bool(_DECIDER_LINE_RE.match(statement or ""))
 
 
-def _check5(entry, display_id, derived, elements):
+_GHOST_SUBJECT_PATTERNS = (
+    re.compile(r"\bDQ-(\d+)\s+is\s+(?:decided|closed|settled|"
+               r"ruled)\b", re.IGNORECASE),
+    re.compile(r"\b(?:Settle|Settles|Close|Closes|Rule|Rules)\s+"
+               r"DQ-(\d+)\b"),
+    re.compile(r"\bquestion for DQ-(\d+)\b", re.IGNORECASE),
+)
+
+
+def _check5(entry, display_id, derived, elements,
+            headed_numbers=None):
     if derived["state"] not in DECIDED_OUTCOMES:
         return []
     if derived["state"] == "Conditional":
@@ -1776,6 +1969,44 @@ def _check5(entry, display_id, derived, elements):
         "outcome": bool(outcome),
         "landing_record": bool(landing),
     }
+    if headed_numbers is not None:
+        # Decision evidence that names a different entry as the
+        # subject of the ruling or settlement, where no headed
+        # entry carries that number, is not accepted as this
+        # entry own evidence in silence: the cited number takes
+        # its PD-R7 Note, the Note class brief section 5.4
+        # names for a cited DQ number with no heading (Step 17
+        # charge S17-ATK7-01). The scan reads the decision
+        # bearing statements of the entry: its effective
+        # elements and its recorded field values.
+        host_number = _entry_number(entry)
+        ghost_seen = {}
+        texts = []
+        for element in derived["effective_elements"]:
+            if _effective_disposition(entry, element, elements) \
+                    in _DECIDED_DISPOSITIONS:
+                texts.append((element.statement or "",
+                              Span(element.line, element.line)))
+        for f in _get(entry, "fields") or []:
+            label = str(_get(f, "label", "") or "")
+            if label in ("Ruling text", "Ruling texts", "Settlement",
+                         "Ruling outcome", "Ruled", "Question as put",
+                         "The question that was open"):
+                texts.append((_get(f, "value") or "", span))
+        for text, text_span in texts:
+            for pattern in _GHOST_SUBJECT_PATTERNS:
+                for match in pattern.finditer(text):
+                    number = int(match.group(1))
+                    if number == host_number:
+                        continue
+                    if number in headed_numbers:
+                        continue
+                    ghost_seen.setdefault(number, (text, text_span))
+        for number in sorted(ghost_seen):
+            text, text_span = ghost_seen[number]
+            findings.append(_pd_r7_finding(
+                text, "DQ-%03d" % number, text_span,
+                identifier=display_id))
     return findings
 
 
@@ -1809,17 +2040,21 @@ def _check9(entry, display_id, derived):
         # form entry, which carries a head Status line or field
         # labels, is tested in full above this shape.
         return []
-    labels = _field_labels(entry)
+    # Presence is tested on the value, not on the label alone:
+    # a field whose label stands recorded but whose value
+    # carries no matter is missing, on the same Warning as a
+    # field with no label at all (Step 17 charge F-17-02).
     missing = []
-    if not any(label in _QUESTION_LABELS
-               or label.startswith("Question as put")
-               for label in labels):
+    if not _field_value_present(
+            entry, _QUESTION_LABELS,
+            prefixes=("Question as put",)):
         missing.append("its question")
-    if not _has_options_field(entry):
+    if not (_has_options_field(entry)
+            and _options_value_present(entry)):
         missing.append("its options")
-    if not any(label in _COST_LABELS for label in labels):
+    if not _field_value_present(entry, _COST_LABELS):
         missing.append("its cost of deciding late")
-    if not any(label in _BLOCKS_LABELS for label in labels):
+    if not _field_value_present(entry, _BLOCKS_LABELS):
         missing.append("its blocks field")
     findings = []
     determining = derived["determining"]
@@ -1865,10 +2100,26 @@ def _unparsed_finding(entry, display_id):
     span = (Span(heading_line, heading_line)
             if heading_line is not None else None)
     heading = _get(entry, "heading") or _get(entry, "heading_text") or ""
+    if any((text or "").strip() for _line, text in _body_lines(entry)):
+        # The statement names the entry as it stands: an entry
+        # carrying body matter in the file, cut off or otherwise
+        # unread as a whole, is not described as a heading with
+        # no body, and its statement does not send the operator
+        # to add a body that already stands there (Step 17
+        # charge T-2). The no body form below stands only for
+        # an entry whose heading in fact stands with no body.
+        statement = (
+            "This entry stands unparsed: body matter stands "
+            "under its heading in the file, but the entry as a "
+            "whole could not be read, so no state can be "
+            "determined for it.")
+    else:
+        statement = (
+            "This entry stands unparsed: its heading stands "
+            "with no body, so no state can be determined for "
+            "it.")
     return _finding(
-        12, "Error", display_id, span, heading,
-        "This entry stands unparsed: its heading stands with no "
-        "body, so no state can be determined for it.",
+        12, "Error", display_id, span, heading, statement,
         basis="an unparsed entry, carried under pin 12")
 
 
@@ -1878,6 +2129,14 @@ def _unparsed_finding(entry, display_id):
 # ---------------------------------------------------------------------
 
 _GAP_NAMING_BOUND = 2000000
+
+# The number of times one run prints the gap naming on the
+# validate form: once in the gap finding statement and once in
+# its evidence line. The render form does not print the naming.
+# The naming bound applies to the run total naming output, the
+# naming size multiplied by the number of printings, and not
+# only to one naming (Step 17, A21-5).
+_GAP_NAMING_PRINTINGS = 2
 
 
 def _gap_naming_size(numbers):
@@ -1897,19 +2156,33 @@ def _gap_naming_size(numbers):
     missing_total = (high - low - 1) - (len(values) - 2)
     if missing_total <= 0:
         return 0
+    # The cost form of the computation (Step 17, A21-2): the
+    # digit length of each present interior value is taken
+    # once, before the loop, and the span bounds advance by
+    # one multiplication per digit count. No pass of the loop
+    # forms a fresh power of ten or a fresh decimal string
+    # conversion of a present value, so the cost of reaching
+    # the size stays proportional to the work each pass does
+    # on the span itself, even where the largest number
+    # carries thousands of digits.
+    interior_by_digit_count = {}
+    for value in values:
+        if low < value < high:
+            digit_length = len(str(value))
+            interior_by_digit_count[digit_length] = \
+                interior_by_digit_count.get(digit_length, 0) + 1
     digit_total = 0
+    span_low = 0
+    span_high = 9
     for digit_count in range(1, len(str(high)) + 1):
-        span_low = 0 if digit_count == 1 else 10 ** (digit_count - 1)
-        span_high = 10 ** digit_count - 1
         first = max(low + 1, span_low)
         last = min(high - 1, span_high)
-        if last < first:
-            continue
-        count = last - first + 1
-        count -= sum(1 for value in values
-                     if low < value < high
-                     and len(str(value)) == digit_count)
-        digit_total += count * digit_count
+        if last >= first:
+            count = last - first + 1
+            count -= interior_by_digit_count.get(digit_count, 0)
+            digit_total += count * digit_count
+        span_low = span_high + 1
+        span_high = span_high * 10 + 9
     return digit_total + (missing_total - 1)
 
 
@@ -1933,10 +2206,28 @@ def _check1(entries, model=None):
                 "a duplicate entry number, heading lines %s."
                 % (number, named),
                 basis="an entry number used more than once"))
+    # The recognised unnumbered identifier stands under the
+    # same rule list text, no entry number used twice: the R-7
+    # form carries an identifier instead of a DQ number, and
+    # that identifier used by two headed entries takes the
+    # same duplicate Error (Step 17 Finding 1 of seat 6).
+    r7_holders = [entry for entry in entries
+                  if _display_id(entry) == "R-7"
+                  and _entry_number(entry) is None]
+    if len(r7_holders) > 1:
+        lines = sorted(_get(e, "heading_line") for e in r7_holders)
+        named = " and ".join(str(n) for n in lines)
+        findings.append(_finding(
+            1, "Error", _unit_identifier(model),
+            Span(lines[0], lines[-1]),
+            "heading lines %s" % named,
+            "The entry identifier R-7 is used more than once: "
+            "a duplicate entry number, heading lines %s." % named,
+            basis="an entry number used more than once"))
     numbers = sorted(by_number)
     if numbers:
         gap_size = _gap_naming_size(numbers)
-        if gap_size > _GAP_NAMING_BOUND:
+        if gap_size * _GAP_NAMING_PRINTINGS > _GAP_NAMING_BOUND:
             # The gap naming bound (plan Item 9, section 9.6,
             # Step 12 correction): where the size stands over
             # the bound, the numeric gap class does not fire and
@@ -1990,7 +2281,7 @@ def _gap_refusal_signal(entries):
         if number is not None:
             numbers.append(number)
     size = _gap_naming_size(numbers)
-    return (size > _GAP_NAMING_BOUND, size)
+    return (size * _GAP_NAMING_PRINTINGS > _GAP_NAMING_BOUND, size)
 
 
 def _check6(model, entries):
@@ -2091,12 +2382,58 @@ def _check8(model, entries, derived_by_id):
             numbers.add(number)
     cited = set()
 
+    # The supersession ground stands apart from the citation
+    # scan: a number a supersession statement in an entry
+    # names as its target is reported on that ground alone,
+    # once, under PD-R7 where no headed entry carries it, and
+    # the generic citation Warning does not stand over the
+    # same statement as a second finding. The covered pairs
+    # are the claiming entry and the number, read from the
+    # statement lines themselves and from statement runs
+    # split across the lines of one paragraph, on the same
+    # terms the supersession unit reads them.
+    sup_covered = set()
+    for entry in entries:
+        source_id = _display_id(entry)
+        lines = _body_lines(entry)
+        units = []
+        for _line_number, text in lines:
+            units.append(text)
+        runs = []
+        run = []
+        for line_number, text in lines:
+            if text and text.strip() and (
+                    not run or line_number == run[-1][0] + 1):
+                run.append((line_number, text))
+            else:
+                if run:
+                    runs.append(run)
+                run = ([(line_number, text)]
+                       if text and text.strip() else [])
+        if run:
+            runs.append(run)
+        for run in runs:
+            units.append(" ".join(t for _n, t in run))
+        for text in units:
+            segments = _sentence_segments(text)
+            if not any(_claims_displacement(s) for s in segments):
+                continue
+            targets = set()
+            for segment in segments:
+                targets.update(_identifications(segment))
+            for token in _DQ_TOKEN_RE.finditer(text):
+                targets.add("DQ-%03d" % int(token.group(1)))
+            for target in targets:
+                sup_covered.add((source_id, int(target[3:])))
+
     def scan_citations(lines, source_key, entry_identifier):
         for line_number, text in lines:
             for pattern in _CITATION_PATTERNS:
                 for match in pattern.finditer(text):
                     number = int(match.group(1))
                     if number in numbers:
+                        continue
+                    if (source_key, number) in sup_covered:
                         continue
                     key = (source_key, number)
                     if key in cited:
@@ -2123,6 +2460,64 @@ def _check8(model, entries, derived_by_id):
                           or "")]
         scan_citations(lines, ("segment", index),
                        _unit_identifier(model, segment=segment))
+
+    # A plain citation in entry body prose or in the file
+    # preamble takes the same PD-R7 report: a cited DQ number
+    # with no heading is a finding class of its own, at Note
+    # grade, and the framed citation scan above is not the
+    # only place a citation can stand (Step 17 charge
+    # F-11-05). Numbers already reported on the citation
+    # frame scan or on the supersession ground are not
+    # reported again here, and a ghost number an entry names
+    # as the subject of its own decision evidence, on a
+    # decided entry, stands on the _check5 ground and is not
+    # reported again here either.
+    def scan_plain_citations(lines, source_key, entry_identifier,
+                             skip_numbers=()):
+        for line_number, text in lines:
+            if (text or "").startswith("Status:"):
+                continue
+            for token in _DQ_TOKEN_RE.finditer(text or ""):
+                number = int(token.group(1))
+                if number in numbers or number in skip_numbers:
+                    continue
+                if (source_key, number) in sup_covered:
+                    continue
+                key = (source_key, number)
+                if key in cited:
+                    continue
+                cited.add(key)
+                findings.append(_pd_r7_finding(
+                    text, "DQ-%03d" % number,
+                    Span(line_number, line_number),
+                    identifier=entry_identifier))
+
+    for entry in entries:
+        source_id = _display_id(entry)
+        skip = set()
+        derived = derived_by_id.get(source_id)
+        if derived is not None and derived.get("state") in \
+                DECIDED_OUTCOMES:
+            for _line_number, text in _body_lines(entry):
+                for pattern in _GHOST_SUBJECT_PATTERNS:
+                    for match in pattern.finditer(text or ""):
+                        skip.add(int(match.group(1)))
+        scan_plain_citations(_body_lines(entry), source_id,
+                             source_id, skip_numbers=skip)
+    header_lines = list(_get(model, "lines") or [])
+    for unit in _get(model, "units") or []:
+        if _get(unit, "kind") != "file header":
+            continue
+        unit_span = _get(unit, "span")
+        if unit_span is None:
+            continue
+        lines = [(number, header_lines[number - 1])
+                 for number in range(unit_span.start_line,
+                                     unit_span.end_line + 1)
+                 if 1 <= number <= len(header_lines)]
+        scan_plain_citations(
+            lines, ("file header", unit_span.start_line),
+            _unit_identifier(model, span=unit_span))
 
     def claim_finding(claiming_id, target_id, quoted, span):
         derived = derived_by_id.get(target_id)
@@ -2155,6 +2550,15 @@ def _check8(model, entries, derived_by_id):
                    r"Parked|Presented)\b"),
         re.compile(r"[^.;]{0,110}?\b(stays|remains|stands|left)\s+"
                    r"(banked|open|settled|ruled|closed)\b"),
+        # The still forms of the same claims, in the ordinary
+        # phrasings a stale claim takes: a state stated with
+        # still standing before it, and the waiting form that
+        # states an open claim in words (Step 17 charge
+        # F-11-06).
+        re.compile(r"DQ-\d+\s+is\s+still\s+(settled|ruled|open|"
+                   r"banked|closed|parked|presented)\b",
+                   re.IGNORECASE),
+        re.compile(r"[^.;]{0,110}?\bstill waiting\b"),
     )
     for entry in entries:
         claiming_id = _display_id(entry)
@@ -2271,14 +2675,15 @@ _DQ_TOKEN_RE = re.compile(r"\bDQ-(\d+)\b")
 _IDENTIFICATION_PATTERNS = (
     re.compile(r"displaces the rulings? at "
                r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)"),
-    re.compile(r"displaces (DQ-\d+)\b"),
+    re.compile(r"displaces ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\b"),
     re.compile(r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+"
                r"(?:is|are) the superseded entr"),
     re.compile(r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+"
                r"(?:is|are) the entr\w+ it stands in place of"),
     re.compile(r"replaces ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\s+as\b"),
     re.compile(r"supersedes ((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\b"),
-    re.compile(r"supersedes\b[^.;]{0,120}?\bat (DQ-\d+)\b"),
+    re.compile(r"supersedes\b[^.;]{0,120}?\bat "
+               r"((?:DQ-\d+)(?:\s+and\s+DQ-\d+)*)\b"),
 )
 
 
@@ -2292,6 +2697,27 @@ def _identifications(sentence):
     found.sort()
     ordered = []
     for _pos, entry_id in found:
+        if entry_id not in ordered:
+            ordered.append(entry_id)
+    return ordered
+
+
+_CASE_VARIANT_TOKEN_RE = re.compile(r"\b(?:DQ|Dq|dQ|dq)-(\d+)\b")
+
+
+def _case_variant_identifications(sentence):
+    """The entry identifiers a sentence names in a letter case
+    variant of the DQ form, normalised to the DQ form. A case
+    variant is not an identification: it derives no pointer.
+    It is a near miss, a statement that claims displacement and
+    names its target in a form the identification patterns do
+    not take, and the supersession unit reports it under the
+    not recognised treatment."""
+    ordered = []
+    for match in _CASE_VARIANT_TOKEN_RE.finditer(sentence or ""):
+        if match.group(0).startswith("DQ-"):
+            continue
+        entry_id = "DQ-%03d" % int(match.group(1))
         if entry_id not in ordered:
             ordered.append(entry_id)
     return ordered
@@ -2387,36 +2813,92 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
 
     memo = {}
 
-    def continuation(entry, ancestors):
-        relevant = frozenset(
-            a for a in ancestors if a in reach_set(entry))
-        key = (entry, relevant)
-        if key in memo:
-            return memo[key]
-        holders = pointers.get(entry, [])
-        if not holders:
-            result = (1, min(cap, len(entry) + 1))
-            memo[key] = result
-            return result
-        total_count = 0
-        total_chars = 0
-        for pointer in holders:
-            if pointer == entry or pointer in ancestors:
-                contrib_count = 1
-                contrib_chars = (len(entry) + sep + len(pointer)
-                                 + mark + 1)
-            else:
-                sub_count, sub_chars = continuation(
-                    pointer, ancestors + [entry])
-                contrib_count = sub_count
-                contrib_chars = (sub_chars
-                                 + sub_count * (len(entry) + sep))
-            total_count = min(cap, total_count + contrib_count)
-            total_chars = min(cap, total_chars + contrib_chars)
-            if total_chars >= cap:
+    def continuation(root, root_ancestors):
+        # The continuation of an entry, computed with an
+        # explicit stack instead of recursion, and with the
+        # reach set of each entry read once per frame: the
+        # recursive form re-read the reach set once per
+        # ancestor at every step of a chain, and its depth
+        # stood bounded by the interpreter recursion limit on
+        # chains the stated limits admit. The arithmetic is
+        # the recursive form's own, term for term: a leaf
+        # counts one chain of its own length and a line
+        # ending, a pointer back to the entry itself or to an
+        # ancestor closes one chain with the cycle mark, and
+        # any other pointer contributes its own continuation
+        # widened by the entry and the separator once per
+        # chain it carries, every total capped at the cap.
+        def make_frame(entry, ancestors):
+            reach = reach_set(entry)
+            key = (entry, frozenset(
+                a for a in ancestors if a in reach))
+            return {
+                "entry": entry, "ancestors": ancestors,
+                "key": key, "holders": None, "index": 0,
+                "total_count": 0, "total_chars": 0,
+            }
+
+        def deliver(done_frame, result):
+            if not stack:
+                return result
+            parent = stack[-1]
+            sub_count, sub_chars = result
+            parent["total_count"] = min(
+                cap, parent["total_count"] + sub_count)
+            parent["total_chars"] = min(
+                cap, parent["total_chars"] + sub_chars
+                + sub_count * (len(parent["entry"]) + sep))
+            return None
+
+        stack = [make_frame(root, list(root_ancestors))]
+        result = None
+        while stack:
+            frame = stack[-1]
+            if frame["key"] in memo:
+                stack.pop()
+                result = deliver(frame, memo[frame["key"]])
+                continue
+            if frame["holders"] is None:
+                frame["holders"] = pointers.get(frame["entry"], [])
+            entry = frame["entry"]
+            holders = frame["holders"]
+            if not holders:
+                leaf = (1, min(cap, len(entry) + 1))
+                memo[frame["key"]] = leaf
+                stack.pop()
+                result = deliver(frame, leaf)
+                continue
+            pushed = False
+            while (frame["index"] < len(holders)
+                   and frame["total_chars"] < cap):
+                pointer = holders[frame["index"]]
+                frame["index"] += 1
+                if pointer == entry or pointer in frame["ancestors"]:
+                    frame["total_count"] = min(
+                        cap, frame["total_count"] + 1)
+                    frame["total_chars"] = min(
+                        cap, frame["total_chars"] + len(entry)
+                        + sep + len(pointer) + mark + 1)
+                    continue
+                child = make_frame(
+                    pointer, frame["ancestors"] + [entry])
+                if child["key"] in memo:
+                    sub_count, sub_chars = memo[child["key"]]
+                    frame["total_count"] = min(
+                        cap, frame["total_count"] + sub_count)
+                    frame["total_chars"] = min(
+                        cap, frame["total_chars"] + sub_chars
+                        + sub_count * (len(entry) + sep))
+                    continue
+                stack.append(child)
+                pushed = True
                 break
-        result = (total_count, total_chars)
-        memo[key] = result
+            if pushed:
+                continue
+            done = (frame["total_count"], frame["total_chars"])
+            memo[frame["key"]] = done
+            stack.pop()
+            result = deliver(frame, done)
         return result
 
     superseding_set = set()
@@ -2498,13 +2980,26 @@ def _supersession_unit(model, entries, derived_list):
             sentence, number_id, span,
             identifier=_unit_identifier(model, span=span)))
 
+    def note_not_recognised(self_id, named, quote, span):
+        finding = _finding(
+            "PIN-10", "Note", self_id, span, quote,
+            "A supersession statement in this entry is not "
+            "recognised: it names %s but does not meet both "
+            "limbs of the supersession test, so no pointer "
+            "stands for it." % ", ".join(named),
+            basis="supersession statement not recognised")
+        finding.named_entries = list(named)
+        findings.append(finding)
+
     for entry, derived in zip(entries, derived_list):
         if derived.get("unparsed"):
             continue
         self_id = _display_id(entry)
         if self_id not in headed_set:
             continue
-        for line_number, text in _body_lines(entry):
+        body = _body_lines(entry)
+        handled = set()
+        for line_number, text in body:
             # The statement unit is the whole line: a statement can
             # state its displacement in one sentence and identify
             # the superseded entry in the next, and the two limbs
@@ -2525,7 +3020,10 @@ def _supersession_unit(model, entries, derived_list):
                 token_id = "DQ-%03d" % int(token.group(1))
                 if token_id != self_id and token_id not in tokens:
                     tokens.append(token_id)
-            if not identified and not tokens:
+            variants = [t for t in
+                        _case_variant_identifications(unit)
+                        if t != self_id]
+            if not identified and not tokens and not variants:
                 # A statement identifying no entry takes no Note
                 # and gives no pointer: the DQ-161 form.
                 continue
@@ -2535,6 +3033,7 @@ def _supersession_unit(model, entries, derived_list):
                 for target in identified:
                     if target == self_id:
                         continue
+                    handled.add(target)
                     if target in headed_set:
                         holders = pointers.setdefault(target, [])
                         if self_id not in holders:
@@ -2542,23 +3041,99 @@ def _supersession_unit(model, entries, derived_list):
                             statements[(target, self_id)] = quote
                     else:
                         note_pd_r7(quote, target, span)
+                variant_named = []
+                for target in variants:
+                    handled.add(target)
+                    if target in headed_set:
+                        variant_named.append(target)
+                    else:
+                        note_pd_r7(quote, target, span)
+                if variant_named:
+                    note_not_recognised(
+                        self_id, variant_named, quote, span)
                 continue
             for target in identified:
                 if target not in headed_set and target != self_id:
+                    handled.add(target)
+                    note_pd_r7(quote, target, span)
+            for target in tokens:
+                # A ghost number named in a claiming statement
+                # that the identification patterns do not reach
+                # in the identified form still takes its one
+                # PD-R7 Note: the seat 7 ghost form, where the
+                # statement names its subject as the superseded
+                # entry in words and no pattern captures it.
+                if target not in headed_set and target not in identified:
+                    handled.add(target)
                     note_pd_r7(quote, target, span)
             named = [t for t in (identified or tokens)
                      if t in headed_set and t != self_id]
+            for target in variants:
+                handled.add(target)
+                if target in headed_set:
+                    if target not in named:
+                        named.append(target)
+                else:
+                    note_pd_r7(quote, target, span)
             if not named:
                 continue
-            finding = _finding(
-                "PIN-10", "Note", self_id, span, quote,
-                "A supersession statement in this entry is not "
-                "recognised: it names %s but does not meet both "
-                "limbs of the supersession test, so no pointer "
-                "stands for it." % ", ".join(named),
-                basis="supersession statement not recognised")
-            finding.named_entries = list(named)
-            findings.append(finding)
+            for target in named:
+                handled.add(target)
+            note_not_recognised(self_id, named, quote, span)
+        # A supersession statement split across two physical
+        # lines of one paragraph run: no single line both claims
+        # displacement and identifies its target, so the lines
+        # above took no pointer and no Note for it. Read over
+        # the joined run, the statement claims displacement and
+        # names a target no single line handled: it takes the
+        # near miss Note, so a missed pointer stands told apart
+        # from an absent one.
+        runs = []
+        run = []
+        for line_number, text in body:
+            if text and text.strip() and (
+                    not run or line_number == run[-1][0] + 1):
+                run.append((line_number, text))
+            else:
+                if run:
+                    runs.append(run)
+                run = ([(line_number, text)]
+                       if text and text.strip() else [])
+        if run:
+            runs.append(run)
+        for run in runs:
+            if len(run) < 2:
+                continue
+            joined = " ".join(text for _number, text in run)
+            segments = _sentence_segments(joined)
+            claiming = [s for s in segments
+                        if _claims_displacement(s)]
+            if not claiming:
+                continue
+            targets = []
+            for segment in segments:
+                for target in _identifications(segment):
+                    if target not in targets:
+                        targets.append(target)
+            for target in _case_variant_identifications(joined):
+                if target not in targets:
+                    targets.append(target)
+            pending = [t for t in targets
+                       if t != self_id and t not in handled]
+            if not pending:
+                continue
+            span = Span(run[0][0], run[0][0])
+            quote = claiming[0]
+            split_named = []
+            for target in pending:
+                handled.add(target)
+                if target in headed_set:
+                    split_named.append(target)
+                else:
+                    note_pd_r7(quote, target, span)
+            if split_named:
+                note_not_recognised(
+                    self_id, split_named, quote, span)
 
     # Distinct cycles, each reported once as one Warning naming
     # every entry in the cycle in chain order and quoting the
@@ -2573,35 +3148,59 @@ def _supersession_unit(model, entries, derived_list):
             displaces.setdefault(holder, []).append(target)
 
     def find_cycles(relation, seeds):
+        # The search follows every target of each entry, not
+        # only the first: a cycle reached through a second
+        # displacement target stands found on the same terms as
+        # one reached through the first. The search is a depth
+        # first walk with a finished set and a position index
+        # over the walk stack, so its cost stands in the size
+        # of the relation: a walk that re-follows the chain
+        # from every seed, testing each step against a list of
+        # the path so far, pays for the chain again at every
+        # entry of it, which is the chain cost charged at M2.
         found_cycles = []
         seen_keys = set()
-
-        def follow(start):
-            path = [start]
-            current = start
-            while True:
-                next_holders = relation.get(current, [])
-                if not next_holders:
-                    return
-                nxt = next_holders[0]
-                if nxt in path:
-                    cycle = path[path.index(nxt):]
-                    pivot = min(
-                        range(len(cycle)),
-                        key=lambda i: file_order.get(cycle[i], 0))
-                    rotated = tuple(cycle[pivot:] + cycle[:pivot])
-                    if rotated not in seen_keys:
-                        seen_keys.add(rotated)
-                        found_cycles.append(list(rotated))
-                    return
-                if nxt not in headed_set:
-                    return
-                path.append(nxt)
-                current = nxt
-
+        finished = set()
         for seed in seeds:
-            if seed in relation or seed in pointers:
-                follow(seed)
+            if seed not in relation and seed not in pointers:
+                continue
+            if seed in finished or seed not in headed_set:
+                continue
+            path = [seed]
+            position = {seed: 0}
+            work = [(seed, iter(relation.get(seed, [])))]
+            while work:
+                node, edges = work[-1]
+                descended = False
+                for nxt in edges:
+                    if nxt not in headed_set:
+                        continue
+                    if nxt in position:
+                        cycle = path[position[nxt]:]
+                        pivot = min(
+                            range(len(cycle)),
+                            key=lambda i: file_order.get(
+                                cycle[i], 0))
+                        rotated = tuple(
+                            cycle[pivot:] + cycle[:pivot])
+                        if rotated not in seen_keys:
+                            seen_keys.add(rotated)
+                            found_cycles.append(list(rotated))
+                        continue
+                    if nxt in finished:
+                        continue
+                    position[nxt] = len(path)
+                    path.append(nxt)
+                    work.append(
+                        (nxt, iter(relation.get(nxt, []))))
+                    descended = True
+                    break
+                if descended:
+                    continue
+                work.pop()
+                path.pop()
+                del position[node]
+                finished.add(node)
         return found_cycles
 
     cycles = find_cycles(displaces, headed_ids)
@@ -2647,15 +3246,41 @@ def _supersession_unit(model, entries, derived_list):
         superseding_set.update(holders)
 
     def extend(chain, pointer):
-        new_chain = chain + [pointer]
-        if pointer in chain:
-            return [(new_chain, True)]
-        next_holders = pointers.get(pointer, [])
-        if not next_holders:
-            return [(new_chain, False)]
+        # The chains through one pointer, built with an
+        # explicit stack of holder iterators instead of
+        # recursion, in the recursive form's own order and
+        # with its own terms: a pointer already in the chain
+        # closes it with the cycle flag, a pointer with no
+        # holders ends it, and any other pointer continues
+        # through each of its holders in order.
+        def step(base, step_pointer):
+            new_chain = base + [step_pointer]
+            if step_pointer in base:
+                return ("leaf", (new_chain, True), None)
+            holders = pointers.get(step_pointer, [])
+            if not holders:
+                return ("leaf", (new_chain, False), None)
+            return ("branch", new_chain, holders)
+
+        kind, value, holders = step(chain, pointer)
+        if kind == "leaf":
+            return [value]
         out = []
-        for nxt in next_holders:
-            out.extend(extend(new_chain, nxt))
+        stack = [(value, iter(holders))]
+        while stack:
+            frame_chain, frame_holders = stack[-1]
+            descended = False
+            for nxt in frame_holders:
+                kind, value, holders = step(frame_chain, nxt)
+                if kind == "leaf":
+                    out.append(value)
+                    continue
+                stack.append((value, iter(holders)))
+                descended = True
+                break
+            if descended:
+                continue
+            stack.pop()
         return out
 
     chains = []
@@ -2730,7 +3355,18 @@ def _segment_claim_findings(model, entries):
                     finding.claiming_unit = unit_id
                     findings.append(finding)
         seen_cited = set()
+        quarantined_heading_line = None
+        if _get(segment, "unmatched_heading"):
+            if span is not None:
+                quarantined_heading_line = _get(span, "start_line")
+            if quarantined_heading_line is None:
+                segment_lines = _get(segment, "lines") or []
+                if segment_lines:
+                    quarantined_heading_line = segment_lines[0][0]
         for line_number, text in (_get(segment, "lines") or []):
+            if quarantined_heading_line is not None and \
+                    line_number == quarantined_heading_line:
+                continue
             for token in _DQ_TOKEN_RE.finditer(text or ""):
                 target = "DQ-%03d" % int(token.group(1))
                 if target in headed_set or target in seen_cited:
@@ -3050,6 +3686,26 @@ def _census(entries, derived_list):
     return rows
 
 
+def _h4_block_has_body(entry, block):
+    """Whether a level 4 decision block carries a body: at
+    least one non blank body line of the entry standing after
+    the block heading line and within the block span. A block
+    whose span holds its heading line alone has no body."""
+    span = _get(block, "span")
+    start = _get(span, "start_line", "start")
+    end = _get(span, "end_line", "end")
+    if start is None:
+        return False
+    for number, text in _body_lines(entry):
+        if number <= start:
+            continue
+        if end is not None and number > end:
+            continue
+        if (text or "").strip():
+            return True
+    return False
+
+
 def _banked_evidence_groups(entries, derived_list):
     """The Banked head population and its three evidence groups.
 
@@ -3088,6 +3744,7 @@ def _banked_evidence_groups(entries, derived_list):
             group1.append(display)
             continue
         if any(_get(block, "marking_form") == "H4 sub part"
+               and _h4_block_has_body(entry, block)
                for block in _get(entry, "decision_blocks") or []):
             # The second group test is for a level 4 decision
             # block only, under plan Item 3, section 3.8 and
@@ -3095,7 +3752,13 @@ def _banked_evidence_groups(entries, derived_list):
             # marking form, a bold supersession segment or an
             # unheaded labelled paragraph among them, is not a
             # level 4 block and places the entry in no group on
-            # its own.
+            # its own. A level 4 block whose span carries no
+            # body line after its heading line is a bare
+            # heading: under PIN-01 form 1 a heading that is
+            # no container of record content carries no census
+            # evidence element, so the bare heading takes no
+            # credit here and the entry stands in no group on
+            # its account (Step 17, F-8-1).
             group2.append(display)
             continue
         has_paragraph = False
@@ -3167,7 +3830,49 @@ _PIN5_CLEARING_FORM = (
     "the heading and the lines under it out of the file.")
 
 
-def _appendix_rows(entries, vocabulary):
+def _preamble_status_occurrences(model):
+    """The status occurrences standing in the file header unit.
+
+    A Status line standing in the queue preamble, before the
+    first entry heading, is a status occurrence in the file:
+    parse assigns those lines to the file header unit, and the
+    occurrences are read from that unit text here, under the
+    same marker and kind rules parse applies inside entries
+    (Step 17, S17-ATK7-03). Each occurrence is returned as
+    (verbatim, occurrence kind, line, position in line), and
+    stands in the appendix under the file level member FILE.
+    """
+    occurrences = []
+    if model is None:
+        return occurrences
+    for unit in _get(model, "units") or []:
+        if _get(unit, "kind") != "file header":
+            continue
+        span = _get(unit, "span")
+        first_line = _get(span, "start_line", "start") or 1
+        text = _get(unit, "text") or ""
+        for offset, line_text in enumerate(text.split("\n")):
+            markers = []
+            for marker in ("Status:", "Status unchanged"):
+                start = line_text.find(marker)
+                while start != -1:
+                    markers.append((start, marker))
+                    start = line_text.find(marker, start + 1)
+            markers.sort()
+            for index, (start, marker) in enumerate(markers):
+                end = start + len(marker)
+                stop = (markers[index + 1][0]
+                        if index + 1 < len(markers) else None)
+                verbatim = line_text[end:stop].strip()
+                if not verbatim:
+                    continue
+                kind = "line start" if start == 0 else "embedded"
+                occurrences.append(
+                    (verbatim, kind, first_line + offset, start))
+    return occurrences
+
+
+def _appendix_rows(entries, vocabulary, model=None):
     rows = {}
     order = []
     for entry in entries:
@@ -3192,6 +3897,20 @@ def _appendix_rows(entries, vocabulary):
             rows[key]["count"] += 1
             if display_id not in rows[key]["members"]:
                 rows[key]["members"].append(display_id)
+    # The status occurrences standing in the file header unit
+    # enter the same rows, under the file level member, so the
+    # appendix and the occurrence total count every status
+    # occurrence in the file (Step 17, S17-ATK7-03).
+    for verbatim, kind, line, position in \
+            _preamble_status_occurrences(model):
+        key = (verbatim, kind)
+        if key not in rows:
+            rows[key] = {"count": 0, "members": [],
+                         "first": (line, position)}
+            order.append(key)
+        rows[key]["count"] += 1
+        if "FILE" not in rows[key]["members"]:
+            rows[key]["members"].append("FILE")
     order.sort(key=lambda key: rows[key]["first"])
     result = []
     for phrasing, kind in order:
@@ -3530,10 +4249,38 @@ def validate_model(model, vocabulary, output_form_edition=None):
         entry_findings.extend(_check3(entry, display_id, derived,
                                       elements))
         entry_findings.extend(_check4(entry, display_id, derived))
-        entry_findings.extend(_check5(entry, display_id, derived,
-                                      elements))
+        entry_findings.extend(_check5(
+            entry, display_id, derived, elements,
+            headed_numbers={number for number in
+                            (_entry_number(other)
+                             for other in entries)
+                            if number is not None}))
         entry_findings.extend(_check9(entry, display_id, derived))
         entry_findings.extend(_check10(entry, display_id, derived))
+        if len(entries) == 1 and derived.get("shape_a"):
+            # An unclassified status value takes its Note
+            # finding, brief section 5.4 (Step 17 charge
+            # S17-ATK7-05, worded on its own construction only:
+            # a lone entry whose only status element carries a
+            # value no vocabulary class holds, deriving Open
+            # under the Shape A exception). The multi entry
+            # unclassified constructions stand outside this
+            # charge; A12-F5 in particular stands CONFIRMED
+            # ONLY and is cured by no part of this limb.
+            sole = derived.get("determining")
+            if sole is not None and sole.disposition is None:
+                entry_findings.append(_finding(
+                    "PIN-04", "Note", display_id,
+                    Span(sole.line, sole.line),
+                    sole.verbatim or sole.statement or "",
+                    "The status value of this entry is an "
+                    "unclassified status value: \"%s\" stands "
+                    "in no class of the vocabulary, and the "
+                    "entry derives Open under the Shape A "
+                    "exception for an untranslatable sole "
+                    "status element."
+                    % (sole.verbatim or sole.statement or ""),
+                    basis="an unclassified status value"))
     entry_findings.extend(_check8(model, entries, derived_by_id))
     entry_findings.extend(sup_findings)
     for result, derived in zip(entry_results, derived_list):
@@ -3566,7 +4313,7 @@ def validate_model(model, vocabulary, output_form_edition=None):
             canonical_counts[derived["state"]] += 1
     entry_total = len(entries)
 
-    appendix_rows = _appendix_rows(entries, vocabulary)
+    appendix_rows = _appendix_rows(entries, vocabulary, model)
     occurrence_total = sum(row.occurrence_count for row in appendix_rows)
     occurrences_by_kind = {}
     for row in appendix_rows:
@@ -3652,6 +4399,10 @@ def validate_model(model, vocabulary, output_form_edition=None):
                 or []:
             if element.occurrence_kind is not None:
                 recounted_occurrences += 1
+    # The recount carries the same file header unit occurrences
+    # the appendix rows carry, so the paired totals foot on the
+    # same population (Step 17, S17-ATK7-03).
+    recounted_occurrences += len(_preamble_status_occurrences(model))
     if recounted_occurrences != occurrence_total:
         fail(3, "verbatim footing: the verbatim appendix rows sum "
                 "to %d and the elements counted directly give %d"
@@ -3797,7 +4548,13 @@ def validate_model(model, vocabulary, output_form_edition=None):
                 and derived["determining"] is not None \
                 and "part" in (derived["determining"].scope or "").lower():
             waiting_ids.append(display)
-    waiting = len(set(waiting_ids))
+    # The figure counts entries, as every other count in this
+    # report does: two headed entries that happen to carry the
+    # same written identifier are two entries, and the list
+    # above holds one identifier per qualifying entry, so its
+    # length is the figure (Step 17, Finding 2 of seat 6 merged
+    # with A10-F3).
+    waiting = len(waiting_ids)
     open_results = [(e, r) for e, r, d in zip(
         entries, entry_results, derived_list)
         if d["state"] in _EFFECTIVELY_OPEN_STATES]
@@ -3806,7 +4563,13 @@ def validate_model(model, vocabulary, output_form_edition=None):
     for entry, result in open_results:
         blocks = _field_value(entry, "What it blocks") \
             or _field_value(entry, "Blocks")
-        if blocks:
+        # An entry counts in the blocking figure only where its
+        # blocks field names at least one item, under OP-Q12 as
+        # corrected: a blocks field whose whole value is one of
+        # the no item values, none or nothing else, names no
+        # item and does not count (Step 17, A10-F2).
+        if blocks and (blocks or "").strip().lower() not in (
+                "none", "nothing else"):
             blocking += 1
             blocking_list.append({
                 "entry_id": _display_id(entry),
@@ -3960,6 +4723,21 @@ def validate_model(model, vocabulary, output_form_edition=None):
             for element in _get(entry, "status_elements") or []:
                 if element.verbatim == row.phrasing and (
                         element.occurrence_kind == row.kind):
+                    # One phrasing holds one classification
+                    # across the report (Step 17, A10-F4 merged
+                    # with F1 of seat 19): where the carrying
+                    # element holds a disposition, the phrasing
+                    # stands translated to its canonical family,
+                    # by the vocabulary mapping in
+                    # _apply_vocabulary_translation or by a
+                    # status opening form at parse, and it is
+                    # not a residue item and is not held as
+                    # unknown, whatever the value side case or
+                    # whitespace of the phrasing as written. A
+                    # phrasing whose element holds no disposition
+                    # stands untranslated and keeps its item.
+                    if _get(element, "disposition") is not None:
+                        break
                     residue_items.append(ResidueItem(
                         phrasing=row.phrasing,
                         entry_identifier=display,

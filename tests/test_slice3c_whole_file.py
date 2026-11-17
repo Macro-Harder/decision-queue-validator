@@ -210,5 +210,57 @@ class CombinedDefectsTest(unittest.TestCase):
         self.assertIn("902", blob)
 
 
+class Step17C2UnparsedStatementTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge T-2: the rule 12
+    statement printed for an unparsed entry must be true of
+    that entry. An entry cut off in its final line carries a
+    body in the file, so a statement that its heading stands
+    with no body is false for it, and the advice built on that
+    statement points the wrong way."""
+
+    _CUT_OFF = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-001: Cut off entry\n"
+        "\n"
+        "Status: Banked\n"
+        "\n"
+        "This question is waiting for a decision.\n"
+        "\n"
+        "Question: Which option should we take?\n"
+        "\n"
+        "Options: Option A, Option B\n"
+        "\n"
+        "Cost of deciding late: Work stays blocked.\n"
+        "\n"
+        "Blocks: DQ-002\n"
+        "\n"
+        "Partial prose frag")
+
+    _HEADING_ONLY = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-001: Heading only entry\n")
+
+    def test_cut_off_entry_with_a_body_takes_no_no_body_statement(self):
+        _model, output = h.run_pipeline(
+            self._CUT_OFF.encode("utf-8"), "cut_off.md")
+        errors = h.findings_for(output, entry_id="DQ-001", rule=12,
+                                severity="Error")
+        self.assertEqual(len(errors), 1)
+        statement = h.finding_statement(errors[0]) or ""
+        self.assertNotIn("stands with no body", statement)
+        self.assertIn("body", statement)
+
+    def test_heading_only_entry_keeps_the_no_body_statement(self):
+        _model, output = h.run_pipeline(
+            self._HEADING_ONLY.encode("utf-8"), "heading_only.md")
+        errors = h.findings_for(output, entry_id="DQ-001", rule=12,
+                                severity="Error")
+        self.assertEqual(len(errors), 1)
+        statement = h.finding_statement(errors[0]) or ""
+        self.assertIn("no body", statement)
+
+
 if __name__ == "__main__":
     unittest.main()

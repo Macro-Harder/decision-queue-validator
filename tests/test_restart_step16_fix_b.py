@@ -106,8 +106,9 @@ class InputNotReadCauseTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
         line = cause_line(err)
-        self.assertEqual(
-            line, "Input not read: %s: it is missing" % missing)
+        self.assertEqual(line, "Input not read: it is missing")
+        self.assertIn("Input: %s" % missing, err)
+        self.assertEqual(err.count(missing), 1)
         self.assertNotIn(DISJUNCTION, err)
         self.assertNotIn("unreadable", line)
 
@@ -118,8 +119,9 @@ class InputNotReadCauseTest(unittest.TestCase):
             self.assertEqual(out, "")
             line = cause_line(err)
             self.assertEqual(
-                line,
-                "Input not read: %s: it is a directory" % tmp)
+                line, "Input not read: it is a directory")
+            self.assertIn("Input: %s" % tmp, err)
+            self.assertEqual(err.count(tmp), 1)
             self.assertNotIn(DISJUNCTION, err)
 
     def test_not_regular_file_names_not_regular_cause(self):
@@ -132,8 +134,9 @@ class InputNotReadCauseTest(unittest.TestCase):
             line = cause_line(err)
             self.assertEqual(
                 line,
-                "Input not read: %s: it is not a regular file"
-                % fifo)
+                "Input not read: it is not a regular file")
+            self.assertIn("Input: %s" % fifo, err)
+            self.assertEqual(err.count(str(fifo)), 1)
             self.assertNotIn(DISJUNCTION, err)
 
     def test_unreadable_file_names_unreadable_cause(self):
@@ -148,9 +151,9 @@ class InputNotReadCauseTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
         line = cause_line(err)
-        self.assertEqual(
-            line,
-            "Input not read: %s: it is unreadable" % path)
+        self.assertEqual(line, "Input not read: it is unreadable")
+        self.assertIn("Input: %s" % path, err)
+        self.assertEqual(err.count(str(path)), 1)
         self.assertNotIn(DISJUNCTION, err)
         self.assertNotIn("missing", line)
 
@@ -166,9 +169,9 @@ class InputNotReadCauseTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
         line = cause_line(err)
-        self.assertEqual(
-            line,
-            "Input not read: %s: it is unreadable" % target)
+        self.assertEqual(line, "Input not read: it is unreadable")
+        self.assertIn("Input: %s" % target, err)
+        self.assertEqual(err.count(target), 1)
         self.assertNotIn(DISJUNCTION, err)
 
 

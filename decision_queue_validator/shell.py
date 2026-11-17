@@ -9,9 +9,8 @@ full, failure reports on the standard error channel, and return of
 the exit code the run carries. The shell assigns no state, grades
 no finding beyond the exit decision table, counts nothing beyond
 that table and decodes nothing for its ordinary work. Where the
-pre read size refusal fires, the shell takes the line and per
-line measurements the refusal must name, from a read taken for
-that naming alone, so the refusal names every breached limit.
+pre read size refusal fires, the refusal names the byte breach
+from the stat alone, and the file is not read for that naming.
 """
 
 import errno
@@ -109,14 +108,45 @@ def _write_stderr(text):
         return False
 
 
+def _closing_line_of(text):
+    """The closing exit line of a composed output, or None."""
+    for line in reversed(text.split("\n")):
+        if line.startswith("Exit: code "):
+            return line
+    return None
+
+
+def _surrogate_safe(text):
+    """The text with lone surrogate code points in escaped form.
+
+    A file name the operating system hands over through
+    surrogateescape can carry lone surrogates into a report, in
+    the input name line above all. Those code points have no
+    UTF-8 encoding, so they print in the backslash, u form
+    escape_text uses, and the delivery encode cannot crash on
+    them.
+    """
+    out = []
+    for char in text:
+        code = ord(char)
+        if 0xD800 <= code <= 0xDFFF:
+            out.append("\\u%04X" % code)
+        else:
+            out.append(char)
+    return "".join(out)
+
+
 def _deliver_stdout(text):
     """Deliver composed output on standard output.
 
-    Returns 0 on delivery, or 2 where delivery fails, reporting
-    the failure on standard error where that channel stands.
+    Returns True where the output was delivered and False where
+    delivery failed. A delivery failure never decides the exit
+    code: the caller returns the code the run decided, and the
+    failure is reported on standard error together with the
+    closing exit line of the output, so that line is not lost.
     """
-    data = text.encode("utf-8")
     try:
+        data = _surrogate_safe(text).encode("utf-8")
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.flush()
     except (OSError, AttributeError, ValueError) as exc:
@@ -124,18 +154,68 @@ def _deliver_stdout(text):
             sys.stdout.close()
         except (OSError, AttributeError, ValueError):
             pass
-        _write_stderr(
+        lines = [
             "error: standard output was closed before the output "
-            "was delivered (%s)\n" % escape_text(str(exc)))
-        return 2
-    return 0
+            "was delivered (%s)" % escape_text(str(exc))]
+        closing = _closing_line_of(text)
+        if closing is not None:
+            lines.append(closing)
+        _write_stderr("\n".join(lines) + "\n")
+        return False
+    return True
+
+
+ARGUMENT_ECHO_LIMIT = 120
+
+
+def _bounded_echo(text):
+    """One echoed argument text, carrying a length bound.
+
+    Argument text the shell prints back on an error surface is
+    cut at ARGUMENT_ECHO_LIMIT characters. Where the text stands
+    over the bound, the cut form states the length of the text
+    in full, so a reader can tell the echo was cut and by how
+    much. Text at or under the bound prints whole.
+    """
+    text = str(text)
+    if len(text) <= ARGUMENT_ECHO_LIMIT:
+        return text
+    return "%s [truncated: %d characters in full]" % (
+        text[:ARGUMENT_ECHO_LIMIT], len(text))
+
+
+def _is_flag_token(token):
+    """Whether a token in the file position carries a flag form.
+
+    The tool defines no flags. A long form (two dashes, the bare
+    double dash separator included) or a short form (one dash
+    and one character) standing where the input file is expected
+    is a flag token, not a file name. A dash leading file name
+    of any other shape, such as -dashfile.md, is a file name:
+    such names validate directly with no separator.
+    """
+    return token.startswith("--") or (
+        token.startswith("-") and len(token) == 2)
+
+
+def _unexpected_token(argv):
+    """The token the arity check names as unexpected.
+
+    The file token is examined: where a flag form stands in the
+    file position, that token is the unexpected one, and the
+    file token after it is not named. Otherwise the token after
+    the file is the unexpected one, as in the two file case.
+    """
+    if _is_flag_token(argv[1]):
+        return argv[1]
+    return argv[2]
 
 
 def _usage_error(message):
     lines = [
         "Call fault: usage error. No run took place and no file "
         "was read as a queue.",
-        "Usage error: %s" % escape_text(message),
+        "Usage error: %s" % escape_text(_bounded_echo(message)),
         "Usage: python3 -m decision_queue_validator "
         "{validate|render} INPUT",
         closing_line(2, "usage error"),
@@ -168,15 +248,26 @@ def _os_error_cause(exc):
         return "it is unreadable"
     if err == errno.EISDIR:
         return "it is a directory"
+    if err == errno.ELOOP:
+        return "it is a symlink loop"
+    if err == errno.ENAMETOOLONG:
+        return "its name is too long"
     return None
 
 
 def _not_read_detail(input_name, cause):
-    return "%s: %s" % (escape_text(input_name), cause)
+    """The detail of an input not read line: the cause alone.
+
+    The file name stands once on this surface, in the Input
+    head line, in the bounded form _not_read_output prints.
+    The detail line does not echo the name a second time; it
+    states the exact cause the run knows, and nothing else.
+    """
+    return cause
 
 
 def _not_read_output(input_name, detail):
-    lines = _head_lines(input_name)
+    lines = _head_lines(_bounded_echo(input_name))
     lines.append("")
     lines.append(
         "Call fault: input not read. No run took place and no "
@@ -289,19 +380,33 @@ def _gap_naming_size(output):
     missing_total = (high - low - 1) - (len(values) - 2)
     if missing_total <= 0:
         return 0
+    # The cost form of the computation (Step 17, A21-2): the
+    # digit length of each present interior value is taken
+    # once, before the loop, and the span bounds advance by
+    # one multiplication per digit count. No pass of the loop
+    # forms a fresh power of ten or a fresh decimal string
+    # conversion of a present value, so the cost of reaching
+    # the size stays proportional to the work each pass does
+    # on the span itself, even where the largest number
+    # carries thousands of digits.
+    interior_by_digit_count = {}
+    for value in values:
+        if low < value < high:
+            digit_length = len(str(value))
+            interior_by_digit_count[digit_length] = \
+                interior_by_digit_count.get(digit_length, 0) + 1
     digit_total = 0
+    span_low = 0
+    span_high = 9
     for digit_count in range(1, len(str(high)) + 1):
-        span_low = 0 if digit_count == 1 else 10 ** (digit_count - 1)
-        span_high = 10 ** digit_count - 1
         first = max(low + 1, span_low)
         last = min(high - 1, span_high)
-        if last < first:
-            continue
-        count = last - first + 1
-        count -= sum(1 for value in values
-                     if low < value < high
-                     and len(str(value)) == digit_count)
-        digit_total += count * digit_count
+        if last >= first:
+            count = last - first + 1
+            count -= interior_by_digit_count.get(digit_count, 0)
+            digit_total += count * digit_count
+        span_low = span_high + 1
+        span_high = span_high * 10 + 9
     return digit_total + (missing_total - 1)
 
 
@@ -483,54 +588,22 @@ def _supply_exit_decision(output, decision, masked):
 def _pre_read_fault_lines(input_name, byte_size):
     """The fault lines of the pre read size refusal.
 
-    The byte breach stands from the stat. Every other breached
-    limit is measured from a read taken for this naming alone:
-    the line count under the terminator rule (a line feed ends a
-    line, a carriage return before it is part of the terminator,
-    and a final line with no terminator still counts), and the
-    longest line in characters where the bytes decode as UTF-8.
-    Where that read cannot be taken, the byte breach alone is
-    named. Each breached limit is named in the form the parse
-    layer uses, with its measured value and its limit in force.
+    The byte breach stands from the stat alone, and it is the
+    only breach this refusal names (Step 17, seat 5 Findings 1
+    and 3, merged): the byte limit is checked from the file
+    size before the file is read, so no read is taken for
+    this naming, and no line count and no per line measurement
+    of the refused file stands on the refusal. The refusal
+    prints the byte count only. The byte breach is named in
+    the form the parse layer uses, with its measured value
+    and its limit in force. The input name stands in the
+    signature for the call form in main; no use of it is made
+    here, because any use that read the file would defeat the
+    refusal.
     """
-    breached = [("max bytes", byte_size, LIMITS.max_bytes)]
-    try:
-        with open(input_name, "rb") as stream:
-            raw = stream.read()
-    except OSError:
-        raw = None
-    if raw is not None:
-        line_count = raw.count(b"\n")
-        if raw and not raw.endswith(b"\n"):
-            line_count += 1
-        if line_count > LIMITS.max_lines:
-            breached.append(
-                ("max lines", line_count, LIMITS.max_lines))
-        try:
-            text = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            text = None
-        if text is not None:
-            parts = text.split("\n")
-            if text.endswith("\n"):
-                parts = parts[:-1]
-                terminated = len(parts)
-            else:
-                terminated = len(parts) - 1
-            longest = 0
-            for index, part in enumerate(parts):
-                if index < terminated and part.endswith("\r"):
-                    part = part[:-1]
-                if len(part) > longest:
-                    longest = len(part)
-            if longest > LIMITS.max_characters_per_line:
-                breached.append((
-                    "max characters per line", longest,
-                    LIMITS.max_characters_per_line))
     return [
-        "Breached limit: %s, measured value %d. "
-        "The limit in force is %d." % (name, measured, limit)
-        for name, measured, limit in breached]
+        "Breached limit: max bytes, measured value %d. "
+        "The limit in force is %d." % (byte_size, LIMITS.max_bytes)]
 
 
 def main(argv=None):
@@ -549,7 +622,8 @@ def main(argv=None):
     if len(argv) < 2:
         return _usage_error("an input file is required")
     if len(argv) > 2:
-        return _usage_error("unexpected argument: %s" % argv[2])
+        return _usage_error(
+            "unexpected argument: %s" % _unexpected_token(argv))
     subcommand = argv[0]
     input_name = argv[1]
 
@@ -562,20 +636,17 @@ def main(argv=None):
         cause = _os_error_cause(exc)
         if cause is None:
             cause = "it could not be read"
-        delivered = _deliver_stderr_run(_not_read_output(
-            input_name, _not_read_detail(input_name, cause)))
-        return delivered if delivered != 0 else 2
+        return _deliver_stderr_run(_not_read_output(
+            input_name, _not_read_detail(input_name, cause)), 2)
     if stat.S_ISDIR(input_stat.st_mode):
-        delivered = _deliver_stderr_run(_not_read_output(
+        return _deliver_stderr_run(_not_read_output(
             input_name,
-            _not_read_detail(input_name, "it is a directory")))
-        return delivered if delivered != 0 else 2
+            _not_read_detail(input_name, "it is a directory")), 2)
     if not stat.S_ISREG(input_stat.st_mode):
-        delivered = _deliver_stderr_run(_not_read_output(
+        return _deliver_stderr_run(_not_read_output(
             input_name,
             _not_read_detail(
-                input_name, "it is not a regular file")))
-        return delivered if delivered != 0 else 2
+                input_name, "it is not a regular file")), 2)
     if input_stat.st_size > LIMITS.max_bytes:
         fault_lines = _pre_read_fault_lines(
             input_name, input_stat.st_size)
@@ -583,8 +654,7 @@ def main(argv=None):
             input_name, fault_lines,
             _file_facts_line(input_stat.st_size, None, None),
             "whole file refusal: a limit breach")
-        delivered = _deliver_stderr_run(text)
-        return delivered if delivered != 0 else 3
+        return _deliver_stderr_run(text, 3)
 
     # Read the input once, as bytes.
     try:
@@ -594,19 +664,16 @@ def main(argv=None):
         cause = _os_error_cause(exc)
         if cause is None:
             cause = "it could not be read"
-        delivered = _deliver_stderr_run(_not_read_output(
-            input_name, _not_read_detail(input_name, cause)))
-        return delivered if delivered != 0 else 2
+        return _deliver_stderr_run(_not_read_output(
+            input_name, _not_read_detail(input_name, cause)), 2)
 
     vocabulary = build_vocabulary()
     result = parse_queue(
         Input(input_name=input_name, raw_bytes=raw_bytes), LIMITS)
     if isinstance(result, FileLevelFailure):
-        delivered = _deliver_stderr_run(_failure_output(result))
-        if delivered != 0:
-            return delivered
         decision = result.exit_decision
-        return decision.code if decision is not None else 3
+        code = decision.code if decision is not None else 3
+        return _deliver_stderr_run(_failure_output(result), code)
 
     output = validate_model(result, vocabulary, OUTPUT_FORM_EDITION)
 
@@ -629,9 +696,8 @@ def main(argv=None):
                 _number(_get(facts, "line_count")),
                 _get(facts, "digest"),
                 _get(facts, "source_designation"))
-        delivered = _deliver_stderr_run(_gap_refusal_output(
-            input_name, facts_line, gap_size))
-        return delivered if delivered != 0 else 3
+        return _deliver_stderr_run(_gap_refusal_output(
+            input_name, facts_line, gap_size), 3)
 
     if subcommand == "render":
         signal = _map_refusal_signal(output)
@@ -648,9 +714,8 @@ def main(argv=None):
                 facts_line = _file_facts_line(
                     signal.byte_count, signal.line_count, signal.digest,
                     getattr(signal, "source_designation", None))
-            delivered = _deliver_stderr_run(_map_refusal_output(
-                input_name, facts_line))
-            return delivered if delivered != 0 else 3
+            return _deliver_stderr_run(_map_refusal_output(
+                input_name, facts_line), 3)
 
     decision, masked = _assemble_exit_decision(output)
     _supply_exit_decision(output, decision, masked)
@@ -660,14 +725,30 @@ def main(argv=None):
         text = render_summary(output)
     reason_text = "; ".join(decision.reason_classes)
     text += closing_line(decision.code, reason_text) + "\n"
-    delivered = _deliver_stdout(text)
-    if delivered != 0:
-        return delivered
+    _deliver_stdout(text)
     return decision.code
 
 
-def _deliver_stderr_run(text):
-    """Deliver a refusal or not read surface on standard error."""
+def _deliver_stderr_run(text, code):
+    """Deliver a refusal or not read surface on standard error.
+
+    Returns the exit code the surface carries, whether or not
+    delivery succeeds: a delivery failure does not replace that
+    code with 2. Where standard error cannot take the surface,
+    the closing exit line is delivered on standard output, so
+    that line is not lost.
+    """
     if _write_stderr(text):
-        return 0
-    return 2
+        return code
+    closing = _closing_line_of(text)
+    if closing is not None:
+        try:
+            data = _surrogate_safe(closing + "\n").encode("utf-8")
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
+        except (OSError, AttributeError, ValueError):
+            try:
+                sys.stdout.close()
+            except (OSError, AttributeError, ValueError):
+                pass
+    return code

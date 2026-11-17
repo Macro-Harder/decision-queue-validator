@@ -888,5 +888,214 @@ class ManifestCanonicalSplitSumsTest(unittest.TestCase):
         self._assert_split_sums(split)
 
 
+class Step17FixC1DerivationTest(unittest.TestCase):
+    """F-17-01 derivation surface: an empty Status value is not a
+    phrasing, so the Shape A exception does not derive Open."""
+
+    def test_f17_01_empty_status_value_does_not_derive_open(self):
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\n\nStatus:\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "Question: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n"
+        _model, output = h.run_pipeline(body.encode("utf-8"),
+                                        "empty_status_derivation.md")
+        entry = h.entry_by_id(output, "DQ-001")
+        self.assertIsNotNone(entry)
+        self.assertNotEqual(h.entry_state(entry), "Open")
+
+
+class Step17C2ClosingProseClaimTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge S17-ATK7-04, bounded
+    to closing prose the tool itself treats as a status bearing
+    element: closing prose named as the determining element,
+    stating in words that the entry was ruled and closed, does
+    not derive Open in silence; it takes the status elements
+    disagree treatment."""
+
+    def test_ruled_and_closed_closing_prose_does_not_derive_open(self):
+        data = (
+            "# Decision queue\n"
+            "\n"
+            "### DQ-102: Banked head, closed body\n"
+            "\n"
+            "Status: Banked\n"
+            "\n"
+            "Question: Which option should we take?\n"
+            "\n"
+            "Options: Option A, Option B\n"
+            "\n"
+            "Cost of deciding late: Work stays blocked.\n"
+            "\n"
+            "Blocks: DQ-002\n"
+            "\n"
+            "This question is waiting for a decision.\n"
+            "\n"
+            "This entry was ruled by Captain JP yesterday and is "
+            "now closed. Nothing remains open on it.\n"
+        ).encode("utf-8")
+        _model, output = h.run_pipeline(data, "contradict_body.md")
+        entry = h.entry_by_id(output, "DQ-102")
+        self.assertEqual(h.entry_state(entry), "Ambiguous")
+
+
+class Step17C2BareClosingSentenceTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge A10-F1: under the
+    PIN-11 concordance rule a bare closing sentence at the end
+    of an entry paragraph confirms a tail heading denoting
+    Ruled and denotes no separate Closed state, while the same
+    sentence under a heading denoting no decided disposition
+    keeps its own Closed state."""
+
+    _DATA = (
+        "# Decision queue\n"
+        "\n"
+        "## DQ-001: the harbour light rota. "
+        "RULED by Captain JP 2026-11-15\n"
+        "\n"
+        "The harbour light rota was drawn up by the Clerk from "
+        "the winter watch list, and the rota names the keeper "
+        "for each night of the week in a single table at the "
+        "end of the note. Closed.\n"
+        "\n"
+        "## DQ-002: the ferry crew rota. BANKED 2026-11-15\n"
+        "\n"
+        "The ferry crew rota was drawn up by the Clerk from "
+        "the winter sailing list, and the rota names the crew "
+        "for each sailing of the week in a single table at the "
+        "end of the note. Closed.\n"
+    ).encode("utf-8")
+
+    def test_closing_sentence_confirms_the_ruled_heading(self):
+        _model, output = h.run_pipeline(self._DATA, "tail.md")
+        entry = h.entry_by_id(output, "DQ-001")
+        self.assertEqual(h.entry_state(entry), "Ruled")
+
+    def test_closing_sentence_under_a_banked_heading_stays_closed(self):
+        _model, output = h.run_pipeline(self._DATA, "tail.md")
+        entry = h.entry_by_id(output, "DQ-002")
+        self.assertEqual(h.entry_state(entry), "Closed as decided")
+
+
+class Step17C2PartScopeExtractionTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge A10-F5: part scope
+    is extracted from a recognised Ruled by paragraph whose
+    statement limits the act to a named part, and its named
+    remainder is counted, so the entry derives Settled in
+    part under PIN-03."""
+
+    _PARAGRAPH = (
+        "Ruled by Captain JP: the first part is ruled, take "
+        "Option A. The remainder, the second part, still "
+        "stands open.\n")
+
+    def _entry(self, number, title):
+        return (
+            "### DQ-%03d: %s\n"
+            "\n"
+            "Status: Banked\n"
+            "\n"
+            "Question: Which option should we take?\n"
+            "\n"
+            "Options: Option A, Option B\n"
+            "\n"
+            "Cost of deciding late: Work stays blocked.\n"
+            "\n"
+            "Blocks: DQ-002\n"
+            "\n"
+            "A plain context paragraph.\n"
+            "\n"
+            "%s" % (number, title, self._PARAGRAPH))
+
+    def test_ruled_by_paragraph_part_scope_derives_settled_in_part(self):
+        data = ("# Decision queue\n\n" + self._entry(
+            2, "One remainder one entry")).encode("utf-8")
+        _model, output = h.run_pipeline(data, "part_scope.md")
+        entry = h.entry_by_id(output, "DQ-002")
+        self.assertEqual(h.entry_state(entry), "Settled in part")
+        remainder = h.get(entry, "remainder_text", "remainder")
+        self.assertIn("second part", remainder or "")
+
+    def test_validate_scope_extraction_from_the_statement_itself(self):
+        # The charge locus is validate: an element whose recorded
+        # scope stands Whole, but whose statement in words limits
+        # the ruling to a named part and names its remainder in
+        # the stands open form, takes the part scope and the
+        # remainder in validate derivation.
+        import types as _types
+        validate_module = h.import_module("validate")
+
+        def element(kind, disposition, statement, line):
+            return _types.SimpleNamespace(
+                kind=kind, disposition=disposition, scope="Whole",
+                condition=None, remainder_text=None, decider=None,
+                decider_text=None, statement=statement,
+                verbatim=statement, line=line, occurrence_kind=None)
+
+        head = element("line start Status line", "Banked",
+                       "Banked", 5)
+        head.occurrence_kind = "line start"
+        ruling = element(
+            "closing prose", "Ruled",
+            "Ruled by Captain JP: the first part is ruled, take "
+            "Option A. The remainder, the second part, still "
+            "stands open.", 17)
+        ruling.decider = "Captain JP"
+        entry = _types.SimpleNamespace(
+            identifier="DQ-002", heading="DQ-002: One remainder",
+            heading_text="DQ-002: One remainder", unparsed=False,
+            status_elements=[head, ruling], body_lines=[],
+            fields=[])
+        derived = validate_module._derive(entry)
+        self.assertEqual(derived["state"], "Settled in part")
+        self.assertIn("second part", derived["remainder"] or "")
+
+
+class Step17C2StatusConditionTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge F-11-04: a
+    conditional clause inside the Status value produces its
+    Conditional element, as the subject to form on the
+    neighbouring entry already does, instead of being dropped
+    while the entry derives as plain Ruled."""
+
+    _DATA = (
+        "# Decision queue\n"
+        "\n"
+        "### DQ-001: Conditional one\n"
+        "\n"
+        "Status: Ruled if the ferry runs\n"
+        "\n"
+        "Ruled by: Captain JP\n"
+        "\n"
+        "Ruling text: \"Runs.\"\n"
+        "\n"
+        "### DQ-002: Conditional two\n"
+        "\n"
+        "Status: RULED, closed, subject to the winter timetable\n"
+        "\n"
+        "Ruled by: Captain JP\n"
+        "\n"
+        "Ruling text: \"Runs.\"\n"
+    ).encode("utf-8")
+
+    def test_if_clause_in_status_value_takes_conditional_treatment(self):
+        _model, output = h.run_pipeline(self._DATA, "conditional.md")
+        warnings = h.findings_for(output, entry_id="DQ-001", rule=3,
+                                  severity="Warning")
+        joined = " ".join(h.finding_statement(warning) or ""
+                          for warning in warnings)
+        self.assertIn("Conditional", joined)
+
+    def test_subject_to_control_entry_keeps_conditional_treatment(self):
+        _model, output = h.run_pipeline(self._DATA, "conditional.md")
+        warnings = h.findings_for(output, entry_id="DQ-002", rule=3,
+                                  severity="Warning")
+        joined = " ".join(h.finding_statement(warning) or ""
+                          for warning in warnings)
+        self.assertIn("Conditional", joined)
+
+
 if __name__ == "__main__":
     unittest.main()

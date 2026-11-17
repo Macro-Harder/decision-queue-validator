@@ -832,5 +832,219 @@ class SegmentClaimsCarriageTest(unittest.TestCase):
             "no state.", text)
 
 
+class EscapeTableOpQ7Test(unittest.TestCase):
+    """Step 17 fix C7: escape_text covers the OP-Q7 classes in full.
+
+    Brief section 5.6 OP-Q7 names the escaped rendering classes:
+    control characters, C1 characters, directional, zero width,
+    invisible format and operator characters, tag characters, and
+    the two separators. Seat 16 finding F-3 recorded eleven
+    codepoints printing raw. The pins below cover, one per
+    codepoint, the five of the eleven ruled inside those named
+    classes: U+180E, U+FFF9, and U+FFFB are invisible format
+    characters (general category Cf), and U+034F and U+FE0F are
+    invisible format function characters, default ignorable, with
+    no glyph of their own, the first controlling grapheme joining
+    and the second selecting a presentation form. Each pin expects
+    the visible escaped form the table already uses for its class,
+    backslash, u, and four uppercase hexadecimal digits, and
+    expects the raw codepoint nowhere in the result.
+    """
+
+    def _escape(self, value):
+        render = h.import_module("render")
+        return render.escape_text(value)
+
+    def test_u180e_mongolian_vowel_separator_escapes(self):
+        result = self._escape("a\u180eb")
+        self.assertEqual(result, "a\\u180Eb")
+        self.assertNotIn("\u180e", result)
+
+    def test_ufff9_interlinear_annotation_anchor_escapes(self):
+        result = self._escape("a\ufff9b")
+        self.assertEqual(result, "a\\uFFF9b")
+        self.assertNotIn("\ufff9", result)
+
+    def test_ufffb_interlinear_annotation_terminator_escapes(self):
+        result = self._escape("a\ufffbb")
+        self.assertEqual(result, "a\\uFFFBb")
+        self.assertNotIn("\ufffb", result)
+
+    def test_u034f_combining_grapheme_joiner_escapes(self):
+        result = self._escape("a\u034fb")
+        self.assertEqual(result, "a\\u034Fb")
+        self.assertNotIn("\u034f", result)
+
+    def test_ufe0f_variation_selector_escapes(self):
+        result = self._escape("a\ufe0fb")
+        self.assertEqual(result, "a\\uFE0Fb")
+        self.assertNotIn("\ufe0f", result)
+
+
+def _c3_taught_entry(number, title, status, blocks="DQ-002",
+                     paragraph="This question is waiting for a "
+                               "decision."):
+    return (
+        "### DQ-%03d: %s\n"
+        "\n"
+        "Status: %s\n"
+        "\n"
+        "Question: Which option should we take?\n"
+        "\n"
+        "Options: Option A, Option B\n"
+        "\n"
+        "Cost of deciding late: Work stays blocked.\n"
+        "\n"
+        "Blocks: %s\n"
+        "\n"
+        "%s\n" % (number, title, status, blocks, paragraph))
+
+
+class Step17C3FiguresTest(unittest.TestCase):
+    """Step 17 fix wave 1, cluster C3, figure charges.
+
+    Each test pins one charged finding under its own name, in the
+    construction its attack paper states, on the figures the
+    render form prints.
+    """
+
+    def test_finding_2_of_seat_6_waiting_counts_duplicate_entries_per_entry(self):
+        # Finding 2 of seat 6 (merged charge M1, first name): the
+        # waiting figure merges duplicate entries by their written
+        # identifier string, while every other count in the same
+        # report counts them per entry. Three headed entries stand
+        # in the file and all three are effectively open, so the
+        # waiting figure is 3 entries.
+        text = (
+            "# Decision queue\n"
+            "\n"
+            + _c3_taught_entry(1, "Alpha question", "Banked")
+            + "\n"
+            + _c3_taught_entry(1, "Alpha question", "Banked")
+            + "\n"
+            + _c3_taught_entry(2, "Beta question", "Banked"))
+        _model, output = h.run_pipeline(text.encode("utf-8"))
+        self.assertIsNotNone(output)
+        waiting, _blocking = h.waiting_and_blocking(output)
+        self.assertEqual(h.int_of(waiting), 3)
+
+    def test_finding_2_of_seat_6_waiting_counts_r7_copies_per_entry(self):
+        # Finding 2 of seat 6, the R-7 construction of its paper:
+        # two copies of the recognised unnumbered entry beside one
+        # DQ entry. The copies are distinct headed entries and the
+        # waiting figure counts them per entry.
+        r7 = (
+            "### R-7 closure conflict\n"
+            "\n"
+            "Status: Banked\n"
+            "\n"
+            "Question: Which option should we take?\n"
+            "\n"
+            "Options: Option A, Option B\n"
+            "\n"
+            "Cost of deciding late: Work stays blocked.\n"
+            "\n"
+            "Blocks: DQ-002\n"
+            "\n"
+            "This question is waiting for a decision.\n")
+        text = (
+            "# Decision queue\n"
+            "\n"
+            + r7 + "\n" + r7 + "\n"
+            + _c3_taught_entry(2, "Beta question", "Banked"))
+        _model, output = h.run_pipeline(text.encode("utf-8"))
+        self.assertIsNotNone(output)
+        waiting, _blocking = h.waiting_and_blocking(output)
+        self.assertEqual(h.int_of(waiting), 3)
+
+    def test_a10_f3_waiting_counts_entries_not_identifier_strings(self):
+        # A10-F3 (merged charge M1, second name): the waiting
+        # figure deduplicates by identifier while the blocking
+        # figure and the canonical counts count entries. The
+        # printed waiting figure on the render form counts the
+        # three effectively open headed entries.
+        text = (
+            "# Decision queue\n"
+            "\n"
+            + _c3_taught_entry(1, "First", "Banked",
+                               paragraph="This entry concerns the "
+                                         "harbour note adoption "
+                                         "question.")
+            + "\n"
+            + _c3_taught_entry(1, "Duplicate number copy", "Banked",
+                               paragraph="This entry concerns the "
+                                         "harbour note adoption "
+                                         "question.")
+            + "\n"
+            + _c3_taught_entry(4, "Gap jump", "Banked",
+                               paragraph="This entry concerns the "
+                                         "harbour note adoption "
+                                         "question."))
+        _model, output = h.run_pipeline(text.encode("utf-8"))
+        self.assertIsNotNone(output)
+        waiting, blocking = h.waiting_and_blocking(output)
+        self.assertEqual(h.int_of(waiting), 3)
+        self.assertEqual(h.int_of(blocking), 3)
+        rendered = h.render_text(output, "render")
+        self.assertIn("Waiting: 3 entries.", rendered)
+
+    def test_a10_f2_blocking_figure_skips_blocks_fields_naming_no_item(self):
+        # A10-F2: an entry counts in the blocking figure only
+        # where its blocks field names at least one item, under
+        # OP-Q12 as corrected. The values none and nothing else
+        # name no item, and the empty value names none, so of the
+        # four entries only the one naming DQ-002 counts.
+        text = (
+            "# Decision queue\n"
+            "\n"
+            + _c3_taught_entry(1, "Blocks a real entry", "Banked",
+                               blocks="DQ-002",
+                               paragraph="A plain context paragraph.")
+            + "\n"
+            + _c3_taught_entry(2, "Blocks nothing else", "Banked",
+                               blocks="nothing else",
+                               paragraph="A plain context paragraph.")
+            + "\n"
+            + _c3_taught_entry(3, "Blocks none word", "Banked",
+                               blocks="none",
+                               paragraph="A plain context paragraph.")
+            + "\n"
+            + _c3_taught_entry(4, "Blocks empty", "Banked",
+                               blocks="",
+                               paragraph="A plain context paragraph."))
+        _model, output = h.run_pipeline(text.encode("utf-8"))
+        self.assertIsNotNone(output)
+        _waiting, blocking = h.waiting_and_blocking(output)
+        self.assertEqual(h.int_of(blocking), 1)
+        rendered = h.render_text(output, "render")
+        self.assertIn("Blocking: 1", rendered)
+
+    def test_a21_5_no_output_form_prints_the_gap_naming_past_the_total_bound(self):
+        # A21-5 (render limb): the naming bound applies to the
+        # run total naming output. On this construction neither
+        # output form prints the missing set naming at all, the
+        # over bound treatment standing in its place, so no form
+        # carries the naming past the bound.
+        text = (
+            "# Decision queue\n"
+            "\n"
+            + _c3_taught_entry(1, "Entry 1", "Banked",
+                               blocks="none",
+                               paragraph="Some prose paragraph here.")
+            + "\n"
+            + _c3_taught_entry(200000, "Entry 200000", "Banked",
+                               blocks="none",
+                               paragraph="Some prose paragraph here."))
+        _model, output = h.run_pipeline(text.encode("utf-8"))
+        self.assertIsNotNone(output)
+        for form in ("validate", "render"):
+            with self.subTest(form=form):
+                rendered = h.render_text(output, form)
+                self.assertNotIn(
+                    "Entry numbers missing from the sequence",
+                    rendered)
+                self.assertLess(len(rendered), 200000)
+
+
 if __name__ == "__main__":
     unittest.main()

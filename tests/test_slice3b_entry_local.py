@@ -247,5 +247,282 @@ class Check10ParkedFormTest(unittest.TestCase):
         self.assertEqual(h.findings_for(output, rule=10), [])
 
 
+class Step17FixC1ContainerTest(unittest.TestCase):
+    """Merger M6: F-11-01 and F-11-02, container awareness in parse.
+
+    Matter inside an HTML comment satisfies no presence test, and
+    fields inside a code fence satisfy no field test. Both names
+    are pinned here, one charge at the shared parse root.
+    """
+
+    def test_f11_01_comment_matter_satisfies_no_presence_test(self):
+        # The seat 11 minimal reproduction: a decided entry whose
+        # only decider, ruling text, outcome, and landing record
+        # stand inside an HTML comment.
+        body = h._header_block()
+        body += "### DQ-001: Ruled one\n\nStatus: RULED, closed\n\n"
+        body += "<!--\nRuled by: Captain JP\n"
+        body += "Ruling text: \"Runs.\"\n"
+        body += "Ruling outcome: It runs.\n"
+        body += "Where the ruling landed: harbour file.\n-->\n"
+        _model, output = h.run_pipeline(body.encode("utf-8"),
+                                        "comment_evidence.md")
+        self.assertTrue(h.findings_for(output, entry_id="DQ-001",
+                                       rule=5))
+
+    def test_f11_02_fenced_fields_satisfy_no_field_test(self):
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\n\nStatus: Banked\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "```\nQuestion: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n```\n"
+        _model, output = h.run_pipeline(body.encode("utf-8"),
+                                        "fenced_fields.md")
+        self.assertTrue(h.findings_for(output, entry_id="DQ-001",
+                                       rule=9, severity="Warning"))
+
+
+def _c2_open_entry(heading, options_line="Options: Option A, Option B",
+                   question_line="Question: Which option should we take?",
+                   cost_line="Cost of deciding late: Work stays blocked.",
+                   blocks_line="Blocks: DQ-002"):
+    return (
+        "### %s\n"
+        "\n"
+        "Status: Banked\n"
+        "\n"
+        "This question is waiting for a decision.\n"
+        "\n"
+        "%s\n"
+        "\n"
+        "%s\n"
+        "\n"
+        "%s\n"
+        "\n"
+        "%s\n" % (heading, question_line, options_line, cost_line,
+                  blocks_line))
+
+
+def _c2_queue(*entries):
+    return ("# Decision queue\n\n" + "\n".join(entries)).encode("utf-8")
+
+
+def _c2_pd_r7_notes(output):
+    return [finding for finding in h.findings_of(output)
+            if str(h.get(finding, "rule_id", "rule")) == "PD-R7"]
+
+
+class Step17C2Check1R7DuplicateTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, Finding 1 of seat 6: check 1
+    covers the recognised unnumbered identifier R-7 as it covers
+    DQ numbers, so a duplicated R-7 heading takes the duplicate
+    entry number Error."""
+
+    def test_duplicate_r7_heading_takes_a_rule1_error(self):
+        body = _c2_open_entry("R-7 closure conflict")
+        data = _c2_queue(body, body,
+                         _c2_open_entry("DQ-002: Second question"))
+        _model, output = h.run_pipeline(data, "r7_dup.md")
+        errors = h.findings_for(output, rule=1, severity="Error")
+        self.assertEqual(len(errors), 1)
+        blob = (h.finding_evidence_text(errors[0]) + " " +
+                (h.finding_statement(errors[0]) or ""))
+        self.assertIn("R-7", blob)
+
+
+class Step17C2Check5GhostEvidenceTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge S17-ATK7-01: decision
+    evidence that names a different entry with no heading is not
+    accepted as the host entry own evidence in silence; the
+    cited ghost number takes its PD-R7 Note."""
+
+    def test_ruling_text_naming_a_ghost_entry_takes_pd_r7(self):
+        data = (
+            "# Decision queue\n"
+            "\n"
+            "### DQ-106: Ruling text names another entry\n"
+            "\n"
+            "Status: RULED, closed\n"
+            "\n"
+            "Ruled by: Captain JP\n"
+            "\n"
+            "Ruling text: \"Settle DQ-999 as follows.\"\n"
+            "\n"
+            "Ruling outcome: DQ-999 is decided and closed.\n"
+            "\n"
+            "Where the ruling landed: NOWHERE.md, sample rule.\n"
+            "\n"
+            "#### Ruling by Captain JP\n"
+            "\n"
+            "Ruled: DQ-999 is closed by this ruling. Closed.\n"
+        ).encode("utf-8")
+        _model, output = h.run_pipeline(data, "ghost_ruling.md")
+        notes = _c2_pd_r7_notes(output)
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(h.finding_severity(notes[0]), "Note")
+        self.assertIn("DQ-999", h.finding_statement(notes[0]) or "")
+
+    def test_settlement_block_naming_a_ghost_entry_takes_pd_r7(self):
+        data = (
+            "# Decision queue\n"
+            "\n"
+            "### DQ-112: Settlement block for another entry\n"
+            "\n"
+            "Status: Banked\n"
+            "\n"
+            "Question: Which option should we take?\n"
+            "\n"
+            "Options: Option A, Option B\n"
+            "\n"
+            "Cost of deciding late: Work stays blocked.\n"
+            "\n"
+            "Blocks: DQ-002\n"
+            "\n"
+            "This question is waiting for a decision.\n"
+            "\n"
+            "#### Settlement under Captain JP's pass 2 grant: DQ-999\n"
+            "\n"
+            "Settled by: The Manager, under the pass 2 grant.\n"
+            "\n"
+            "Settlement: DQ-999 is settled in full. "
+            "This item is settled.\n"
+            "\n"
+            "Status: SETTLED by the Manager under the pass 2 grant. "
+            "This item is settled.\n"
+        ).encode("utf-8")
+        _model, output = h.run_pipeline(data, "ghost_settlement.md")
+        notes = _c2_pd_r7_notes(output)
+        self.assertGreaterEqual(len(notes), 1)
+        joined = " ".join(h.finding_statement(note) or ""
+                          for note in notes)
+        self.assertIn("DQ-999", joined)
+
+
+class Step17C2UnclassifiedNoteTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge S17-ATK7-05, on its
+    own construction only: a lone entry whose only status value
+    is unclassified takes the Note finding brief section 5.4
+    lists for an unclassified status value. This charge does
+    not cure, restate, or extend A12-F5, which stands CONFIRMED
+    ONLY on its own multi entry construction."""
+
+    def test_lone_unclassified_value_takes_a_note(self):
+        data = _c2_queue(_c2_open_entry(
+            "DQ-105: Undefined state name two").replace(
+                "Status: Banked", "Status: Done"))
+        _model, output = h.run_pipeline(data, "undefined.md")
+        notes = [finding for finding in h.findings_for(
+            output, entry_id="DQ-105", severity="Note")
+            if "unclassified" in (h.finding_statement(finding)
+                                  or "").lower()]
+        self.assertEqual(len(notes), 1)
+
+
+class Step17C2Check9EmptyFieldValueTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge F-17-02: an open
+    entry field presence test reads the value, not the label
+    alone, so a field label carrying an empty value takes the
+    rule 9 missing field Warning for that field."""
+
+    def _warnings_for(self, **kwargs):
+        data = _c2_queue(_c2_open_entry("DQ-001: One question",
+                                        **kwargs))
+        _model, output = h.run_pipeline(data, "empty_field.md")
+        return h.findings_for(output, entry_id="DQ-001", rule=9,
+                              severity="Warning")
+
+    def test_empty_question_value_is_missing(self):
+        warnings = self._warnings_for(question_line="Question:")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("question",
+                      (h.finding_statement(warnings[0]) or "").lower())
+
+    def test_empty_options_value_is_missing(self):
+        warnings = self._warnings_for(options_line="Options:")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("options",
+                      (h.finding_statement(warnings[0]) or "").lower())
+
+    def test_empty_cost_value_is_missing(self):
+        warnings = self._warnings_for(
+            cost_line="Cost of deciding late:")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("cost of deciding late",
+                      (h.finding_statement(warnings[0]) or "").lower())
+
+    def test_empty_blocks_value_is_missing(self):
+        warnings = self._warnings_for(blocks_line="Blocks:")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("blocks",
+                      (h.finding_statement(warnings[0]) or "").lower())
+
+
+class Step17C2OptionsExactnessTest(unittest.TestCase):
+    """Step 17 fix wave 1, seat C2, charge F-17-07: the Options
+    presence test stands at the same exactness as its sibling
+    field tests, with no stripped line fallback, so the leading
+    space, tab separator, and no space forms that every sibling
+    label rejects are rejected for Options too."""
+
+    def _options_warnings(self, options_line):
+        data = _c2_queue(_c2_open_entry("DQ-001: One question",
+                                        options_line=options_line))
+        _model, output = h.run_pipeline(data, "options_form.md")
+        return [finding for finding in h.findings_for(
+            output, entry_id="DQ-001", rule=9, severity="Warning")
+            if "options" in (h.finding_statement(finding)
+                             or "").lower()]
+
+    def test_leading_space_options_line_is_missing(self):
+        warnings = self._options_warnings(
+            " Options: Option A, Option B")
+        self.assertEqual(len(warnings), 1)
+
+    def test_tab_separator_options_line_is_missing(self):
+        warnings = self._options_warnings(
+            "Options:\tOption A, Option B")
+        self.assertEqual(len(warnings), 1)
+
+    def test_no_space_options_line_is_missing(self):
+        warnings = self._options_warnings("Options:Option A, Option B")
+        self.assertEqual(len(warnings), 1)
+
+    def test_taught_options_line_still_satisfies(self):
+        warnings = self._options_warnings("Options: Option A, Option B")
+        self.assertEqual(warnings, [])
+
+
+class Step17Fix1bD1ProseOptionsTest(unittest.TestCase):
+    """Step 17 fix wave 1 supplementary repair, seat D1: the
+    corpus prose options form, the line "The options, stated
+    plainly:" with its option lines following, counts as
+    options present, as it did before fix wave 1. Fix C2
+    charges 11 and 12 removed the stripped body line fallback
+    that also served this form, although the charges named
+    only the leading space, tab separator, and no space forms
+    of the Options label, and the empty value ground. This
+    pin stands beside those charges: the prose form reads
+    present, and no charged form is reopened by it."""
+
+    def _options_warnings(self, options_block):
+        data = _c2_queue(_c2_open_entry("DQ-001: One question",
+                                        options_line=options_block))
+        _model, output = h.run_pipeline(data, "prose_options.md")
+        return [finding for finding in h.findings_for(
+            output, entry_id="DQ-001", rule=9, severity="Warning")
+            if "options" in (h.finding_statement(finding)
+                             or "").lower()]
+
+    def test_prose_options_form_reads_present(self):
+        warnings = self._options_warnings(
+            "The options, stated plainly:\n"
+            "\n"
+            "- Option A: adopt the note as written.\n"
+            "- Option B: leave the note unadopted.")
+        self.assertEqual(warnings, [])
+
+
 if __name__ == "__main__":
     unittest.main()

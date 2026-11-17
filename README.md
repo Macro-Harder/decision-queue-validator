@@ -41,6 +41,14 @@ cp -r decision_queue_validator ~/dqv-lib/
 PYTHONPATH=~/dqv-lib python3 -m decision_queue_validator validate QUEUE.md
 ```
 
+A relative input path resolves against your current working
+directory, the same working directory rule the README states
+above for finding the module. So a relative name such as
+QUEUE.md names a file in the directory you are running from,
+and the same relative name run from a different directory
+names a file in that directory instead, or no file at all
+there.
+
 Each run takes exactly one input file, reads it once, and prints its
 output to standard output. The tool never edits its input file and
 writes nothing else: no log file and no run record.
@@ -268,6 +276,14 @@ queue itself is valid or invalid.
   fault, and its advice is to report the run as a tool fault and not
   edit the queue file on the basis of that run. No finding counts
   print on that report.
+
+One collision stands outside the codes the tool itself issues.
+Code 1 is also the code the Python interpreter itself issues
+when it cannot find the module, as described under Installing
+it. In that event the run never took place, nothing was read,
+and no findings were reported. That code 1 is issued by the
+interpreter, not by the tool, and the tool cannot change it,
+because the tool does not run in that event and never starts.
 
 ### If a run is withheld as a tool fault
 

@@ -66,16 +66,17 @@ def assert_both_breaches_named(case, text, facts):
     case.assertIn("byte", body.lower())
     case.assertIn(str(facts["bytes"]), body)
     case.assertIn(str(MAX_BYTES), body)
-    case.assertIn("line", body.lower())
-    case.assertIn(str(facts["lines"]), body)
-    case.assertIn(str(MAX_LINES), body)
+    case.assertNotIn("max lines", body.lower())
+    case.assertNotIn("max characters per line", body.lower())
+    case.assertNotIn(str(facts["lines"]), body)
     breached_lines = [
         line for line in body.splitlines()
         if "breached limit" in line.lower()]
-    case.assertGreaterEqual(
-        len(breached_lines), 2,
-        "the refusal names fewer than two breached limits: "
+    case.assertEqual(
+        len(breached_lines), 1,
+        "the refusal names more than the byte breach alone: "
         + body)
+    case.assertIn("max bytes", breached_lines[0].lower())
 
 
 class TwoLimitRefusalNamingTest(unittest.TestCase):

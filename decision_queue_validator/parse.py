@@ -50,7 +50,7 @@ __all__ = [
 ]
 
 _HEADING_RE = re.compile(r"^(#{1,6}) (.*)$")
-_NUMBERED_RE = re.compile(r"^DQ-(\d+): (\S.*)$")
+_NUMBERED_RE = re.compile(r"^DQ-([0-9]+): (\S.*)$")
 _NAMED_UNNUMBERED_HEADING = "R-7 closure conflict"
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _ADDITION_RE = re.compile(
@@ -181,7 +181,10 @@ def _final_line_is_cut_off(line_text):
     punctuation. A line stands whole where it is a Status line
     or a variant line carrying a value, or where it closes a
     sentence, the closing punctuation standing before any
-    closing quote or bracket characters.
+    closing quote or bracket characters. A labelled line
+    carrying a value stands whole only where its value is
+    complete in its own form, under
+    _labelled_value_stands_whole.
     """
     text = line_text
     if text.endswith("\r"):
@@ -193,9 +196,90 @@ def _final_line_is_cut_off(line_text):
         return stripped[len(_STATUS_MARKER):].strip() == ""
     if stripped.startswith(_VARIANT_MARKER):
         return stripped[len(_VARIANT_MARKER):].strip() == ""
+    label_match = _LABEL_RE.match(stripped)
+    if label_match and (label_match.group(2) or "").strip():
+        # A labelled line carrying a value stands whole only
+        # where the value is complete in its own form: the
+        # taught field lines close on their value, not on
+        # sentence punctuation, so a complete final field line
+        # is not cut off by the missing terminator alone, and a
+        # labelled line whose value stands cut in form, as the
+        # WV-8 truncation form final question line cut mid word,
+        # is cut off.
+        return not _labelled_value_stands_whole(
+            label_match.group(1), label_match.group(2))
     core = stripped.rstrip("\"')]}"
                            "”’")
     return not core.endswith((".", "?", "!"))
+
+
+# Labels whose values are sentences in the taught forms: a
+# question value closes on its question mark and a cost value
+# on its full stop, so either stands whole only where its
+# sentence closes.
+_SENTENCE_VALUE_LABELS = {
+    "question", "the question", "question as put",
+    "cost of deciding late", "cost",
+}
+
+# Lower case words that may stand inside a name form value
+# without making the value sentence prose.
+_NAME_FORM_WORDS = {
+    "of", "the", "and", "or", "for", "de", "van", "von",
+}
+
+
+def _labelled_value_stands_whole(label, value):
+    """Whether a labelled final line value is complete in form.
+
+    The value stands whole in exactly two forms. First, it
+    closes a sentence, the closing punctuation standing before
+    any closing quote or bracket characters. Second, it is a
+    closed form value, a value built only of complete closed
+    tokens: a Blocks value of full DQ references or the word
+    None, an Options value of full option items, or a name form
+    value of capitalised words, numbers, and the short joining
+    words a name may carry. A value in sentence prose form that
+    closes no sentence is not whole: nothing in its surface
+    form shows it complete, and its last word may stand cut
+    mid word, as the WV-8 truncation form at brief section 5.8
+    pins. A sentence valued label, the question and cost
+    families, stands whole only on its sentence close.
+    """
+    core = value.strip().rstrip("\"')]}"
+                                "”’")
+    if core.endswith((".", "?", "!")):
+        return True
+    label_key = label.strip().lower()
+    if label_key in _SENTENCE_VALUE_LABELS:
+        return False
+    if label_key in ("options", "the options"):
+        items = [item.strip() for item in core.split(",")]
+        return bool(items) and all(items) and all(
+            re.match(r"^Option\s+\S", item) for item in items)
+    if label_key in ("blocks", "what it blocks"):
+        parts = [part.strip() for part in
+                 re.split(r",|\band\b", core)]
+        return bool(parts) and all(parts) and all(
+            part == "None" or
+            re.fullmatch(r"DQ-[0-9]{3}", part) is not None
+            for part in parts)
+    tokens = re.findall(r"[A-Za-z0-9][A-Za-z0-9'’./-]*", core)
+    if not tokens:
+        return False
+    for token in tokens:
+        token = token.rstrip(",")
+        if token.startswith("DQ-"):
+            if re.fullmatch(r"DQ-[0-9]{3}", token) is None:
+                return False
+            continue
+        if token[0].isupper() or token.isdigit() or \
+                len(token) == 1:
+            continue
+        if token.lower() in _NAME_FORM_WORDS:
+            continue
+        return False
+    return True
 
 
 def _first_word(text):
@@ -234,8 +318,19 @@ def _find_disposition(text, start=0):
     disposition under the named forms. The search runs from the
     given offset, and the offset it returns is absolute in the line.
     """
+    if re.match(
+            r"^\s*Canonical (Ruled|Settled|Closed|Open|Banked|Parked|"
+            r"Presented): [0-9]+", text):
+        # A reconciliation count row of the tool own output form:
+        # it states a file level count and names no ruling for
+        # the entry it stands in, so it denotes no disposition.
+        return None
     checks = (
         (r"\bSETTLED IN PART\b", "Settled"),
+        (r"\b[Rr]uled the\b[^.]{0,80}?\bof this entry\b", "Ruled"),
+        (r"\b[Ss]ettled the\b[^.]{0,80}?\bof this entry\b", "Settled"),
+        (r"\b[Rr]uled the entry\b", "Ruled"),
+        (r"\b[Ss]ettled the entry\b", "Settled"),
         (r"\bRULED IN (PRINCIPLE|FULL)\b", "Ruled"),
         (r"\b(RULED|Ruled) by\b", "Ruled"),
         (r"\b(SETTLED|Settled) by\b", "Settled"),
@@ -462,6 +557,11 @@ def _remainder_from_text(text):
     leaving = re.search(r"\bleaving (.+?) (open|undecided)\b", text)
     if leaving:
         return leaving.group(1).strip()
+    standing = re.search(
+        r"[Tt]he remainder, (.+?),? (?:still )?(?:stands|stays) "
+        r"(?:open|banked|undecided)\b", text)
+    if standing:
+        return standing.group(1).strip()
     if re.search(r"[Tt]he remainder stays banked", text):
         return "The remainder stays banked"
     return None
@@ -482,6 +582,16 @@ def _condition_from_text(text):
     return None
 
 
+# The open entry field labels, lowercased: the field families
+# the open entry field tests read. Inside a level 4 decision
+# block these labels are the block's own lines, never fields of
+# the entry (Step 17 charge F-17-09).
+_OPEN_FIELD_LABELS = frozenset({
+    "question", "the question", "question as put", "options",
+    "cost of deciding late", "cost", "what it blocks", "blocks",
+})
+
+
 def _scope_of(text, remainder):
     """The scope of a disposition statement: Whole or Part.
 
@@ -495,7 +605,7 @@ def _scope_of(text, remainder):
         return "Part"
     if re.search(r"in part", text, re.IGNORECASE):
         return "Part"
-    if re.search(r"\b(?:limb|portion) of this entry\b", text):
+    if re.search(r"\b(?:limb|portion|part) of this entry\b", text):
         return "Part"
     if re.search(r"\bOnly the\b.+\bof this entry is\b", text):
         return "Part"
@@ -533,8 +643,44 @@ def _make_element(kind, verbatim, disposition, line, position,
     )
 
 
+def _one_edit_away(word, target):
+    """Whether word stands one edit from target.
+
+    One substitution, one insertion, one deletion, or one
+    transposition of two neighbouring characters.
+    """
+    if word == target:
+        return False
+    if abs(len(word) - len(target)) > 1:
+        return False
+    if len(word) == len(target):
+        differing = [index for index in range(len(word))
+                     if word[index] != target[index]]
+        if len(differing) == 1:
+            return True
+        if len(differing) == 2:
+            first, second = differing
+            return second == first + 1 and \
+                word[first] == target[second] and \
+                word[second] == target[first]
+        return False
+    if len(word) > len(target):
+        word, target = target, word
+    index = 0
+    while index < len(word) and word[index] == target[index]:
+        index += 1
+    return word[index:] == target[index + 1:]
+
+
 def _is_near_marker(text):
-    """The three near marker forms, and no other."""
+    """The near marker forms.
+
+    The recorded forms are a space before the colon, a semicolon
+    in place of the colon, and the label in another letter case.
+    A label standing one edit from the Status label, a one
+    character typo, takes the same treatment: it opens like a
+    status line and carries no element.
+    """
     if re.match(r"^Status[ ]+:", text):
         return True
     if re.match(r"^Status;", text):
@@ -543,11 +689,17 @@ def _is_near_marker(text):
     if match and match.group(1).lower() == "status" and \
             match.group(1) != "Status":
         return True
+    if match and 4 <= len(match.group(1)) <= 7 and \
+            _one_edit_away(match.group(1).lower(), "status"):
+        return True
     return False
 
 
 def _heading_info(line_text):
-    match = _HEADING_RE.match(line_text)
+    # A byte order mark standing before a heading is absorbed:
+    # the heading form is read from the text after the mark, on
+    # every path, so the mark never deletes a heading.
+    match = _HEADING_RE.match(line_text.lstrip("﻿"))
     if not match:
         return None
     return len(match.group(1)), match.group(2)
@@ -738,6 +890,7 @@ class _EntryBuilder:
         self.notes = []
         self.near = []
         self.occurrence_only = []
+        self.inert_line_numbers = set()
         self.seen_line_start = False
         self.closing_status_line = None
         self.closing_status_block = None
@@ -746,7 +899,18 @@ class _EntryBuilder:
     def line_text(self, number):
         return self.lines_by_number[number]
 
-    def add_field_lines(self, numbered_lines):
+    def blanked(self, numbered_lines):
+        """The numbered lines with inert container lines blanked.
+
+        Field recording reads this form, so a field label
+        standing inside an HTML comment or a fenced code block
+        is recorded as no field of the entry. Element extraction
+        reads the genuine lines and never this form.
+        """
+        return [(number, "" if number in self.inert_line_numbers
+                 else text) for number, text in numbered_lines]
+
+    def add_field_lines(self, numbered_lines, skip_labels=None):
         for number, text in numbered_lines:
             if text.startswith("#") or text.startswith("- "):
                 continue
@@ -755,7 +919,18 @@ class _EntryBuilder:
             match = _LABEL_RE.match(text)
             if not match:
                 continue
+            if match.group(1) != match.group(1).strip():
+                # A space before the colon on a field label: the
+                # recorded field forms carry no such space, and
+                # the off form takes the near marker report the
+                # Status form takes, instead of passing silently
+                # as the true label.
+                self.near.append(
+                    NearMarkerOccurrence(line=number, text=text))
             label = match.group(1).strip()
+            if skip_labels is not None and (
+                    label.lower() in skip_labels):
+                continue
             if "," in label or "." in label or ";" in label:
                 continue
             if len(re.findall(r"\S+", label)) > 7:
@@ -769,40 +944,81 @@ class _EntryBuilder:
 
         Returns True where the line is a line start Status line.
         """
-        if _is_near_marker(text):
+        # One leading character standing before a line start
+        # marker, a byte order mark or one space, does not
+        # reclassify the occurrence: the marker is read from the
+        # text after that character, at its own position.
+        offset = 0
+        effective = text
+        if len(text) > 1 and text[0] in ("﻿", " ") and (
+                text[1:].startswith(_STATUS_MARKER)
+                or text[1:].startswith(_VARIANT_MARKER)
+                or _is_near_marker(text[1:])):
+            offset = 1
+            effective = text[1:]
+        if _is_near_marker(effective):
+            self.near.append(
+                NearMarkerOccurrence(line=number, text=text))
+            return False
+        if effective.startswith(_STATUS_MARKER) and \
+                len(effective) > len(_STATUS_MARKER) and \
+                effective[len(_STATUS_MARKER)] != " ":
+            # A separator other than the taught colon and space,
+            # a tab or no space at all, takes the near marker
+            # report instead of passing as the true form.
             self.near.append(
                 NearMarkerOccurrence(line=number, text=text))
             return False
         if text.startswith("Origin:"):
             return self._scan_origin_line(number, text, decision_block)
         starts = []
-        for match in re.finditer(re.escape(_VARIANT_MARKER), text):
+        for match in re.finditer(re.escape(_VARIANT_MARKER), effective):
             starts.append((match.start(), "variant", match.end()))
-        for match in re.finditer(re.escape(_STATUS_MARKER), text):
+        for match in re.finditer(re.escape(_STATUS_MARKER), effective):
             starts.append((match.start(), "marker", match.end()))
         starts.sort()
         is_line_start = False
         for index, (start, flavour, end) in enumerate(starts):
             stop = starts[index + 1][0] if index + 1 < len(starts) \
-                else len(text)
+                else len(effective)
             if flavour == "variant":
-                verbatim = text[start:stop]
-                if stop < len(text):
+                verbatim = effective[start:stop]
+                if stop < len(effective):
                     verbatim = verbatim.rstrip(" ")
                 self.elements.append(_make_element(
                     kind="variant phrasing",
                     verbatim=verbatim,
                     disposition="Relative",
                     line=number,
-                    position=start,
+                    position=start + offset,
                     occurrence_kind="variant",
                     own_text=verbatim,
                     decision_block=decision_block,
                 ))
                 continue
-            value = text[end:stop].lstrip(" ")
-            if stop < len(text):
+            value = effective[end:stop].lstrip(" ")
+            if stop < len(effective):
                 value = value.rstrip(" ")
+            if value.strip() == "":
+                # An empty Status value is not a phrasing: it
+                # carries no element and derivation never reads
+                # it. The occurrence itself still counts, on the
+                # occurrence only channel, exactly once.
+                if start == 0:
+                    is_line_start = True
+                    self.seen_line_start = True
+                self.occurrence_only.append(_make_element(
+                    kind="non element occurrence",
+                    verbatim=value,
+                    disposition=None,
+                    line=number,
+                    position=start + offset,
+                    occurrence_kind="line start" if start == 0
+                    else "embedded",
+                    own_text=value,
+                    decision_block=decision_block,
+                ))
+                continue
             disposition = _disposition_from_value(value)
             if start == 0:
                 is_line_start = True
@@ -820,7 +1036,7 @@ class _EntryBuilder:
                 verbatim=value,
                 disposition=disposition,
                 line=number,
-                position=start,
+                position=start + offset,
                 occurrence_kind=occurrence,
                 own_text=value,
                 decision_block=decision_block,
@@ -940,15 +1156,33 @@ class _EntryBuilder:
         for number, text in paragraph:
             if self.scan_line_occurrences(number, text, decision_block):
                 produced_line_start = True
-        self.add_field_lines(paragraph)
+        self.add_field_lines(self.blanked(paragraph))
         self.note_unrecognised_lead_in(paragraph)
         if produced_line_start:
+            return
+        if re.match(r"^(Remainder|Condition)\s*:", first_text.strip(),
+                    re.IGNORECASE):
+            # A Remainder or Condition label standing as its own
+            # paragraph is an attachment line, not a statement:
+            # it extracts no element of its own, and the
+            # attachment pass reads it from the body lines.
             return
         label_match = _LABEL_RE.match(first_text)
         label = label_match.group(1).strip() if label_match else ""
         if label in _FIELD_PARAGRAPH_LABELS:
             return
         joined = "\n".join(item[1] for item in paragraph)
+        if label in _LABEL_DISPOSITIONS:
+            first_value = (label_match.group(2) or "") \
+                if label_match else ""
+            rest_matter = " ".join(
+                item[1].strip() for item in paragraph[1:])
+            if not first_value.strip() and not rest_matter.strip():
+                # A decision label with no matter under it
+                # performs no act: the ground of the labelled
+                # form is that the matter under the label
+                # performs the act the label names.
+                return
         bold = _BOLD_LEAD_RE.match(first_text)
         if bold is not None:
             lead = bold.group(1)
@@ -1159,7 +1393,17 @@ class _EntryBuilder:
         if block.post_status_flag:
             self.record.post_status_blocks = True
         body = numbered_lines[1:]
-        self.add_field_lines(body)
+        # The block body lines are scanned for field lines with
+        # the open entry field labels skipped: a Question,
+        # Options, Cost, or Blocks label inside a level 4
+        # decision block is the block's own line, not a field of
+        # the entry, and it satisfies no open field test of the
+        # entry (Step 17 charge F-17-09). The decision evidence
+        # labels a block exists to carry, its decider, ruling
+        # text, outcome, and landing lines, are recorded as
+        # before.
+        self.add_field_lines(self.blanked(body),
+                             skip_labels=_OPEN_FIELD_LABELS)
         segment = []
 
         def flush_segment(run):
@@ -1264,12 +1508,12 @@ class _EntryBuilder:
         for number, text in numbered_lines:
             kind = None
             value = None
-            if text.startswith("Remainder:"):
-                kind = "remainder"
-                value = text[len("Remainder:"):].strip()
-            elif text.startswith("Condition:"):
-                kind = "condition"
-                value = text[len("Condition:"):].strip()
+            attach_match = re.match(
+                r"^(Remainder|Condition)\s*:\s*(.*)$",
+                text.strip(), re.IGNORECASE)
+            if attach_match:
+                kind = attach_match.group(1).lower()
+                value = attach_match.group(2).strip()
             elif text.strip().startswith("Item closed") or \
                     "closed, subject to" in text:
                 index = text.find("subject to")
@@ -1296,6 +1540,51 @@ class _EntryBuilder:
                     target.tuple = target.tuple._replace(scope="Part")
             elif kind == "condition" and target.tuple[2] is None:
                 target.tuple = target.tuple._replace(condition=value)
+
+
+def _inert_line_numbers(lines):
+    """The lines standing inside a container, by line number.
+
+    A line inside an HTML comment or a fenced code block, and
+    the delimiter lines themselves, are inert for exactly the
+    two surfaces the M6 charges name: the presence tests and
+    the field tests. Field recording reads blanked lines, and
+    the body lines the model carries are the blanked lines, so
+    container matter satisfies no presence test and counts as
+    no field. Element extraction is not a charged surface: it
+    reads the genuine lines, as it did before fix wave 1, so a
+    disposition element standing inside a container is
+    extracted and derives its entry state. Heading recognition
+    is untouched by this pass.
+    """
+    inert = set()
+    in_fence = False
+    in_comment = False
+    for index, text in enumerate(lines):
+        number = index + 1
+        stripped = text.strip()
+        if in_fence:
+            inert.add(number)
+            if stripped.startswith("```") or \
+                    stripped.startswith("~~~"):
+                in_fence = False
+            continue
+        if in_comment:
+            inert.add(number)
+            if "-->" in text:
+                in_comment = False
+            continue
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            inert.add(number)
+            in_fence = True
+            continue
+        if "<!--" in text:
+            inert.add(number)
+            opening = text.find("<!--")
+            if "-->" not in text[opening + 4:]:
+                in_comment = True
+            continue
+    return inert
 
 
 def _paragraphs(numbered_lines):
@@ -1411,6 +1700,27 @@ def parse_queue(input_value, limits):
             missing="no queue header and no entry heading "
                     "is present")
     if not has_entry_heading and queue_header_present:
+        for _number, _level, heading_text in headings:
+            cleaned = re.sub(
+                "[̀-ͯ​‌‍⁠﻿]", "",
+                heading_text)
+            # The class above reads: combining diacritical
+            # marks, zero width space, non joiner and joiner,
+            # word joiner, and the byte order mark.
+            if cleaned != heading_text and \
+                    _numbered_heading(cleaned):
+                # A heading in entry form whose identifier
+                # carries combining or zero width characters no
+                # entry form recognises: the file is not header
+                # only, it carries an entry body under a heading
+                # the tool cannot raise.
+                return _failure(
+                    ["no recognisable queue structure"], name,
+                    byte_count, line_count, digest,
+                    missing="a heading in entry form is present "
+                            "but its identifier carries characters "
+                            "no entry form recognises, and no entry "
+                            "heading in a recognised form is present")
         return _failure(
             ["header only"], name, byte_count, line_count, digest,
             missing="a queue header is present but no entry heading "
@@ -1532,6 +1842,8 @@ def parse_queue(input_value, limits):
     current_section = None
     builders = {}
     number_ledger = {}
+    cr_tails = {}
+    inert = _inert_line_numbers(lines)
 
     def unit_text(start, end):
         return "\n".join(lines_by_number[number]
@@ -1636,6 +1948,25 @@ def parse_queue(input_value, limits):
                 ))
             continue
         level, heading_text, form = info
+        if form[0] == "numbered" and "\r" in heading_text:
+            # A lone carriage return joining the heading line
+            # and a Status line into one logical line: the
+            # heading stands on its own part, and the Status
+            # part is scanned as the entry Status line it is,
+            # so the occurrence is counted exactly once.
+            parts = heading_text.split("\r")
+            tail = None
+            for part in parts[1:]:
+                if part.startswith(_STATUS_MARKER) or \
+                        part.startswith(_VARIANT_MARKER):
+                    tail = part
+                    break
+            if tail is not None:
+                main_numbered = _numbered_heading(parts[0])
+                if main_numbered:
+                    form = ("numbered", main_numbered)
+                    heading_text = parts[0]
+                    cr_tails[start] = tail
         form_kind, form_data = form
         if form_kind == "numbered":
             identifier = DQNumber(form_data[1], form_data[0])
@@ -1658,6 +1989,24 @@ def parse_queue(input_value, limits):
         if identifier is not None:
             entries_by_id.setdefault(str(identifier), record)
         builders[start] = _EntryBuilder(record, lines_by_number)
+        builders[start].inert_line_numbers = inert
+
+    if builders:
+        # A Status line standing in the file header or a section
+        # introduction stands in no entry: it takes the near
+        # marker report on the first entry, so the line is not
+        # dropped in silence.
+        first_builder = builders[min(builders)]
+        for start, end, kind, info in unit_ranges:
+            if kind not in ("file header", "section introduction"):
+                continue
+            for number in range(start, end + 1):
+                text = lines_by_number[number]
+                lead = text[1:] if text[:1] in ("﻿", " ") else text
+                if lead.startswith(_STATUS_MARKER) or \
+                        _is_near_marker(lead):
+                    first_builder.near.append(
+                        NearMarkerOccurrence(line=number, text=text))
 
     for index, line in enumerate(lines):
         info = _heading_info(line)
@@ -1676,12 +2025,24 @@ def parse_queue(input_value, limits):
         record = builder.record
         body = [(number, lines_by_number[number])
                 for number in range(start + 1, end + 1)]
-        record.body_lines = list(body)
+        if start in cr_tails:
+            builder.scan_line_occurrences(start, cr_tails[start])
+        process_body = [(number, "" if number in inert else text)
+                        for number, text in body]
+        # The body lines the model carries are the processed
+        # lines: container matter stands blank in them, so the
+        # presence tests and the field tests, which read the
+        # body lines and the recorded fields, take no container
+        # matter as entry matter. Element extraction reads the
+        # genuine body lines below, as it did before fix wave 1:
+        # the blanking governs the two charged surfaces only.
+        record.body_lines = list(process_body)
+        blanked_by_number = dict(process_body)
         chunks = []
         chunk = []
         block = None
         for item in body:
-            info_line = _heading_info(item[1])
+            info_line = _heading_info(blanked_by_number[item[0]])
             if info_line and info_line[0] == 4:
                 if block is not None:
                     chunks.append(("block", block))
@@ -1726,7 +2087,9 @@ def parse_queue(input_value, limits):
                     "label reattachment", True)
         target.spans.append(span)
         target.body_lines = sorted(
-            target.body_lines + list(paragraph),
+            target.body_lines + [(number, "" if number in inert
+                                  else text)
+                                 for number, text in paragraph],
             key=lambda item: item[0])
         note = ParseNote(
             kind="label reattachment",
@@ -1773,7 +2136,14 @@ def parse_queue(input_value, limits):
                 if not any(paragraph[0][0] <= element.line <=
                            paragraph[-1][0]
                            for element in builder.elements):
-                    builder.process_paragraph(paragraph)
+                    # The addition paragraphs are read from the
+                    # carried body lines, which stand blanked at
+                    # container lines: element extraction reads
+                    # the genuine lines of the paragraph instead,
+                    # as at every other extraction point.
+                    builder.process_paragraph(
+                        [(number, lines_by_number[number])
+                         for number, _text in paragraph])
             if additions and record.spans and \
                     record.spans[0].end_line > \
                     builder.closing_status_line:
@@ -1817,7 +2187,9 @@ def parse_queue(input_value, limits):
         record.occurrence_only_elements = builder.occurrence_only
         record.parse_notes = record.parse_notes + builder.notes
         parse_notes.extend(builder.notes)
-        builder.attach_remainders_and_conditions(record.body_lines)
+        builder.attach_remainders_and_conditions(
+            [(number, lines_by_number[number])
+             for number, _text in record.body_lines])
         has_body_line = any(
             _number > record.heading_line
             for _number, _text in record.body_lines)

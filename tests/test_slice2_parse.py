@@ -644,5 +644,339 @@ class FileLevelFailureParseTest(unittest.TestCase):
         self.assertIsNotNone(statement)
 
 
+def _c1_entry(status_block, extra_body=""):
+    """One taught form entry under the queue header, for C1 pins."""
+    body = h._header_block()
+    body += "### DQ-001: A sample open question\n\n"
+    body += status_block
+    body += "\nThis question is waiting for a decision.\n\n"
+    body += "Question: Which option should we take?\n\n"
+    body += "Options: Option A, Option B\n\n"
+    body += "Cost of deciding late: Work stays blocked.\n\n"
+    body += "Blocks: DQ-002\n"
+    body += extra_body
+    return body.encode("utf-8")
+
+
+def _c1_elements(model, entry_id="DQ-001"):
+    entry = h.entry_by_id(model, entry_id)
+    if entry is None:
+        return []
+    return h.as_list(h.get(entry, "status_elements", "elements"))
+
+
+def _c1_kinds(model, entry_id="DQ-001"):
+    return [(h.text_of(h.get(el, "kind", "element_kind")) or "")
+            for el in _c1_elements(model, entry_id)]
+
+
+def _c1_dispositions(model, entry_id="DQ-001"):
+    out = []
+    for el in _c1_elements(model, entry_id):
+        tup = h.get(el, "tuple", "element_tuple", "core_tuple")
+        out.append(h.text_of(tuple(tup)[0]) if tup is not None
+                   else h.text_of(h.get(el, "disposition")))
+    return out
+
+
+class Step17FixC1ParseTest(unittest.TestCase):
+    """Step 17 fix wave 1, cluster C1 (parse) charges, test first."""
+
+    def test_a1_1_f1_bom_header_only_keeps_header_only_kind(self):
+        result = h.run_parse(b"\xef\xbb\xbf# Decision queue\n",
+                             "bom_header.md")
+        self.assertTrue(h.is_failure_result(result))
+        self.assertIn("header only", _failure_kinds(result))
+        self.assertNotIn("no recognisable", _failure_kinds(result))
+
+    def test_a3_3_f2_bom_before_entry_heading_keeps_the_entry(self):
+        data = _c1_entry("Status: Banked\n")
+        data = data.replace(b"### DQ-001:", b"\xef\xbb\xbf### DQ-001:")
+        model = h.run_parse(data, "bom_entry.md")
+        self.assertFalse(h.is_failure_result(model))
+        self.assertIsNotNone(h.entry_by_id(model, "DQ-001"))
+        self.assertEqual(len(h.entries_of(model)), 1)
+
+    def test_t1_complete_final_line_without_terminator_not_unparsed(self):
+        data = _c1_entry("Status: Banked\n")
+        self.assertTrue(data.endswith(b"Blocks: DQ-002\n"))
+        data = data[:-1]
+        model, output = h.run_pipeline(data, "unterminated.md")
+        self.assertFalse(h.is_failure_result(model))
+        entry = h.entry_by_id(model, "DQ-001")
+        self.assertFalse(bool(h.get(entry, "unparsed",
+                                    "unparsed_flag")))
+        self.assertEqual(h.findings_for(output, rule=12), [])
+
+    def test_a3_3_f3_status_swallowed_into_heading_line_is_counted(self):
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\rStatus: Banked\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "Question: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n"
+        model = h.run_parse(body.encode("utf-8"), "lone_cr_head.md")
+        self.assertFalse(h.is_failure_result(model))
+        self.assertIn("line start Status line", _c1_kinds(model))
+        self.assertIn("Banked", _c1_dispositions(model))
+
+    def test_m8_bom_before_status_line_stays_line_start(self):
+        # A3-3-F4, counted also as F2 of seat 19 under merger M8.
+        model = h.run_parse(_c1_entry("\ufeffStatus: Banked\n"),
+                            "bom_status.md")
+        self.assertIn("line start Status line", _c1_kinds(model))
+
+    def test_m8_one_leading_space_before_status_stays_line_start(self):
+        # F2 of seat 19, counted also as A3-3-F4 under merger M8.
+        model = h.run_parse(_c1_entry(" Status: Banked\n"),
+                            "space_status.md")
+        self.assertIn("line start Status line", _c1_kinds(model))
+
+    def test_f1_seat4_non_ascii_digits_do_not_alias_entry_numbers(self):
+        body = h._header_block()
+        body += "### DQ-001: The ASCII entry\n\nStatus: Banked\n\n"
+        body += "Prose in the ASCII entry.\n\n"
+        body += "### DQ-\u0661\u0662\u0663: The Arabic digit entry\n\n"
+        body += "Status: Banked\n\nProse in the second entry.\n"
+        model, output = h.run_pipeline(body.encode("utf-8"),
+                                       "digits.md")
+        self.assertFalse(h.is_failure_result(model))
+        numbered = [e for e in h.entries_of(model)
+                    if (h.entry_identifier(e) or "").startswith("DQ-")]
+        self.assertEqual(len(numbered), 1)
+        self.assertEqual(
+            h.findings_for(output, rule=1, severity="Error"), [])
+
+    def test_f2_seat4_corrupted_identifier_file_is_not_header_only(self):
+        body = h._header_block()
+        body += "### DQ-00\u200b1: A corrupted identifier entry\n\n"
+        body += "Status: Banked\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "Question: Which option should we take?\n"
+        result = h.run_parse(body.encode("utf-8"), "corrupt_id.md")
+        self.assertTrue(h.is_failure_result(result))
+        self.assertNotIn("header only", _failure_kinds(result))
+
+    def test_a10_f6_unlabelled_prose_ruling_a_part_extracts_an_element(self):
+        data = _c1_entry(
+            "Status: Banked\n",
+            "\nCaptain JP ruled the first part of this entry, take "
+            "Option A. The remainder, the second part, still stands "
+            "open.\n")
+        model, output = h.run_pipeline(data, "prose_ruling.md")
+        self.assertIn("Ruled", _c1_dispositions(model))
+        result = h.entry_by_id(output, "DQ-001")
+        self.assertEqual(h.entry_state(result), "Settled in part")
+
+    def test_f17_01_empty_status_value_extracts_no_status_element(self):
+        model = h.run_parse(_c1_entry("Status:\n"), "empty_status.md")
+        for el in _c1_elements(model):
+            kind = h.text_of(h.get(el, "kind", "element_kind")) or ""
+            verbatim = h.text_of(h.get(el, "verbatim")) or ""
+            if "Status line" in kind:
+                self.assertNotEqual(verbatim.strip(), "")
+
+    def test_f17_03_empty_ruled_label_performs_no_ruling(self):
+        data = _c1_entry("Status: Banked\n", "\nRuled:\n")
+        model, output = h.run_pipeline(data, "empty_ruled.md")
+        self.assertNotIn("Ruled", _c1_dispositions(model))
+        result = h.entry_by_id(output, "DQ-001")
+        self.assertEqual(h.entry_state(result), "Open")
+
+    def test_f17_04_space_before_colon_on_a_field_label_is_reported(self):
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\n\nStatus: Banked\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "Question : Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n"
+        _model, output = h.run_pipeline(body.encode("utf-8"),
+                                        "space_colon.md")
+        self.assertTrue(h.findings_for(output, rule=2,
+                                       severity="Warning"))
+
+    def test_f17_05_remainder_paragraph_attaches_without_flipping(self):
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\n\nStatus: Banked\n\n"
+        body += "Ruled: the first part is adopted.\n\n"
+        body += "Remainder: the second part remains open.\n\n"
+        body += "Question: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n"
+        model, output = h.run_pipeline(body.encode("utf-8"),
+                                       "remainder_para.md")
+        self.assertNotIn("Open", _c1_dispositions(model)[1:])
+        ruled = [el for el in _c1_elements(model)
+                 if (h.text_of(h.get(el, "kind", "element_kind"))
+                     or "") != "line start Status line"]
+        self.assertTrue(ruled)
+        self.assertIn("second part",
+                      h.text_of(h.get(ruled[0], "remainder_text"))
+                      or "")
+        result = h.entry_by_id(output, "DQ-001")
+        self.assertEqual(h.entry_state(result), "Settled in part")
+
+    def test_f17_05_condition_paragraph_attaches_without_an_element(self):
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\n\nStatus: Banked\n\n"
+        body += "Ruled: the harbour note is adopted.\n\n"
+        body += "Condition: the matter closes in full when paid.\n\n"
+        body += "Question: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n"
+        model, _output = h.run_pipeline(body.encode("utf-8"),
+                                        "condition_para.md")
+        self.assertNotIn("Closed", _c1_dispositions(model))
+        ruled = [el for el in _c1_elements(model)
+                 if (h.text_of(h.get(el, "kind", "element_kind"))
+                     or "") != "line start Status line"]
+        self.assertTrue(ruled)
+        tup = h.get(ruled[0], "tuple", "element_tuple", "core_tuple")
+        self.assertIsNotNone(tuple(tup)[2])
+
+    def test_f17_06_one_character_typo_in_status_label_is_near_marker(self):
+        _model, output = h.run_pipeline(_c1_entry("Statuz: Banked\n"),
+                                        "typo_status.md")
+        self.assertTrue(h.findings_for(output, rule=2,
+                                       severity="Warning"))
+
+    def test_f17_06_status_line_in_the_preamble_takes_a_finding(self):
+        body = "# Decision queue\n\nStatus: Banked\n\n"
+        body += "Generated queue shaped input.\n\n"
+        body += "### DQ-001: A sample open question\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "Question: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n"
+        _model, output = h.run_pipeline(body.encode("utf-8"),
+                                        "preamble_status.md")
+        self.assertTrue(h.findings_for(output, rule=2,
+                                       severity="Warning"))
+
+    def test_f17_08_tab_separator_on_status_line_takes_a_signal(self):
+        _model, output = h.run_pipeline(
+            _c1_entry("Status:\tBanked\n"), "tab_status.md")
+        self.assertTrue(h.findings_for(output, rule=2,
+                                       severity="Warning"))
+
+    def test_f17_08_missing_space_on_status_line_takes_a_signal(self):
+        _model, output = h.run_pipeline(
+            _c1_entry("Status:Banked\n"), "nospace_status.md")
+        self.assertTrue(h.findings_for(output, rule=2,
+                                       severity="Warning"))
+
+    def test_f17_09_field_label_inside_an_h4_block_is_not_the_entry_field(self):
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\n\nStatus: Banked\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "#### Working notes\n\n"
+        body += "Question: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n"
+        _model, output = h.run_pipeline(body.encode("utf-8"),
+                                        "field_in_block.md")
+        self.assertTrue(h.findings_for(output, entry_id="DQ-001",
+                                       rule=9, severity="Warning"))
+
+    def test_d2_labelled_final_line_cut_mid_word_takes_unparsed_marker(self):
+        # Step 17 fix wave 1 supplementary repair D2: the boundary
+        # the T-1 cure must hold. A labelled final line cut mid
+        # word, closing no sentence, takes the unparsed marker;
+        # the same labelled line complete, closing its sentence,
+        # does not. Both forms lack only the final terminator in
+        # the complete case and stand cut in form in the other.
+        def _file(final_line):
+            body = h._header_block()
+            body += "### DQ-001: A sample open question\n\n"
+            body += "Status: Banked\n\n"
+            body += "Owner of record: Decision-queue Clerk\n\n"
+            body += "Source: synthetic construction for the corpus.\n\n"
+            body += final_line
+            return body.encode("utf-8")
+
+        cut = _file("The question: Should the harbour note be ado")
+        model, output = h.run_pipeline(cut, "labelled_cut.md")
+        self.assertFalse(h.is_failure_result(model))
+        entry = h.entry_by_id(model, "DQ-001")
+        self.assertTrue(bool(h.get(entry, "unparsed",
+                                   "unparsed_flag")))
+        self.assertTrue(h.findings_for(output, rule=12))
+
+        whole = _file(
+            "The question: Should the harbour note be adopted "
+            "as written?")
+        model, output = h.run_pipeline(whole, "labelled_whole.md")
+        self.assertFalse(h.is_failure_result(model))
+        entry = h.entry_by_id(model, "DQ-001")
+        self.assertFalse(bool(h.get(entry, "unparsed",
+                                    "unparsed_flag")))
+        self.assertEqual(h.findings_for(output, rule=12), [])
+
+    def test_d3_fenced_element_extracted_while_container_tests_stand(self):
+        # Step 17 fix wave 1 supplementary repair, seat D3: the
+        # M6 inert blanking governs the two charged surfaces
+        # only, the _check5 presence tests and the _check9 field
+        # tests. Disposition element extraction was not a charged
+        # surface: a disposition element standing inside a code
+        # fence is extracted and derives its entry state, as it
+        # did before fix wave 1.
+        data = _c1_entry(
+            "Status: Banked\n",
+            "\n```\nRuled: the checker note takes the short "
+            "form.\n```\n")
+        model, output = h.run_pipeline(data, "fenced_element.md")
+        self.assertFalse(h.is_failure_result(model))
+        self.assertIn("Ruled", _c1_dispositions(model))
+        result = h.entry_by_id(output, "DQ-001")
+        self.assertNotEqual(h.entry_state(result), "Open")
+        # The presence test surface stands: ruling evidence
+        # inside an HTML comment satisfies no presence test, and
+        # the decided entry takes its rule 5 findings.
+        body = h._header_block()
+        body += "### DQ-001: Ruled one\n\nStatus: RULED, closed\n\n"
+        body += "<!--\nRuled by: Captain JP\n"
+        body += "Ruling text: \"Runs.\"\n"
+        body += "Ruling outcome: It runs.\n"
+        body += "Where the ruling landed: harbour file.\n-->\n"
+        _model, comment_output = h.run_pipeline(
+            body.encode("utf-8"), "comment_evidence.md")
+        self.assertTrue(h.findings_for(comment_output,
+                                       entry_id="DQ-001", rule=5))
+        # The field test surface stands: open entry fields
+        # inside a code fence satisfy no field test, and the
+        # open entry takes its rule 9 missing field Warning.
+        body = h._header_block()
+        body += "### DQ-001: A sample open question\n\n"
+        body += "Status: Banked\n\n"
+        body += "This question is waiting for a decision.\n\n"
+        body += "```\nQuestion: Which option should we take?\n\n"
+        body += "Options: Option A, Option B\n\n"
+        body += "Cost of deciding late: Work stays blocked.\n\n"
+        body += "Blocks: DQ-002\n```\n"
+        _model, fenced_output = h.run_pipeline(
+            body.encode("utf-8"), "fenced_fields.md")
+        self.assertTrue(h.findings_for(fenced_output,
+                                       entry_id="DQ-001", rule=9,
+                                       severity="Warning"))
+
+    def test_f20_1_reused_reconciliation_rows_denote_no_disposition(self):
+        for row in ("Canonical Ruled: 0 entries",
+                    "Canonical Settled: 0 entries"):
+            with self.subTest(row=row):
+                data = _c1_entry("Status: Banked\n",
+                                 "\n" + row + "\n")
+                model, output = h.run_pipeline(data, "reused_row.md")
+                self.assertNotIn("Ruled", _c1_dispositions(model))
+                self.assertNotIn("Settled", _c1_dispositions(model))
+                result = h.entry_by_id(output, "DQ-001")
+                self.assertEqual(h.entry_state(result), "Open")
+
+
 if __name__ == "__main__":
     unittest.main()
