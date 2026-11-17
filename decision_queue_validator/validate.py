@@ -532,7 +532,12 @@ def _listing_decider_label(entry, elements):
     # hyphen, a slash or the en dash character standing
     # directly against the name; a non breaking space as
     # the separator itself; and a doubled colon followed
-    # by one whitespace character. The Manager and named
+    # by one whitespace character. The punctuation
+    # branches and the doubled colon branch take the
+    # same whitespace slot as the colon branch, one
+    # whitespace character of the standing class or a
+    # non breaking space in that slot (finding A9-8-2).
+    # The Manager and named
     # phrase steps carry those forms in their separator,
     # inside patterns already anchored on the verb form
     # the check takes. The Captain step above keeps the
@@ -547,8 +552,8 @@ def _listing_decider_label(entry, elements):
         return "Ruled by Captain JP"
     if re.search(
             r"\b(Ruled|Settled|Decided) by"
-            r"(?:[.,;][ \t\r\n\v\f]|[-/\u2013]|\xa0"
-            r"|::[ \t\r\n\v\f])Captain JP",
+            r"(?:[.,;][ \t\r\n\v\f\xa0]|[-/\u2013]|\xa0"
+            r"|::[ \t\r\n\v\f\xa0])Captain JP",
             body):
         return "Ruled by Captain JP"
     # The Manager form stands only where the Manager phrase
@@ -562,8 +567,8 @@ def _listing_decider_label(entry, elements):
     # decider from it (finding A5-8-3).
     if re.search(
             r"\b(Ruled|Settled|Decided) by"
-            r"(?::?[ \t\r\n\v\f\xa0]|::[ \t\r\n\v\f]"
-            r"|[.,;][ \t\r\n\v\f]|[-/\u2013])"
+            r"(?::?[ \t\r\n\v\f\xa0]|::[ \t\r\n\v\f\xa0]"
+            r"|[.,;][ \t\r\n\v\f\xa0]|[-/\u2013])"
             r"(the|The) Manager\b",
             body):
         shim = type("ListingShim", (), {})()
@@ -574,8 +579,8 @@ def _listing_decider_label(entry, elements):
         return _decider_label(shim)
     match = re.search(
         r"\b(Ruled|Settled|Decided) by"
-        r"(?::?[ \t\r\n\v\f\xa0]|::[ \t\r\n\v\f]"
-        r"|[.,;][ \t\r\n\v\f]|[-/\u2013])([^.,;]+)",
+        r"(?::?[ \t\r\n\v\f\xa0]|::[ \t\r\n\v\f\xa0]"
+        r"|[.,;][ \t\r\n\v\f\xa0]|[-/\u2013])([^.,;]+)",
         body)
     if match:
         named = match.group(2).strip()
@@ -1282,7 +1287,21 @@ def _labelled_matter_tokens(text):
     punctuation inside one word, is those name words, so
     "morgan-stanley" and "morgan-stanley-mary" set aside
     with "morgan stanley" and "morgan stanley mary"
-    (findings A8-3-1 and A8-8-1 part (a)). A word carrying
+    (findings A8-3-1 and A8-8-1 part (a)). The same name
+    also counts where the separator stands inside a name
+    token rather than at its boundary: a further word
+    carrying two or more runs, no run of it itself an
+    attribution token or a name token, whose joined form
+    reads whole as a sequence of attribution tokens and
+    name tokens under _is_token_sequence, is that
+    sequence in a displaced spelling, so
+    "morga-nstanley" sets aside as "morgan" and
+    "stanley", and "capt-ainmorgan" as "captain" and
+    "morgan" (finding A9-8-1). A word whose runs stand
+    whole as tokens, as "morgan-captain" does, is not
+    read by this step, and a word carrying one run
+    alone, as the separator free "morganstanley" does,
+    is not read by it either. A word carrying
     content in any other position
     stands, so genuine ruling matter beside such a name
     still counts: a further word that is neither
@@ -1353,6 +1372,11 @@ def _labelled_matter_tokens(text):
                 joined in _NAME_TOKENS
                 or (len(runs) >= 2
                     and all(run in _NAME_TOKENS for run in runs))
+                or (len(runs) >= 2
+                    and _is_token_sequence(joined)
+                    and all(run not in _ATTRIBUTION_TOKENS
+                            and run not in _NAME_TOKENS
+                            for run in runs))
                 or [char for char in word if char.isalpha()]
                 and [char for char in word if char.isalpha()][0].isupper()
                 for word, runs, joined in others):
