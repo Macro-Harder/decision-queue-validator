@@ -525,7 +525,8 @@ def _entry_row_lines(entry):
         lines.append("Competing elements:")
         for element in competing:
             lines.append("- %s" % _element_text(element))
-    label = _text(_field(entry, "decider_label"))
+    label = _text(_field(entry, "listing_decider_label",
+                         "decider_label"))
     if label:
         lines.append("Decider label: %s" % escape_text(label))
     else:

@@ -486,6 +486,58 @@ def _decider_label(element):
     return None
 
 
+def _listing_decider_label(entry, elements):
+    """The decider label for the entry group listing, read from
+    the whole entry in the forms the rule 5 decider check itself
+    accepts (the _check5 decider limb), or None where no decider
+    stands in any of those forms.
+
+    The check reads a decider from the assessment cross
+    reference in the body, from any element carrying a decider,
+    from the body forms "(Ruled|Settled|Decided) by" and
+    "by Captain JP", from the heading form "by Captain JP", and
+    from an Origin field naming Captain JP. The listing label
+    follows the same forms in the same order, so the listing
+    states the decider the check finds and the not recorded
+    annotation stands only where the check would find none.
+    This label is the listing's alone: the decider label that
+    feeds the decider subtotals stays the determining element's
+    label, as _derive states it.
+    """
+    body = _body_text(entry)
+    if "under DQ-148" in body:
+        return "decided by assessment under DQ-148"
+    for element in elements:
+        if element.decider is not None or element.decider_text:
+            label = _decider_label(element)
+            if label:
+                return label
+    if "by Captain JP" in body:
+        return "Ruled by Captain JP"
+    if re.search(r"by the Manager\b", body) or re.search(
+            r"(Settled|SETTLED) by:? The Manager\b", body):
+        shim = type("ListingShim", (), {})()
+        shim.decider = "a Manager grant form"
+        shim.decider_text = "The Manager"
+        shim.statement = body
+        shim.verbatim = ""
+        return _decider_label(shim)
+    match = re.search(r"\b(Ruled|Settled|Decided) by:? ([^.,;]+)",
+                      body)
+    if match:
+        named = match.group(2).strip()
+        if named:
+            return named
+    heading = _get(entry, "heading") or ""
+    if "by Captain JP" in heading:
+        return "Ruled by Captain JP"
+    for field in _get(entry, "fields") or []:
+        if (_get(field, "label") == "Origin"
+                and "Captain JP" in (_get(field, "value") or "")):
+            return "Ruled by Captain JP"
+    return None
+
+
 def _concordant_state(entry, element, elements):
     """The state a bare closing sentence denotes under the
     PIN-11 concordance rule, or None where the rule does not
@@ -587,6 +639,7 @@ def _derive(entry):
     result = {
         "state": None, "sub_label": None, "determining": None,
         "competing": [], "decider_label": None, "annotation": None,
+        "listing_decider_label": None,
         "remainder": None, "condition": None, "banked_question_id": None,
         "unparsed": bool(_get(entry, "unparsed")),
         "effective_elements": [],
@@ -693,15 +746,26 @@ def _derive(entry):
         # Brief section 5.4 rules a row whose determining element
         # names no decider carries no label and counts in no
         # decider subtotal, with "decider not recorded" in its
-        # place; no fallback to any other element stands.
+        # place; no fallback to any other element stands for that
+        # label or for the subtotals it feeds.
         result["decider_label"] = _decider_label(primary)
+        # The group listing carries its own label, read from the
+        # whole entry in the forms the decider check accepts, so
+        # the listing never states that a decider is not recorded
+        # where the entry records one in such a form and no
+        # decider finding fires. Where the determining element
+        # itself names the decider, the two labels agree.
+        listing_label = result["decider_label"]
+        if listing_label is None and state in DECIDED_OUTCOMES:
+            listing_label = _listing_decider_label(entry, elements)
+        result["listing_decider_label"] = listing_label
         result["condition"] = condition
         result["remainder"] = _extract_remainder(determining)
         if result["remainder"]:
             result["remainder_texts"] = [result["remainder"]]
         result["underlying_state"] = _underlying_state(
             entry, determining, elements)
-        if state in DECIDED_OUTCOMES and result["decider_label"] is None:
+        if state in DECIDED_OUTCOMES and listing_label is None:
             result["annotation"] = "decider not recorded"
         return result
 
@@ -1062,6 +1126,56 @@ _DECIDER_LINE_RE = re.compile(
     r"^\s*(Ruled|Settled|Decided) by:?\s+[^.]*\.?\s*$")
 
 
+_MATTER_STOPWORDS = frozenset((
+    "the", "a", "an", "and", "or", "of", "in", "on", "at", "to",
+    "by", "for", "with", "from", "as", "it", "its", "this",
+    "that", "these", "those", "now", "is", "are", "was", "were",
+    "be", "been", "states", "stated", "form", "forms",
+))
+
+
+def _matter_tokens(text):
+    """The content tokens of a text: its words with the
+    function words and the generic form words set aside, so
+    what remains is the matter the text is about."""
+    return {token
+            for token in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if token not in _MATTER_STOPWORDS}
+
+
+def _ruling_matter_tokens(entry):
+    """The content tokens of the entry's own ruling text.
+
+    The ruling text is read from the entry body: where a
+    segment opens with the Ruled label, the ruling text runs
+    from that segment on, and the segments before it, its
+    origin framing among them, do not count. Where no segment
+    opens with that label, every body segment counts except
+    the Landed segments themselves and the Origin and Status
+    segments. A Landed segment never counts toward its own
+    ruling text, so a matter named only inside the landing
+    claim itself earns nothing.
+    """
+    segments = _sentence_segments(_body_text(entry))
+    ruled_start = None
+    for index, segment in enumerate(segments):
+        if segment.lstrip().startswith(("Ruled:", "Ruling:")):
+            ruled_start = index
+            break
+    tokens = set()
+    for index, segment in enumerate(segments):
+        stripped = segment.lstrip()
+        if stripped.startswith("Landed:"):
+            continue
+        if ruled_start is not None and index < ruled_start:
+            continue
+        if ruled_start is None and stripped.startswith(
+                ("Origin:", "Status:")):
+            continue
+        tokens.update(_matter_tokens(segment))
+    return tokens
+
+
 def _is_decider_line(statement):
     """A statement that only names a decider, in the form "Ruled
     by: Captain JP". Such a line is decider evidence. It is not
@@ -1149,6 +1263,33 @@ def _check5(entry, display_id, derived, elements):
                     and not _is_decider_line(element.statement or "")):
                 ruling_text = True
                 break
+    if not ruling_text:
+        # The standalone labelled paragraph form: a labelled
+        # paragraph element whose statement opens with the Ruled
+        # label or the Settled label, the matter under the label
+        # standing as the entry's ruling. PIN-08 at brief
+        # section 5.3 states the ruling text test over all
+        # recorded label forms, and PIN-01 form 2 at brief
+        # section 5.2 lists Ruled and Settled among the recorded
+        # label forms for an unheaded labelled paragraph; the
+        # consolidated restart notes record the compact ruled
+        # form at DQ-147 and DQ-148 as one long Ruled paragraph
+        # dropping the Ruling text line. No locus enumerates a
+        # narrower set for this limb that excludes this form,
+        # so a ruling recorded in it satisfies the test. A
+        # paragraph opening with the Ruled by label is a decider
+        # line, not this form, and a paragraph opening with the
+        # Ruling outcome label is an outcome record, not this
+        # form: neither satisfies the test here.
+        for element in derived["effective_elements"]:
+            statement = (element.statement or "").lstrip()
+            if (element.kind == "labelled paragraph element"
+                    and _effective_disposition(entry, element, elements)
+                    in _DECIDED_DISPOSITIONS
+                    and not _is_decider_line(statement)
+                    and statement.startswith(("Ruled:", "Settled:"))):
+                ruling_text = True
+                break
     outcome = cross_reference
     if not outcome:
         for label in labels:
@@ -1224,8 +1365,22 @@ def _check5(entry, display_id, derived, elements):
             if (segment.startswith("Landed:")
                     and re.search(r"\bin\b", segment)
                     and "now states" in segment):
-                landing = True
-                break
+                # The stated matter must engage the ruled
+                # matter: at least one content token of the
+                # matter the place is stated to now state must
+                # stand in the entry's own ruling text. A
+                # sentence stating a matter that shares no
+                # content token with the ruling states nothing
+                # about the ruling, whatever place it names,
+                # and does not satisfy the test (finding
+                # A4-8-1). On the pin construction the test
+                # holds in full: DQ-167 states the discernment
+                # form, and discernment stands in its ruling.
+                stated = segment.split("now states", 1)[1]
+                if _matter_tokens(stated) & _ruling_matter_tokens(
+                        entry):
+                    landing = True
+                    break
     if not landing:
         # The one further recorded form: a landing statement, a
         # statement in the entry body that a named thing landed in,
@@ -2922,6 +3077,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
             open_fields=open_fields,
             unparsed=derived["unparsed"])
         result.decider_annotation = derived["annotation"]
+        result.listing_decider_label = derived.get(
+            "listing_decider_label")
         # Derived fields the plan shapes carry beside the declared
         # EntryResult fields (plan Item 3, section 3.4): the
         # underlying state, the remainder texts as a list, the
