@@ -512,7 +512,17 @@ def _listing_decider_label(entry, elements):
             label = _decider_label(element)
             if label:
                 return label
-    if "by Captain JP" in body:
+    # The separator after "by" in each body step of this
+    # listing is the whitespace the decider check itself
+    # takes: the check's body pattern ends at a word
+    # boundary after "by", so a tab or a line break stands
+    # in that position as a space does, and the listing
+    # steps below each take one whitespace character of the
+    # same kinds there (finding A6-8-4). A doubled space
+    # stands exactly as it stood: no step here takes it,
+    # and the named phrase step below reads past it in the
+    # form Fix Seat Q recorded.
+    if re.search(r"by[ \t\r\n]Captain JP", body):
         return "Ruled by Captain JP"
     # The Manager form stands only where the Manager phrase
     # itself stands in the body form the decider check
@@ -524,7 +534,7 @@ def _listing_decider_label(entry, elements):
     # check does not accept, and the listing claims no
     # decider from it (finding A5-8-3).
     if re.search(
-            r"\b(Ruled|Settled|Decided) by:? (the|The) Manager\b",
+            r"\b(Ruled|Settled|Decided) by:?[ \t\r\n](the|The) Manager\b",
             body):
         shim = type("ListingShim", (), {})()
         shim.decider = "a Manager grant form"
@@ -532,7 +542,7 @@ def _listing_decider_label(entry, elements):
         shim.statement = body
         shim.verbatim = ""
         return _decider_label(shim)
-    match = re.search(r"\b(Ruled|Settled|Decided) by:? ([^.,;]+)",
+    match = re.search(r"\b(Ruled|Settled|Decided) by:?[ \t\r\n]([^.,;]+)",
                       body)
     if match:
         named = match.group(2).strip()
@@ -1164,6 +1174,52 @@ def _matter_tokens(text):
             if token not in _MATTER_STOPWORDS}
 
 
+def _labelled_matter_tokens(text):
+    """The content tokens of the matter under a Ruled or
+    Settled label, with the decider attribution set aside.
+
+    The reduction starts from _matter_tokens with the
+    attribution tokens removed, as the labelled paragraph
+    condition reads it. A word broken by punctuation inside
+    the word is read whole before it is set aside: where
+    the runs of one word join to an attribution token, the
+    word is that attribution in a punctuated spelling, and
+    its runs are set aside with it, so "J.P." sets aside
+    as "jp", "Cap-tain" as "captain", and "Man-ager" and
+    "Man.ager" as "manager" (finding A6-8-1). Where such a
+    fragmented attribution word stands and exactly one
+    further word carries a content token, and that word is
+    a capitalised word, the matter is a name in initials
+    form alone, as "J.P. Morgan" is: the capitalised word
+    stands as the surname of that name and is set aside
+    with it. A word carrying content in any other position
+    stands, so genuine ruling matter beside a fragmented
+    name still counts, and a name, a number, or a word
+    that stands whole and unrecorded still counts as it
+    did before.
+    """
+    tokens = _matter_tokens(text) - _ATTRIBUTION_TOKENS
+    words = []
+    fragmented = False
+    for word in (text or "").split():
+        runs = re.findall(r"[a-z0-9]+", word.lower())
+        joined = "".join(runs)
+        if len(runs) > 1 and joined in _ATTRIBUTION_TOKENS:
+            fragmented = True
+            tokens.difference_update(runs)
+        words.append((word, runs, joined))
+    if fragmented:
+        others = [(word, runs) for word, runs, joined in words
+                  if runs and joined not in _ATTRIBUTION_TOKENS
+                  and joined not in _MATTER_STOPWORDS]
+        if len(others) == 1:
+            word, runs = others[0]
+            letters = [char for char in word if char.isalpha()]
+            if letters and letters[0].isupper():
+                tokens.difference_update(runs)
+    return tokens
+
+
 def _ruling_matter_tokens(entry):
     """The content tokens of the entry's own ruling text.
 
@@ -1184,9 +1240,21 @@ def _ruling_matter_tokens(entry):
     Landed segment itself does, so a matter named only in
     such a segment, a trailing sentence repeating the stated
     matter among them, earns nothing (finding A5-8-1).
-    Segments standing before the Landed segment in its
-    paragraph, the ruling segment of the DQ-167 shape among
-    them, and segments standing in any other paragraph,
+    Within that same paragraph, a segment standing before
+    the Landed segment counts only where it is itself a
+    ruling segment, a segment carrying the Ruled label or
+    the Ruling label as the opening of a ruling clause, at
+    its head as in the DQ-167 shape or within it where the
+    sentence segmentation joins the clause to the words
+    standing before it in the same segment, as in the tail
+    form: such a ruling segment, standing before the
+    Landed segment in its paragraph, counts as a ruling
+    segment does, and a plain prose sentence of that
+    paragraph, standing before the Landed segment and
+    outside the ruling segment run, counts no more than
+    one standing after it does, so a matter named only in
+    such a sentence earns nothing (findings A6-2-1 and
+    A6-8-3). Segments standing in any other paragraph
     count under the rules above as they did before.
     """
     body = _body_text(entry)
@@ -1230,6 +1298,9 @@ def _ruling_matter_tokens(entry):
         landed_index = landed_in_paragraph.get(
             segment_paragraphs[index])
         if landed_index is not None and index > landed_index:
+            continue
+        if landed_index is not None and index < landed_index \
+                and not re.search(r"\b(?:Ruled|Ruling):", segment):
             continue
         if ruled_start is not None and index < ruled_start:
             continue
@@ -1325,6 +1396,32 @@ def _check5(entry, display_id, derived, elements):
                     and _effective_disposition(entry, element, elements)
                     in _DECIDED_DISPOSITIONS
                     and not _is_decider_line(element.statement or "")):
+                if element.kind == "closing prose":
+                    # A closing prose element satisfying by a
+                    # labelled statement must meet the same
+                    # matter condition the labelled paragraph
+                    # block below applies: where the statement
+                    # carries a Ruled or Settled label, the
+                    # matter after the label must stand as
+                    # ruling matter under
+                    # _labelled_matter_tokens, at least one
+                    # content token beyond the label and beyond
+                    # attribution alone, attribution read whole
+                    # across punctuation inside the word. A
+                    # labelled statement carrying nothing, or
+                    # nothing beyond a decider attribution,
+                    # records no ruling text in any form,
+                    # whichever limb classifies it, in plain
+                    # text as much as in a fence or a quote
+                    # (finding A6-8-2). A closing prose element
+                    # carrying no such label satisfies exactly
+                    # as it did before, and genuine matter after
+                    # the label satisfies on the same evidence.
+                    statement = element.statement or ""
+                    labelled = re.search(r"(?:Ruled|Settled):", statement)
+                    if labelled is not None and not _labelled_matter_tokens(
+                            statement[labelled.end():]):
+                        continue
                 ruling_text = True
                 break
     if not ruling_text:
@@ -1352,6 +1449,14 @@ def _check5(entry, display_id, derived, elements):
         # the disposition words themselves), records no ruling
         # text, as fixture F-12 pins for the Ruled by and Ruling
         # outcome labels, and does not satisfy the test here.
+        # The attribution is read whole where punctuation
+        # inside a word breaks it: a name broken by
+        # punctuation is the same attribution in a punctuated
+        # spelling, and a name in initials form alone, its
+        # surname standing beside the initials, is that
+        # attribution standing alone in the same way, so
+        # neither records ruling text (finding A6-8-1). That
+        # reading stands in _labelled_matter_tokens.
         for element in derived["effective_elements"]:
             statement = (element.statement or "").lstrip()
             if (element.kind == "labelled paragraph element"
@@ -1360,7 +1465,7 @@ def _check5(entry, display_id, derived, elements):
                     and not _is_decider_line(statement)
                     and statement.startswith(("Ruled:", "Settled:"))):
                 matter = statement.split(":", 1)[1]
-                if _matter_tokens(matter) - _ATTRIBUTION_TOKENS:
+                if _labelled_matter_tokens(matter):
                     ruling_text = True
                     break
     outcome = cross_reference
