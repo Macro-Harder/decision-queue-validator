@@ -60,20 +60,43 @@ in the output they print.
 
 ## Reading the outputs
 
-Every output opens with the same five head lines:
+Every output except a usage error output opens with the same five
+head lines. A usage error output, where the call itself is at fault
+(no arguments, a missing file argument, an unknown subcommand, or
+an extra argument), opens with a Call fault line instead and
+carries no head lines. The five head lines are:
 
 1. What the run checked, and what it did not check: merits, the truth
    of rulings, landings in other documents, companion file contents,
    and decider authority are not checked.
 2. The input name, exactly as you supplied it.
-3. The file facts: its line count and byte count, a short form of
-   its digest, and a source designation. In this version the
-   designation reads live on every readable file, on the live file
-   and on any copy of it alike: the designation does not tell you
-   whether the file you ran is the live file or a copy of it. The
-   digest on the same line identifies the bytes the run actually
-   read, so two runs whose digests differ read different bytes,
-   whatever their designations say.
+3. The file facts: on a run that reports on the file, its line
+   count and byte count, a short form of its digest, and a source
+   designation. In this version the designation reads live on
+   every readable file on such a run, on the live file and on any
+   copy of it alike: the designation does not tell you whether the
+   file you ran is the live file or a copy of it. The digest on
+   the same line identifies the bytes the run actually read, so
+   two runs whose digests differ read different bytes, whatever
+   their designations say. On a refusal output for a file the
+   tool could not take in as a queue, the file facts line takes
+   a reduced form and the designation reads absent, not live. An empty file, a header only file, a file with no
+   recognisable queue structure, and a file that breaches the
+   line limit or the per line limit still print the line count,
+   the byte count, and the digest beside absent. Two refusal
+   forms print less: a file refused for invalid bytes prints the
+   byte count and the digest but no line count, and a file
+   refused on the byte limit prints the byte count only, with no
+   line count and no digest, because that limit is checked from
+   the file size before the file is read. Where the input could
+   not be read at all, the file facts line prints absent alone,
+   with no counts and no digest. Two refusal outputs stand
+   apart from the absent form: the gap naming size refusal, on
+   either subcommand, and the supersession map size refusal,
+   on a render run, are decided after the file has been read
+   and parsed, and their file facts line prints in full, with
+   the designation live, the line count, the byte count, and
+   the digest, as on a completed run.
 4. The limits in force.
 5. The version fields: vocabulary version, output form edition, and
    rule set version.
@@ -292,7 +315,14 @@ verdict.
   undetermined or its phrasing held as unknown in the residue list.
   It is never forced to a nearest state. Totals that depend on
   entry states are then stated under that condition, and the run
-  exits 4.
+  exits 4. One designed exception stands to the untranslatable
+  case: where an untranslatable phrasing is the entry's only
+  status element and the entry carries no decision evidence, the
+  entry derives Open under the Shape A exception, its phrasing
+  still held as unknown in the residue list, and the run does not
+  exit 4 on that ground. A file whose entries all take that
+  exception, as the corpus fixture WV-9 does, exits 0 where it
+  reports nothing above Note grade.
 - A very large web of supersessions: where the printed supersession
   map of a render run would stand over 2000000 characters, the run
   refuses the file at exit 3 rather than printing a shortened map.

@@ -195,11 +195,14 @@ def _carried_unit_counted(count, unit):
 def _wrapped_member_lines(members):
     """The census member list in the OP-Q10 wrapped form.
 
-    The identifiers print as a wrapped list under their row:
-    no printed line stands over 72 characters, continuation
-    lines stand indented under the first identifier, and no
-    identifier is split across lines. A list that fits on one
-    line at that width prints on one line, as before.
+    The identifiers print as a wrapped list under their row.
+    Member lists wrap at 72 characters, continuation lines
+    stand indented under the first identifier, and no
+    identifier is split across lines. A single identifier
+    longer than the width prints whole on its own line, so a
+    line carrying such an identifier can stand over 72
+    characters. A list that fits on one line at that width
+    prints on one line, as before.
     """
     text = "Members: " + ", ".join(
         escape_text(item) for item in members)

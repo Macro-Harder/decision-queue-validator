@@ -705,6 +705,7 @@ class _EntryBuilder:
         self.fields = []
         self.notes = []
         self.near = []
+        self.occurrence_only = []
         self.seen_line_start = False
         self.closing_status_line = None
         self.closing_status_block = None
@@ -823,6 +824,27 @@ class _EntryBuilder:
             at = body.find(_STATUS_MARKER)
             value = body[at + len(_STATUS_MARKER):].lstrip(" ")
             disposition = _disposition_from_value(value)
+            if disposition is None:
+                # A terminal Status sentence whose value states
+                # no disposition, the landing record form at
+                # PIN-01 form 4, is no status bearing element
+                # and PIN-04 does not reach it. Its marker
+                # standing inside the line is still a status
+                # occurrence for the verbatim appendix count
+                # under PIN-14, one embedded occurrence, so the
+                # occurrence is recorded on its own channel,
+                # apart from the entry elements, and derivation
+                # never reads it.
+                self.occurrence_only.append(_make_element(
+                    kind="non element occurrence",
+                    verbatim=value,
+                    disposition=None,
+                    line=number,
+                    position=len("Origin:") + at,
+                    occurrence_kind="embedded",
+                    own_text=value,
+                    decision_block=decision_block,
+                ))
             if disposition is not None:
                 self.elements.append(_make_element(
                     kind="tail paragraph element",
@@ -1365,18 +1387,46 @@ def parse_queue(input_value, limits):
 
     def is_section_introduction(position):
         number, level, heading_text = headings[position]
+        # The section a heading at level 2 heads runs to the
+        # next level 2 heading that is not itself an entry
+        # heading: entry headings stand at level 2 as well as
+        # at level 3, under PIN-06, and a level 2 entry heading
+        # inside the window is one of the entries the section
+        # holds, not its end. A scan that stops at the first
+        # level 2 heading of any form misreads a section whose
+        # first held entry stands at level 2, as the reversed
+        # tail of WV-2 puts DQ-171 first under its introduction.
         for later in headings[position + 1:]:
-            if later[1] == 2:
+            if later[1] == 2 and not entry_form(later[1], later[2]):
                 stop = later[0]
                 break
         else:
             stop = line_count + 1
+        window = []
         for other in headings[position + 1:]:
             if other[0] >= stop:
                 break
+            window.append(other)
+        if not any(entry_form(other[1], other[2])
+                   for other in window):
+            return False
+        if any(other[1] == 3 and entry_form(other[1], other[2])
+               for other in window):
+            return True
+        # The window holds entry headings at level 2 only. Such
+        # a heading proves a section where the tested heading
+        # stands in the body of the file, at or after the first
+        # entry heading: a level 2 heading standing before the
+        # first entry, with only a level 2 entry after it, heads
+        # no section and stands unmatched, as the random
+        # heading form before the first entry pins.
+        first_entry_line = None
+        for other in headings:
             if entry_form(other[1], other[2]):
-                return True
-        return False
+                first_entry_line = other[0]
+                break
+        return first_entry_line is not None \
+            and number >= first_entry_line
 
     starts = []
     started = False
@@ -1732,6 +1782,7 @@ def parse_queue(input_value, limits):
         record.decision_blocks = builder.blocks
         record.fields = builder.fields
         record.near_marker_occurrences = builder.near
+        record.occurrence_only_elements = builder.occurrence_only
         record.parse_notes = record.parse_notes + builder.notes
         parse_notes.extend(builder.notes)
         builder.attach_remainders_and_conditions(record.body_lines)
@@ -1743,9 +1794,20 @@ def parse_queue(input_value, limits):
             not file_terminated and has_body_line and record.spans
             and max(span.end_line for span in record.spans) ==
             line_count)
+        # The unparsed marker, under the Entry shape at brief
+        # section 5.5 and PIN-05: the express exception is the
+        # heading borne determining element, the element PIN-05
+        # extracts from the heading. A body element of a cut off
+        # entry does not save it, because the body is not whole
+        # and no body element can be certified as determining
+        # over a remainder that may have stood in the cut off
+        # part, as the WV-8 truncation form at brief section
+        # 5.8 states in full.
         record.unparsed = bool(
             (heading_is_last_line or cut_off)
-            and not builder.elements)
+            and not any(
+                element.kind == "heading borne evidence"
+                for element in builder.elements))
         date = _DATE_RE.search(record.heading)
         if date:
             record.date_text = date.group(0)

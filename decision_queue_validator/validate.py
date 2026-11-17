@@ -595,12 +595,17 @@ def _derive(entry):
         "remainder_texts": [],
     }
     elements = list(_get(entry, "status_elements") or [])
-    if result["unparsed"] and elements:
-        # The PIN-05 exception at plan Item 3, section 3.4: where
-        # an element stands extracted from the entry, the unparsed
-        # assignment does not run and derivation governs. The
-        # marker therefore stands only where no element at all was
-        # extracted from the entry.
+    if result["unparsed"] and any(
+            _get(element, "kind") == "heading borne evidence"
+            for element in elements):
+        # The PIN-05 exception, in the scope PIN-05 states it:
+        # where a determining element stands extracted from the
+        # entry heading, the unparsed assignment does not run
+        # and derivation governs. A body element does not lift
+        # the marker from a cut off entry, because the body is
+        # not whole and no body element can be certified as
+        # determining over the part that was cut off, as the
+        # WV-8 truncation form at brief section 5.8 states.
         result["unparsed"] = False
     if result["unparsed"]:
         return result
@@ -1082,6 +1087,30 @@ def _check5(entry, display_id, derived, elements):
                           "state is not a decided state",
             }
             return []
+    if not any(element.kind in _STATUS_LINE_KINDS
+               for element in elements) \
+            and not _field_labels(entry):
+        # The tail single paragraph form: the entry carries no
+        # line start Status line and no field of any form, its
+        # whole body standing in one paragraph, and its evidence
+        # stands in its heading element and its closing sentence
+        # element, which derivation reads under PIN-01 form 4
+        # and PIN-05. The four presence tests test for evidence
+        # in the recorded label forms and recorded places, forms
+        # that dialect does not carry, so the absence of those
+        # forms is the normal condition of the dialect under
+        # the PIN-13 class rule, not a presence failure, and
+        # the tests do not run on it. This is the same shape
+        # and the same rule the open entry field tests apply
+        # at _check9. An entry carrying a line start Status
+        # line or any field label is tested in full below.
+        derived["presence_results"] = {
+            "ran": False,
+            "reason": "the tail single paragraph form: the "
+                      "presence evidence forms are not forms "
+                      "that dialect carries, under PIN-13",
+        }
+        return []
     labels = _field_labels(entry)
     body = _body_text(entry)
     cross_reference = "under DQ-148" in body
@@ -1670,9 +1699,16 @@ def _check8(model, entries, derived_by_id):
             segment_span = _get(segment, "span")
             if segment_span is not None:
                 candidates.append(segment_span.start_line)
-        for entry in entries:
-            if (_get(entry, "heading_level") or 3) <= 2:
-                candidates.append(_get(entry, "heading_line") or 0)
+        # No entry heading bounds the section: entry headings
+        # stand at level 2 as well as at level 3, under PIN-06,
+        # and the entries a section holds stand inside it at
+        # either level, so the section runs to the next file
+        # level boundary, the next introduction or segment, or
+        # to the end of the file. Section membership is what
+        # the count compares, and membership does not change
+        # when the held entries change their order, as the
+        # WV-2 construction at brief section 5.8 holds it
+        # invariant.
         for candidate in candidates:
             if candidate > span.end_line:
                 if boundary is None or candidate < boundary:
@@ -1687,9 +1723,16 @@ def _check8(model, entries, derived_by_id):
                 if first_id is None:
                     first_id = _display_id(entry)
         if present != claimed:
+            # The finding stands on the introduction unit
+            # itself: a section introduction is a file level
+            # unit, and the disagreement is a property of that
+            # unit and its section, not of any one entry the
+            # section holds, so the unit identifier is its
+            # marker on every file, whatever order the held
+            # entries stand in.
             findings.append(_finding(
                 8, "Warning",
-                first_id or _unit_identifier(model, span=span), span,
+                _unit_identifier(model, span=span), span,
                 _get(unit, "heading_text") or "",
                 "The section introduction states %d entries; %d "
                 "recognised entry headings stand in the section."
@@ -2500,6 +2543,14 @@ def _banked_evidence_groups(entries, derived_list):
     population = []
     group1, group2, group3 = [], [], []
     for entry, derived in zip(entries, derived_list):
+        if derived.get("unparsed"):
+            # An unparsed entry carries no derived state and
+            # its body is not whole, so it stands in no census
+            # population and in no evidence group: it is
+            # counted once in the headed entry count and in
+            # the unparsed entry count, and nowhere else, as
+            # brief section 5.8 states for the truncation form.
+            continue
         elements = list(_get(entry, "status_elements") or [])
         first_line = None
         for element in elements:
@@ -2601,7 +2652,14 @@ def _appendix_rows(entries, vocabulary):
     order = []
     for entry in entries:
         display_id = _display_id(entry)
-        for element in _get(entry, "status_elements") or []:
+        carried = list(_get(entry, "status_elements") or [])
+        # Occurrences that stand on no element, the landing
+        # record form at PIN-01 form 4 recorded by parse on its
+        # own channel, count in the appendix under PIN-14 in
+        # the same way as the occurrences elements carry.
+        carried += list(
+            _get(entry, "occurrence_only_elements") or [])
+        for element in carried:
             if element.occurrence_kind is None:
                 continue
             key = (element.verbatim, element.occurrence_kind)
@@ -3068,6 +3126,10 @@ def validate_model(model, vocabulary, output_form_edition=None):
         for element in _get(entry, "status_elements") or []:
             if element.occurrence_kind is not None:
                 recounted_occurrences += 1
+        for element in _get(entry, "occurrence_only_elements") \
+                or []:
+            if element.occurrence_kind is not None:
+                recounted_occurrences += 1
     if recounted_occurrences != occurrence_total:
         fail(3, "verbatim footing: the verbatim appendix rows sum "
                 "to %d and the elements counted directly give %d"
@@ -3104,8 +3166,9 @@ def validate_model(model, vocabulary, output_form_edition=None):
     # carrying the Banked head phrasing.
     crosswalk_counts = _crosswalk(entries, derived_list, vocabulary)
     banked_head_population = sum(
-        1 for e in entries
-        if _head_element(e) is not None
+        1 for e, d in zip(entries, derived_list)
+        if not d.get("unparsed")
+        and _head_element(e) is not None
         and _head_element(e).verbatim == "Banked")
     banked_crosswalk_total = (
         crosswalk_counts.get("Banked", {}).get("total", 0))
@@ -3323,7 +3386,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
 
     segment_claim_reports = []
     for segment in _get(model, "orphan_segments") or []:
-        for claim in _get(segment, "claims") or []:
+        claims = list(_get(segment, "claims") or [])
+        for claim in claims:
             segment_claim_reports.append({
                 "segment_heading": _get(segment, "heading_text") or "",
                 "statement": _get(claim, "statement") or "",
@@ -3331,6 +3395,31 @@ def validate_model(model, vocabulary, output_form_edition=None):
                     _get(claim, "named_entries") or []),
                 "reported_as": "claim",
             })
+        if claims:
+            continue
+        # A segment carrying no parse level claim can still carry
+        # a claim the findings scan recognises in plain prose, in
+        # the fallback form _segment_claim_findings applies for
+        # the PIN-09 findings of the same segment. The reports
+        # carry those claims on the same terms, one report per
+        # named entry, so the Segment claims section of both
+        # outputs stands for every claim the findings report and
+        # no claim the findings recognise is dropped from the
+        # render output, which prints no findings list.
+        seen_reported = set()
+        for _line_number, text in (_get(segment, "lines") or []):
+            for match in _SEGMENT_CLAIM_RE.finditer(text or ""):
+                target = "DQ-%03d" % int(match.group(1))
+                if target in seen_reported:
+                    continue
+                seen_reported.add(target)
+                segment_claim_reports.append({
+                    "segment_heading":
+                        _get(segment, "heading_text") or "",
+                    "statement": text or "",
+                    "named_entries": [target],
+                    "reported_as": "claim",
+                })
 
     # The residue list, in the ResidueItem contract form at plan
     # Item 3, section 3.6: one item per untranslatable phrasing

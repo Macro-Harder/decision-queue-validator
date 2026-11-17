@@ -25,8 +25,8 @@ Hash: 60f976373bd069d58c4f3901ae5aaa7f4e26f6aeda5d0803a2bebc463d48ebe2
 Bytes: 892
 Lines: 34
 Expected counts: headed entries 1 (pinned); every line assigned to that one entry (pinned); canonical state Ruled 1, derived from the whole body including the addition (pinned)
-Expected findings: none stated for this fixture in the brief (pinned)
-Expected exit: 0 (derived, no finding above Note grade under OP-Q4)
+Expected findings: one Warning, label reattachment class, on DQ-001, for the post Status addition paragraph standing reattached to the entry by its label and flagged not contiguous (derived, grouping rule at testing pin down 6)
+Expected exit: 1 (derived, Warning present under OP-Q4)
 
 Fixture: F-04
 Kind: synthetic
