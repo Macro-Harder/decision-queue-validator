@@ -524,7 +524,32 @@ def _listing_decider_label(entry, elements):
     # stood: no step here takes it, and the named phrase
     # step below reads past it in the form Fix Seat Q
     # recorded.
+    # The check's word boundary after "by" takes more
+    # than whitespace, and the steps below take the
+    # further boundary forms the boundary itself names
+    # (finding A8-8-2): a comma, a semicolon or a full
+    # stop followed by one whitespace character; a
+    # hyphen, a slash or the en dash character standing
+    # directly against the name; a non breaking space as
+    # the separator itself; and a doubled colon followed
+    # by one whitespace character. The Manager and named
+    # phrase steps carry those forms in their separator,
+    # inside patterns already anchored on the verb form
+    # the check takes. The Captain step above keeps the
+    # whitespace class alone, because the check's own
+    # "by Captain JP" test takes that form with no verb
+    # standing; the Captain form of the further boundary
+    # characters stands in the verb anchored step below,
+    # so a bare "by" carrying one of them, with no verb
+    # form the check accepts, stays denied here as the
+    # check denies it.
     if re.search(r"by[ \t\r\n\v\f]Captain JP", body):
+        return "Ruled by Captain JP"
+    if re.search(
+            r"\b(Ruled|Settled|Decided) by"
+            r"(?:[.,;][ \t\r\n\v\f]|[-/\u2013]|\xa0"
+            r"|::[ \t\r\n\v\f])Captain JP",
+            body):
         return "Ruled by Captain JP"
     # The Manager form stands only where the Manager phrase
     # itself stands in the body form the decider check
@@ -536,7 +561,10 @@ def _listing_decider_label(entry, elements):
     # check does not accept, and the listing claims no
     # decider from it (finding A5-8-3).
     if re.search(
-            r"\b(Ruled|Settled|Decided) by:?[ \t\r\n\v\f](the|The) Manager\b",
+            r"\b(Ruled|Settled|Decided) by"
+            r"(?::?[ \t\r\n\v\f\xa0]|::[ \t\r\n\v\f]"
+            r"|[.,;][ \t\r\n\v\f]|[-/\u2013])"
+            r"(the|The) Manager\b",
             body):
         shim = type("ListingShim", (), {})()
         shim.decider = "a Manager grant form"
@@ -544,8 +572,11 @@ def _listing_decider_label(entry, elements):
         shim.statement = body
         shim.verbatim = ""
         return _decider_label(shim)
-    match = re.search(r"\b(Ruled|Settled|Decided) by:?[ \t\r\n\v\f]([^.,;]+)",
-                      body)
+    match = re.search(
+        r"\b(Ruled|Settled|Decided) by"
+        r"(?::?[ \t\r\n\v\f\xa0]|::[ \t\r\n\v\f]"
+        r"|[.,;][ \t\r\n\v\f]|[-/\u2013])([^.,;]+)",
+        body)
     if match:
         named = match.group(2).strip()
         if named:
@@ -1186,6 +1217,27 @@ def _matter_tokens(text):
             if token not in _MATTER_STOPWORDS}
 
 
+def _is_token_sequence(joined):
+    """Whether a joined run string reads whole as a sequence
+    of attribution tokens and name tokens, in some order, with
+    nothing left over: "captain" as one attribution token,
+    "morganstanley" as the two name tokens "morgan" and
+    "stanley". The test is reachability over the string, so
+    its answer does not depend on the order the token set is
+    read in."""
+    if not joined:
+        return False
+    vocabulary = _ATTRIBUTION_TOKENS | _NAME_TOKENS
+    reachable = {0}
+    for start in range(len(joined)):
+        if start not in reachable:
+            continue
+        for token in vocabulary:
+            if joined.startswith(token, start):
+                reachable.add(start + len(token))
+    return len(joined) in reachable
+
+
 def _labelled_matter_tokens(text):
     """The content tokens of the matter under a Ruled or
     Settled label, with the decider attribution set aside.
@@ -1216,7 +1268,22 @@ def _labelled_matter_tokens(text):
     of that attribution and are set aside with it, in one
     word or in two, and in either case, so "J.P. morgan"
     and "J.P. Morgan Stanley" set aside with "J.P.
-    Morgan". A word carrying content in any other position
+    Morgan". The two breaks also read together: two
+    standing words, at least one of them itself broken by
+    punctuation inside the word, whose runs together read
+    whole as a sequence of attribution tokens and name
+    tokens are that attribution or that name in a combined
+    spelling, and their runs are set aside with it, so
+    "Ca.p tain" and "Cap t.ain" set aside as "captain",
+    "Ma.n ager" as "manager", and "Gr.a nt" as "grant"
+    (finding A8-8-1 part (b)). And a name word itself
+    counts in a joined spelling: a further word whose runs
+    are two or three of the name tokens, joined by
+    punctuation inside one word, is those name words, so
+    "morgan-stanley" and "morgan-stanley-mary" set aside
+    with "morgan stanley" and "morgan stanley mary"
+    (findings A8-3-1 and A8-8-1 part (a)). A word carrying
+    content in any other position
     stands, so genuine ruling matter beside such a name
     still counts: a further word that is neither
     capitalised nor a name token keeps the whole matter
@@ -1261,6 +1328,21 @@ def _labelled_matter_tokens(text):
             position += matched
         else:
             position += 1
+    remaining = [index for index in entries if index not in removed]
+    position = 0
+    while position < len(remaining):
+        group = remaining[position:position + 2]
+        if len(group) == 2 and any(
+                len(words[index][1]) > 1 for index in group):
+            joined = "".join(words[index][2] for index in group)
+            if _is_token_sequence(joined):
+                anchored = True
+                for index in group:
+                    removed.add(index)
+                    tokens.difference_update(words[index][1])
+                position += 2
+                continue
+        position += 1
     if anchored:
         others = [(word, runs, joined)
                   for index, (word, runs, joined) in enumerate(words)
@@ -1269,6 +1351,8 @@ def _labelled_matter_tokens(text):
                   and joined not in _MATTER_STOPWORDS]
         if others and all(
                 joined in _NAME_TOKENS
+                or (len(runs) >= 2
+                    and all(run in _NAME_TOKENS for run in runs))
                 or [char for char in word if char.isalpha()]
                 and [char for char in word if char.isalpha()][0].isupper()
                 for word, runs, joined in others):
