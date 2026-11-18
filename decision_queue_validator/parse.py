@@ -341,6 +341,20 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
     completeness reading reaches a dash setext underline in
     underline position, on the previous_line argument, and
     an underscore thematic break in its own closing form.
+
+    Round 7 limbs (charges CH-116 to CH-120, record
+    section 66): a labelled line whose only value matter
+    is a run of the ground classes standing directly after
+    the colon, with no space, is read on its label and
+    stands as no value, as the spaced form of the limb
+    above does; the prose branch disregards a trailing run
+    before its closing quote and bracket strip as well as
+    after it, so a run standing after a closing character
+    hides no sentence close; the bullet marker set carries
+    the single letter forms and the roman numeral and full
+    stop form; and the table reading reaches a row closing
+    on its final pipe in the form carrying no leading pipe
+    as well as in the form carrying one.
     """
     text = line_text
     if text.endswith("\r"):
@@ -393,6 +407,39 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
                 ci_match.group(1).strip().lower() not in (
                     "status", "status unchanged"):
             label_match = ci_match
+    if label_match is None:
+        # A run of the ground classes standing directly
+        # after the colon, with no space, matches neither
+        # value alternative of _LABEL_RE, whose value group
+        # reads one or more plain spaces after the colon
+        # followed by the value, or nothing after the colon
+        # at all, so a labelled line whose only value matter
+        # is such a run took no label match above and fell
+        # through to the prose branch. Read in its charged
+        # form it carries no value, as the spaced form of
+        # the same line does under the run only limb below:
+        # the label is read on the line's head, in its
+        # capital form and then in its lower case form on
+        # the same exclusion the reading above takes, where
+        # everything after the first colon is a run of the
+        # ground classes and nothing else (Step 17 round 7,
+        # charge CH-116, ATK7-2-01, the re-opened limb 4 of
+        # CH-95). A run character standing before value
+        # matter in the unspaced form stands outside this
+        # reading, as the limb below states its bound, and
+        # the line falls through as before.
+        head, colon, tail = stripped.partition(":")
+        if colon and tail and all(
+                _in_leading_run(char) for char in tail):
+            label_match = _LABEL_RE.match(head + ":")
+            if label_match is None:
+                ci_match = re.match(_LABEL_RE.pattern,
+                                    head + ":",
+                                    re.IGNORECASE)
+                if ci_match is not None and \
+                        ci_match.group(1).strip().lower() not in (
+                            "status", "status unchanged"):
+                    label_match = ci_match
     if label_match and (label_match.group(2) or "").strip() and \
             not "".join(
                 char for char in label_match.group(2)
@@ -429,7 +476,14 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
         # that member is not reached here.
         return False
     bullet = re.match(
-        r"(?:[-*+]|[0-9]+\.|[0-9]+\)|\([0-9]+\)|[0-9]+\])"
+        r"(?:[-*+]|[0-9]+\.|[0-9]+\)|\([0-9]+\)|[0-9]+\]"
+        r"|[A-Za-z]\.|[A-Za-z]\)|\([A-Za-z]\)"
+        r"|(?:(?=[MDCLXVImdclxvi]+\.)"
+        r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})"
+        r"(?:IX|IV|V?I{0,3})"
+        r"|(?=[MDCLXVImdclxvi]+\.)"
+        r"m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})"
+        r"(?:ix|iv|v?i{0,3}))\.)"
         r"\s+(.*)$", stripped)
     if bullet is not None:
         # A bullet item stands whole in item form with no
@@ -454,6 +508,16 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
         # stand in the set from Step 17 round 6, charge
         # CH-95, ATK6-2-06, under the same guards, the cut
         # side stated for each newly reached marker.
+        # The single letter forms (the letter and full stop
+        # form, the letter and closing parenthesis form,
+        # and the parenthesised letter form) and the roman
+        # numeral and full stop form, in the standard
+        # numeral forms in either case, stand in the set
+        # from Step 17 round 7, charge CH-118, ATK7-2-03,
+        # under the same guards, the cut side stated for
+        # each newly reached marker. An item whose content
+        # carries a colon is read as a labelled line on
+        # that colon above and is not reached here.
         # The content is also tested for a cut DQ reference
         # (charge CH-81, ATK5-2-04): a reference token is not
         # alphabetic in the fragment guard form, so a cut
@@ -535,13 +599,17 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
         # underscores (charge CH-95, ATK6-2-07). A shorter
         # run closes no form and falls through.
         return False
-    if len(closed) > 1 and closed.startswith("|") and \
+    if len(closed) > 1 and \
             closed.endswith("|") and closed.count("|") >= 2:
         # A table row closing on its final pipe is complete
         # in its own form (charge CH-81, ATK5-2-01), subject
         # to the reference completeness test of ATK5-2-04.
-        # A row missing its final pipe falls through to the
-        # prose branch below.
+        # The row stands in the form carrying its leading
+        # pipe and in the form carrying none, its first cell
+        # standing before the first pipe in that form (Step
+        # 17 round 7, charge CH-120, ATK7-2-05). A row
+        # missing its final pipe falls through to the prose
+        # branch below.
         return _content_carries_cut_reference(closed)
     blockquote = re.match(r">\s*(.+)$", stripped)
     if blockquote is not None:
@@ -576,15 +644,25 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
     if _final_bracket_group_start(
             stripped.rstrip("\"'”’")) is not None:
         return False
-    core = stripped.rstrip("\"')]}"
-                           "”’")
+    core = stripped
     # The prose branch disregards a trailing run of the
     # ground classes standing after the sentence closing
     # punctuation, before its sentence close test (Step 17
     # round 6, charge CH-95, ATK6-2-02): a run character
     # standing after the punctuation hides no sentence
     # close, and a run character rescues no line that
-    # closes no sentence.
+    # closes no sentence. The run is disregarded before the
+    # closing quote and bracket characters are stripped,
+    # and again after them, so a run standing after a
+    # closing character hides no sentence close either
+    # (Step 17 round 7, charge CH-117, ATK7-2-02): the
+    # strip order, closing characters first and the run
+    # second, left the closing character standing last
+    # where a run stood behind it.
+    while core and _in_leading_run(core[-1]):
+        core = core[:-1]
+    core = core.rstrip("\"')]}"
+                       "”’")
     while core and _in_leading_run(core[-1]):
         core = core[:-1]
     return not core.endswith((".", "?", "!"))
@@ -701,9 +779,36 @@ def _labelled_value_stands_whole(label, value):
     pins. A sentence valued label, the question and cost
     families, stands whole only on its sentence close or its
     bracket close.
+
+    Round 7 limbs (charges CH-117 and CH-119, record
+    section 66): the value is read with a trailing run of
+    the ground classes disregarded before its closing
+    quote and bracket characters are stripped, and again
+    after them, so a run standing after a closing
+    character hides no sentence close in this branch
+    either; and the Options reading drops the empty item
+    standing between two adjacent part boundaries where
+    that pair is the value's one join between its two
+    items, as the Blocks reading drops its empty part, an
+    empty item at any other boundary still failing, and
+    the Oxford comma list form standing pinned as still
+    cut under design question note (h).
     """
-    raw = value.strip().rstrip("\"'”’")
+    raw = value.strip()
+    # The value is read with a trailing run of the ground
+    # classes disregarded before its closing quote and
+    # bracket characters are stripped, and the core again
+    # after them, on the same order the prose branch of
+    # _final_line_is_cut_off takes (Step 17 round 7,
+    # charge CH-117, ATK7-2-02): a run standing after a
+    # closing character hid the sentence close of a
+    # sentence valued label, as it hid the prose close.
+    while raw and _in_leading_run(raw[-1]):
+        raw = raw[:-1]
+    raw = raw.rstrip("\"'”’")
     core = raw.rstrip(")]}")
+    while core and _in_leading_run(core[-1]):
+        core = core[:-1]
     if core.endswith((".", "?", "!")):
         return True
     group_start = _final_bracket_group_start(raw)
@@ -729,8 +834,29 @@ def _labelled_value_stands_whole(label, value):
         tokens = re.findall(r"\w+(?:['’./-]\w+)*", core)
         if tokens and tokens[-1].lower() in _NAME_FORM_WORDS:
             return False
-        items = [item.strip() for item in
-                 re.split(r",|\band\b", core)]
+        split_items = [item.strip() for item in
+                       re.split(r",|\band\b", core)]
+        # Two part boundaries standing adjacent yield an
+        # empty item between them: that empty item stands
+        # as the field reading of the same bytes takes it,
+        # no item at all, so it is dropped here, as the
+        # Blocks branch drops its empty part (Step 17
+        # round 7, charge CH-119, ATK7-2-04). The drop
+        # stands on the bound the charge names: the value
+        # carries exactly one join, standing between its
+        # two items, and that join is written as the two
+        # adjacent boundaries, so the split reads three
+        # parts with the empty item between them. A longer
+        # list stands as the branch has always read it: the
+        # Oxford comma list form among them stands pinned
+        # as still cut under design question note (h), by
+        # the round 2 ruling at record section 19, which no
+        # charge of this wave moves. An empty item at any
+        # other boundary, a trailing comma among them,
+        # still fails its test below.
+        items = split_items
+        if len(split_items) == 3 and split_items[1] == "":
+            items = [split_items[0], split_items[2]]
         return bool(items) and all(items) and all(
             re.fullmatch(r"Option\s+\S+", item) is not None or
             re.fullmatch(r"[A-Za-z0-9]", item) is not None
@@ -932,7 +1058,17 @@ _GUARD_COUNT = (
 # as row matter, and a single count token standing
 # alone takes its span where no noun form stands. The
 # K3 stated bounds stand superseded at this limb in
-# the open by that ruling.
+# the open by that ruling. At CH-122 (record section
+# 66, ruling (c) whole) the region width stands
+# restated at one further point: a single clause
+# breaking mark standing alone as the whole count
+# region takes its span, where a region carrying no
+# token and no noun took no span before, so the row
+# Canonical Ruled: ; stands guarded as its token
+# carrying fellows do. A run of marks standing alone,
+# and a mark standing with any other matter that is
+# neither a token sequence ending at the noun nor the
+# CH-68 phrase, stands outside this restatement.
 _GUARD_COUNT_WIDE = (
     r"(?:(?i:entries|entry|items|questions|cases)"
     r"_*(?!\w)|[^\s;:!?\u200b\u200c\u200d\ufeff]+"
@@ -942,7 +1078,8 @@ _GUARD_COUNT_WIDE = (
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*[;:!?]+"
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*)"
     r"(?i:entries|entry|items|questions|cases)"
-    r"_*(?!\w)|[^\s;:!?\u200b\u200c\u200d\ufeff]+)")
+    r"_*(?!\w)|[^\s;:!?\u200b\u200c\u200d\ufeff]+|"
+    r"[;:!?])")
 
 # A tally count at the same width (CH-88): the CH-68
 # count phrase, or any single count region token standing
@@ -958,9 +1095,26 @@ _GUARD_COUNT_WIDE = (
 # in several words stands at the reading width between
 # its delimiters, and no span lengthens past its
 # delimiter into ruling matter on that ground either.
+# At CH-122 (record section 66, ruling (c) whole) the
+# token joints of the token sequence form stand
+# restated at one further point: one semicolon
+# standing between two count tokens, with whitespace
+# or none around it, stands as a joint of the
+# sequence, as the same mark already stands admitted
+# at the tally joint before the total word. The mark
+# stands as the semicolon alone: a colon at this
+# joint would let a count cross into a decider form
+# standing after it, and the other clause marks end
+# the clause the count stands in, so they stand
+# outside this restatement. The sequence still ends
+# at its delimiters, which the row patterns require
+# after it, so no span lengthens past a delimiter
+# into ruling matter on this ground either.
 _GUARD_COUNT_TALLY = (
     r"(?:" + _GUARD_COUNT + r"|[^\s;:!?,|]+"
-    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"(?:(?:(?:\s|[\u200b\u200c\u200d\ufeff])+|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*;"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*)"
     r"[^\s;:!?,|]+)*)")
 
 # The crosswalk total word at its tally width (CH-88):
@@ -970,16 +1124,40 @@ _GUARD_COUNT_TALLY = (
 # width stands restated in its own terms: the word
 # total in either case, its plural, its prefixed
 # subtotal form, the two word form grand total, and
-# the word sum.
+# the word sum. At CH-124 (record section 66, ruling
+# (c) whole) the total word width stands restated at
+# its prefixed and aggregate points: one word token
+# standing before the total word at a non word joint
+# stands as its prefix, the grand form standing inside
+# that restatement as before, and the word in standing
+# at that point opens the in form of the tail and is
+# no prefix; the two word form grand sum stands
+# beside the word sum; and the word aggregate stands
+# as a total word, in the joint form (Ruled 1,
+# aggregate 1) and in the in form (Ruled 1 in
+# aggregate) alike. Two words standing before the
+# total word stand outside this restatement.
 _GUARD_TOTAL_WORD = (
-    r"(?:(?i:grand)[^\w]+(?i:total)|"
-    r"(?i:(?:sub)?totals?)|(?i:sum))")
+    r"(?:(?!(?i:in)(?!\w))[^\s;:!?,|]+[^\w]+"
+    r"(?i:(?:sub)?totals?)|"
+    r"(?i:grand)[^\w]+(?i:sum)|"
+    r"(?i:(?:sub)?totals?)|(?i:sum)|"
+    r"(?i:aggregate))")
 
+# The count row pattern. At CH-122 (record section
+# 66, ruling (c) whole) the joint standing after the
+# colon takes no clause breaking mark: a mark standing
+# after the colon stands in the count region, where
+# _GUARD_COUNT_WIDE reads it, and no span crosses it
+# into a word standing after it, so a genuine ruling
+# standing after a lone mark region on the same line
+# still counts. Every other joint of the row stands
+# as before.
 _COUNT_ROW_RE = re.compile(
     r"(?i:canonical)" + _GUARD_JOINT +
     r"(?:(?i:state)" + _GUARD_JOINT_OPT +
     r")?" + _GUARD_STATE + _GUARD_JOINT_OPT + r":" +
-    _GUARD_JOINT_OPT + r"(?:" + _GUARD_COUNT_WIDE + r"|" +
+    r"[^\w;:!?]*" + r"(?:" + _GUARD_COUNT_WIDE + r"|" +
     _GUARD_COUNT + r")")
 
 # The crosswalk tally row the tool prints for one head phrasing:
@@ -1008,14 +1186,35 @@ _COUNT_ROW_RE = re.compile(
 # joint is row matter, the final noun items in that
 # form, and any further matter past that token takes
 # its labelled element as before, so the span and the
-# wholly row test still read the row at one width.
+# wholly row test still read the row at one width. At
+# CH-121 (record section 66, ruling (c) whole) the tail
+# width stands restated at its trailing matter points:
+# the first trailing form stands as at CH-107, or as
+# the row noun (entries, entry, items, questions, or
+# cases, a trailing underscore standing as row matter)
+# standing at a joint run of whitespace, the zero width
+# characters, a comma, a period, or a hyphen; and in
+# either form one further word token standing after it
+# at a whitespace joint is row matter. The confinement
+# edge of the limb stands as the noun form bounds it:
+# the joint run takes no trailing token where the word
+# after the joint is no row noun, so a genuine ruling
+# standing after the row at a sentence joint stands
+# outside the span exactly as before, and any matter
+# past the second token takes its labelled element as
+# before.
 _CROSSWALK_ROW_RE = re.compile(
     _GUARD_STATE + _GUARD_JOINT_OPT + r":" + _GUARD_JOINT +
     _GUARD_STATE + _GUARD_JOINT + _GUARD_COUNT_TALLY +
     r"(?:" + _GUARD_JOINT + _GUARD_TOTAL_WORD +
     _GUARD_JOINT + _GUARD_COUNT_TALLY +
+    r"(?:(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+|"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])|[,.\-])+"
+    r"(?i:entries|entry|items|questions|cases)"
+    r"_*(?!\w))"
     r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
-    r"[^\s;:!?,|]+)?|" +
+    r"[^\s;:!?,|]+)?)?|" +
     _GUARD_JOINT + r"(?i:in)" + _GUARD_JOINT +
     _GUARD_TOTAL_WORD + r")")
 
@@ -1039,13 +1238,19 @@ _CROSSWALK_ROW_RE = re.compile(
 # whitespace between its pipes, the word joined form
 # line_start standing as one such token, a kind with a
 # leading word standing as three, and a kind word
-# outside the three printed kinds standing as one.
+# outside the three printed kinds standing as one. At
+# CH-123 (record section 66, ruling (c) whole) the
+# kind width stands restated at the charged limb: the
+# kind slot stands as one to five word tokens joined
+# by whitespace between its pipes. A kind spelled in
+# more tokens than five stands outside this
+# restatement.
 _APPENDIX_ROW_RE = re.compile(
     _GUARD_STATE + _GUARD_JOINT_OPT +
     r"\|" + _GUARD_JOINT_OPT +
     r"(?:[^\s;:!?,|]+"
     r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
-    r"[^\s;:!?,|]+){0,2})" + _GUARD_JOINT_OPT +
+    r"[^\s;:!?,|]+){0,4})" + _GUARD_JOINT_OPT +
     r"\|" + _GUARD_JOINT_OPT + _GUARD_COUNT_TALLY +
     _GUARD_JOINT_OPT + r"[^\s;:!?,|]+")
 
@@ -1577,6 +1782,50 @@ def _is_charged_label_damage(label):
     return False
 
 
+def _is_label_interior_damage(label):
+    """Whether a label carries one character of round 7
+    charge CH-128, at the reading where the CH-111 bound
+    and the letter readings meet: one punctuation, symbol,
+    or number character, or one letter of a script other
+    than the ASCII letters, substituted for one letter of
+    the Status word or standing inside the word beside its
+    whole letters, or one punctuation, symbol, or number
+    character standing after the complete word. The digit
+    and braille members of the inside classes stand
+    charged already at _is_charged_label_damage and take
+    the same reading here. Two such characters, an ASCII
+    letter in any of those positions, a letter after the
+    complete word, and a hyphen or an underscore after the
+    complete word stand outside the charge: the hyphen and
+    underscore suffix forms are the CH-111 bound guards,
+    pinned silent."""
+    def interior(char):
+        category = unicodedata.category(char)
+        if category.startswith(("P", "S", "N")):
+            return True
+        return category.startswith("L") and \
+            not char.isascii()
+    def suffix(char):
+        if char in "_-":
+            return False
+        return unicodedata.category(char).startswith(
+            ("P", "S", "N"))
+    if len(label) == 6:
+        differing = [index for index in range(6)
+                     if label[index] != "Status"[index]]
+        return len(differing) == 1 and \
+            interior(label[differing[0]])
+    if len(label) == 7:
+        for index in range(7):
+            if label[:index] + label[index + 1:] == "Status":
+                char = label[index]
+                if index == 6:
+                    return suffix(char)
+                return interior(char)
+        return False
+    return False
+
+
 def _is_near_marker(text):
     """The near marker forms.
 
@@ -1638,6 +1887,23 @@ def _is_near_marker(text):
         # marker reading takes the charged forms at that
         # joint, on the bound stated at _is_charged_label_damage.
         if _is_charged_label_damage(label):
+            return True
+        # A label carrying one punctuation, symbol, or
+        # number character, or one letter of a script
+        # other than the ASCII letters, inside the label
+        # word, or one punctuation, symbol, or number
+        # character standing after the complete label word
+        # (round 7 charge CH-128, seat 17 findings
+        # S17-ATK7-17-01 and S17-ATK7-17-02): the letter
+        # readings above admit ASCII letters alone, the
+        # cleaning above removes the run ground characters
+        # only, and the CH-111 limb takes its charged set
+        # alone, so the two bounds met and the form took
+        # no near marker report, its Ambiguous standing
+        # unexplained. The near marker reading takes the
+        # charged forms at that joint, on the bound stated
+        # at _is_label_interior_damage.
+        if _is_label_interior_damage(label):
             return True
     return False
 
@@ -1840,10 +2106,37 @@ def _bullet_token_continues(text, position):
     if any(part in name for part in
            ("BLANK", "FILLER", "FILL", "REPLACEMENT")):
         return True
-    if unicodedata.category(character)[0] in "LSP" \
-            and position + 1 < len(text) \
-            and text[position + 1] in "0123456789":
-        return True
+    # CH-129, seat 4 F-1: the digit following limb reads
+    # the whole continuation run, not one character only,
+    # on the same ground as the validate guard: a run of
+    # visible characters of classes L, S, and P, with
+    # characters of this guard's ground standing inside
+    # the run beside them, that ends at a digit of any
+    # script leaves the token plainly unended. The foreign
+    # digit is never read as a number; it stands only as
+    # the mark that the token does not end at the
+    # interrupter. A full stop or a governed terminator
+    # standing inside the run ends the run as it ends a
+    # token.
+    if unicodedata.category(character)[0] in "LSP":
+        index = position
+        while index < len(text):
+            current = text[index]
+            if unicodedata.category(current) in \
+                    ("Nd", "Nl", "No"):
+                return True
+            if current == "." or current in " \t\n\r":
+                break
+            if unicodedata.category(current)[0] in "LSP" \
+                    or unicodedata.category(current) in \
+                    _BULLET_TOKEN_CONTINUATION_CATEGORIES \
+                    or any(part in unicodedata.name(current, "")
+                           for part in
+                           ("BLANK", "FILLER", "FILL",
+                            "REPLACEMENT")):
+                index += 1
+                continue
+            break
     # CH-97, seat 4 F-2: a hyphen class character standing
     # immediately after a token's digits, in the trailing
     # position as in the inside position, marks the token
@@ -2138,6 +2431,29 @@ class _EntryBuilder:
             self.near.append(
                 NearMarkerOccurrence(line=number, text=text))
             return False
+        # An embedded damaged label: a Status label carrying
+        # one charged character of round 6 charge CH-111 or
+        # round 7 charge CH-128, standing inside a line behind
+        # other matter, is no exact marker, so the marker scan
+        # below cannot select it and the line start reading
+        # above does not reach it. It takes the near marker
+        # report at its embedded position, as an embedded
+        # exact marker takes its element and an embedded
+        # damaged separator takes its report (round 7 charge
+        # CH-128, the embedded only constructions of seat 17
+        # findings S17-ATK7-17-01 and S17-ATK7-17-02). The
+        # scan reads whole whitespace separated tokens
+        # standing before a colon, on the same damage bounds
+        # as the line start reading, and nothing wider: a
+        # damaged form standing inside a longer token takes
+        # no report here.
+        for token in re.finditer(r"([^\s:]+):", effective):
+            if token.start() == 0:
+                continue
+            if _is_charged_label_damage(token.group(1)) or \
+                    _is_label_interior_damage(token.group(1)):
+                self.near.append(NearMarkerOccurrence(
+                    line=number, text=text))
         if effective.startswith(_STATUS_MARKER) and \
                 len(effective) > len(_STATUS_MARKER):
             separator = _separator_run(
@@ -2177,6 +2493,42 @@ class _EntryBuilder:
                 verbatim = effective[start:stop]
                 if stop < len(effective):
                     verbatim = verbatim.rstrip(" ")
+                if not stored_taken and "<!--" in text:
+                    # The variant element takes the stored
+                    # form act for a segment standing after
+                    # its phrasing (round 7 charge CH-127,
+                    # F-11R7-03): where the segment stands
+                    # after the phrasing and is the line's
+                    # sole segment, the masked form opens
+                    # with the variant marker itself, so the
+                    # CH-89 gate above is not met and the
+                    # CH-108 reading, which reaches marker
+                    # elements only, never reaches this
+                    # branch, and the masked spaces the
+                    # segment leaves stand in the recorded
+                    # verbatim. The verbatim is therefore
+                    # read from the stored form of the
+                    # element's own span of the line as
+                    # written, its segments removed and its
+                    # parts joined at the segment boundaries
+                    # alone under the CH-69 act, so the
+                    # phrasing stands as the line carries it.
+                    # The reading reaches closed segments
+                    # only: a segment left unclosed in the
+                    # span credits nothing past its opening
+                    # and the masked verbatim stands, and a
+                    # span carrying no closed segment keeps
+                    # its standing reading whole.
+                    span_end = offset + stop \
+                        if stop < len(effective) else len(text)
+                    span = text[offset + start:span_end]
+                    if _closed_segment_openings(span):
+                        stored_span, span_unclosed = \
+                            _stored_form(span)
+                        if not span_unclosed:
+                            verbatim = stored_span
+                            if stop < len(effective):
+                                verbatim = verbatim.rstrip(" ")
                 self.elements.append(_make_element(
                     kind="variant phrasing",
                     verbatim=verbatim,
@@ -2263,8 +2615,18 @@ class _EntryBuilder:
                 # between the colon and the value, the
                 # occurrence positions keep the masked
                 # positions, and a segment left unclosed
-                # credits nothing past its opening, the masked
-                # reading standing on such a line whole.
+                # credits nothing past its opening. That bound
+                # is read at its own width (round 7 charge
+                # CH-125, F-11R7-01): where the unclosed
+                # segment stands after the complete value and
+                # a closed segment stands at or after the
+                # start of the value, the stored value stands
+                # wholly before the unclosed opening, so the
+                # stored reading is taken and credits nothing
+                # past that opening; where the value runs
+                # into the unclosed opening, standing
+                # unfinished at the stored form's end, the
+                # masked reading stands whole, as it stood.
                 value_start = offset + end + len(
                     _separator_run(effective[end:]))
                 openings = [match.start() for match in
@@ -2272,9 +2634,7 @@ class _EntryBuilder:
                 stored, unclosed = _stored_form(text)
                 stored_head = stored[
                     _leading_status_run(stored):]
-                if not unclosed and openings and \
-                        any(opening >= value_start
-                            for opening in openings) and \
+                if openings and \
                         stored_head.startswith(_STATUS_MARKER):
                     stored_rest = stored_head[
                         len(_STATUS_MARKER):]
@@ -2286,7 +2646,73 @@ class _EntryBuilder:
                         found = stored_rest.find(marker, 1)
                         if 0 < found < stored_stop:
                             stored_stop = found
-                    value = stored_rest[:stored_stop].rstrip(" ")
+                    stored_value = stored_rest[:stored_stop]
+                    if not unclosed:
+                        if any(opening >= value_start
+                               for opening in openings):
+                            value = stored_value.rstrip(" ")
+                    elif any(opening >= value_start for opening
+                             in _closed_segment_openings(text)) \
+                            and (stored_stop < len(stored_rest)
+                                 or stored_value.endswith(" ")):
+                        # The CH-125 limb: a closed segment
+                        # stands at or after the start of the
+                        # value, and the stored value stands
+                        # terminated before the end of the
+                        # stored form, by a following marker
+                        # or by the written break that stood
+                        # before the unclosed opening, so the
+                        # value the reading credits stands
+                        # complete before that opening and
+                        # nothing past it is credited.
+                        value = stored_value.rstrip(" ")
+            if start > 0 and not stored_taken and \
+                    "<!--" in text and any(
+                        other_start == 0 and
+                        other_flavour == "marker"
+                        for other_start, other_flavour, _other_end
+                        in starts):
+                # An embedded element standing on the head
+                # line itself takes the stored form act for
+                # its own value (round 7 charge CH-126,
+                # F-11R7-02): the CH-108 reading above reaches
+                # the line start element only, and the CH-89
+                # gate is not met on a plain head line, so a
+                # segment inside the value word of a second
+                # marker on that line stood as masked spaces
+                # in the one reading the element ever took.
+                # Where a closed segment stands at or after
+                # the start of this element's value, the value
+                # is read from the stored form of the
+                # element's own span of the line as written,
+                # its segments removed and its parts joined
+                # at the segment boundaries alone under the
+                # CH-69 act. The charge reaches the head line
+                # only, where a line start marker stands on
+                # the same line: an embedded marker on any
+                # other line keeps its standing reading, the
+                # separator position keeps the masked
+                # separator reading taken above, the
+                # occurrence positions keep the masked
+                # positions, and a segment left unclosed in
+                # the span credits nothing, the masked reading
+                # standing on such a span whole.
+                value_start = offset + end + len(
+                    embedded_separator)
+                span_end = offset + stop \
+                    if stop < len(effective) else len(text)
+                span = text[offset + end:span_end]
+                if any(value_start <= opening < span_end
+                       for opening in
+                       _closed_segment_openings(text)):
+                    stored_span, span_unclosed = \
+                        _stored_form(span)
+                    if not span_unclosed:
+                        stored_value = stored_span.lstrip(" ")
+                        if stop < len(effective):
+                            stored_value = \
+                                stored_value.rstrip(" ")
+                        value = stored_value
             if value.strip() == "":
                 # An empty Status value is not a phrasing: it
                 # carries no element and derivation never reads
@@ -2860,6 +3286,28 @@ class _EntryBuilder:
 
 
 _FENCE_RUN_RE = re.compile(r"(`{3,}|~{3,})")
+
+
+def _closed_segment_openings(text):
+    """The opening positions of the closed comment segments
+    of one line, in the segment reading _stored_form takes:
+    a segment runs from an opener to the first close marker
+    after it, and an opener standing inside a segment is
+    part of that segment, not an opening of its own. A
+    segment left unclosed ends the list, since nothing
+    after its opening stands in a closed segment."""
+    openings = []
+    index = 0
+    while True:
+        opening = text.find("<!--", index)
+        if opening < 0:
+            break
+        closing = text.find("-->", opening + 4)
+        if closing < 0:
+            break
+        openings.append(opening)
+        index = closing + 3
+    return openings
 
 
 def _stored_form(text):
@@ -3662,13 +4110,103 @@ def parse_queue(input_value, limits):
     # every CH-78 pin stands whole: a part opening with no
     # heading form, and a part opening with a heading in no
     # entry form, takes no signal.
+    # The scan's scope stands stated once for charges
+    # CH-114 and CH-115 (Step 17 round 7, record section 66
+    # ruling (b)): the scan's ground is a heading that
+    # stands in heading position and is not recognised, and
+    # it does not fire where the line's own heading is
+    # recognised and raised, or where the matter stands
+    # inert or inside a recognised heading's title. Three
+    # bounds give that scope its form here. First, the scan
+    # reads each line in its inert blanked form, the form
+    # the entry builders read, so heading shaped matter
+    # standing inside a fence or a comment stands inert to
+    # the scan as it stands inert to the other heading
+    # readings (CH-115, the inert limb, seat 3 A7-3-F2).
+    # Second, a part that is the line own heading takes no
+    # signal: where the text before the part is leading run
+    # and join matter only, and the heading readers read
+    # the part to the same heading they read the line
+    # itself to, the part is the heading the main reading
+    # already recognised and raised, and the statement that
+    # no entry is raised for it is false (CH-114, seat 1
+    # F-7-1-1 and seat 3 A7-3-F1). Third, on a line whose
+    # own heading stands in a live entry form, a part
+    # standing inside that heading's title takes no signal
+    # where no second entry body stands in the file behind
+    # the heading line (CH-115, the title limb): the
+    # signal's ground is the second entry deleted from
+    # every count in silence, and where no entry body
+    # stands behind the joined heading, no entry is deleted
+    # and the heading shaped matter is title matter of the
+    # recognised heading. The charged twin forms of CH-96,
+    # whose second bodies stand in the file, stand whole
+    # under their pins in both directions.
+    heading_by_number = {
+        number: (level, heading_text)
+        for number, level, heading_text in headings}
+    heading_numbers = sorted(heading_by_number)
+
+    def _joined_heading_body_stands(number, heading_text):
+        # Whether a second entry body stands in the file
+        # behind the heading line at number, for the title
+        # limb bound above: the entry span running from that
+        # line to the next heading carries two or more
+        # Status occurrences, counted on the heading line's
+        # own tail parts and on the span's lines in their
+        # inert blanked forms, on the marker, variant
+        # marker, and near marker forms the CH-78 tail scan
+        # selects.
+        occurrences = 0
+        if heading_text is not None:
+            for tail in re.split(
+                    r"[\r\u2028\u2029\u0085\x0b\x0c]",
+                    heading_text)[1:]:
+                candidate = tail[_leading_status_run(tail):]
+                if candidate.startswith(_STATUS_MARKER) or \
+                        candidate.startswith(_VARIANT_MARKER) or \
+                        _is_near_marker(candidate):
+                    occurrences += 1
+        span_end = line_count + 1
+        for other in heading_numbers:
+            if other > number:
+                span_end = other
+                break
+        for span_number in range(number, span_end):
+            span_text = inert_texts.get(
+                span_number, lines[span_number - 1])
+            candidate = span_text[_leading_status_run(span_text):]
+            if candidate.startswith(_STATUS_MARKER) or \
+                    candidate.startswith(_VARIANT_MARKER) or \
+                    _is_near_marker(candidate):
+                occurrences += 1
+        return occurrences >= 2
+
     for index, line in enumerate(lines):
-        if not any(char in line
+        number = index + 1
+        text = inert_texts.get(number, line)
+        if not any(char in text
                    for char in "\r\u2028\u2029\u0085\x0b\x0c"):
             continue
+        own_info = _heading_info(text)
+        if own_info is None:
+            own_info = _separator_heading_info(text)
+        own_live = False
+        own_heading_text = None
+        if number in heading_by_number:
+            own_level, own_heading_text = \
+                heading_by_number[number]
+            own_live = live_entry_form(
+                number, own_level, own_heading_text) is not None
         parts = re.split(
-            r"[\r\u2028\u2029\u0085\x0b\x0c]", line)
-        for part in parts[1:]:
+            r"[\r\u2028\u2029\u0085\x0b\x0c]", text)
+        part_offsets = []
+        part_position = 0
+        for part in parts:
+            part_offsets.append(part_position)
+            part_position += len(part) + 1
+        for part_index in range(1, len(parts)):
+            part = parts[part_index]
             joined_info = _heading_info(part)
             if joined_info is None:
                 joined_info = _separator_heading_info(part)
@@ -3676,7 +4214,16 @@ def parse_queue(input_value, limits):
                 continue
             if not entry_form(joined_info[0], joined_info[1]):
                 continue
-            number = index + 1
+            if own_info is not None and \
+                    joined_info == own_info and all(
+                        _in_leading_run(char) or char in
+                        "\r\u2028\u2029\u0085\x0b\x0c"
+                        for char in
+                        text[:part_offsets[part_index]]):
+                continue
+            if own_live and not _joined_heading_body_stands(
+                    number, own_heading_text):
+                continue
             orphans.append(OrphanSegment(
                 kind="other file level segment",
                 span=Span(number, number, "heading cut"),

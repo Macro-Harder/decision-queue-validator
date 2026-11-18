@@ -948,11 +948,11 @@ def _validate_body(output):
                 lines.append(_column_zero_carried_line(
                     escape_text(ident or "")))
             span = _field(finding, "line_span", "span", "lines")
-            lines.append("%s %s %s" % (
+            lines.append(_column_zero_carried_line("%s %s %s" % (
                 escape_text(_finding_rule(finding)),
                 escape_text(_text(_field(finding, "severity",
                                          "grade")) or ""),
-                _span_text(span)))
+                _span_text(span))))
             statement = _text(_field(finding, "statement",
                                      "message", "summary"))
             if statement:
