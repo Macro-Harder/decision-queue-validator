@@ -44,6 +44,9 @@ MAP_SIZE_CAPPED_VALUE = 2000001
 CYCLE_COUNT_LIMIT = 1000
 CYCLE_COUNT_CAPPED_VALUE = 1001
 
+CYCLE_WORK_LIMIT = 750000
+CYCLE_WORK_CAPPED_VALUE = 750001
+
 GAP_NAMING_LIMIT = 2000000
 
 __all__ = [
@@ -493,6 +496,26 @@ def _cycle_refusal_output(input_name, facts_line,
         "supersession cycle count limit")
 
 
+def _cycle_work_refusal_output(
+        input_name, facts_line,
+        measured=CYCLE_WORK_CAPPED_VALUE):
+    fault_lines = [
+        "Supersession cycle work limit: the supersession "
+        "cycle enumeration work stands over the work limit "
+        "of %d paths explored in the descent; counting "
+        "stopped during enumeration at the capped measured "
+        "value of %d paths explored, and the true "
+        "enumeration work stands over the limit."
+        % (CYCLE_WORK_LIMIT, measured),
+        "The cycle inventory does not stand complete on this "
+        "run, and no part of it is reported as a complete "
+        "inventory.",
+    ]
+    return _refusal_output(
+        input_name, fault_lines, facts_line,
+        "supersession cycle work limit")
+
+
 def _map_refusal_output(input_name, facts_line):
     fault_lines = [
         "Supersession map size limit: the supersession map print "
@@ -551,6 +574,20 @@ def _cycle_refusal_signal(output):
         return None
     for name in ("cycle_over_bound",
                  "supersession_cycle_over_bound"):
+        if _get(output, name):
+            return True
+    return None
+
+
+def _cycle_work_refusal_signal(output):
+    """The cycle work refusal signal validate may carry, or
+    None. The signal stands where the enumeration work
+    passed its bound during enumeration, on either
+    subcommand (Step 17 round 4, CH-52)."""
+    if isinstance(output, FileLevelFailure):
+        return None
+    for name in ("cycle_work_over_bound",
+                 "supersession_cycle_work_over_bound"):
         if _get(output, name):
             return True
     return None
@@ -820,6 +857,32 @@ def main(argv=None):
         if not measured:
             measured = CYCLE_COUNT_CAPPED_VALUE
         return _deliver_stderr_run(_cycle_refusal_output(
+            input_name, facts_line, measured), 3)
+
+    # The cycle work bound (Step 17 round 4, CH-52): where
+    # the enumeration work passed its bound during
+    # enumeration and the count bound did not pass, the run
+    # takes the whole file refusal at exit 3 naming the work
+    # limit, on either subcommand, in the same standing form
+    # as the cycle count refusal above. The count refusal
+    # stands first where both signals stand, so every
+    # governed count refusal keeps its exact standing form;
+    # the work refusal is the form for the families whose
+    # found count never passes its bound before the work is
+    # paid, the funnel and the wall.
+    if _cycle_work_refusal_signal(output) is not None:
+        facts = _get(output, "file_facts", "file_facts_data")
+        facts_line = None
+        if facts is not None:
+            facts_line = _file_facts_line(
+                _number(_get(facts, "byte_count")),
+                _number(_get(facts, "line_count")),
+                _get(facts, "digest"),
+                _get(facts, "source_designation"))
+        measured = _number(_get(output, "cycle_work_measured"))
+        if not measured:
+            measured = CYCLE_WORK_CAPPED_VALUE
+        return _deliver_stderr_run(_cycle_work_refusal_output(
             input_name, facts_line, measured), 3)
 
     if subcommand == "render":

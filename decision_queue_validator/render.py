@@ -143,6 +143,34 @@ _FINDINGS_INDEX_FORM = re.compile(
     r"|no line span recorded)")
 
 
+# Step 17 fix wave 4, CH-71: the figure and reconciliation
+# line forms the crosswalk, appendix, and residue surfaces
+# carry, beside the three CH-23 anchors. The set stands as the
+# finding names it: the Blocking figure form, the Companion
+# count form, the Headed entries form, the Self check sums
+# form, and the Limbo sentence form. Whether the anchor set
+# should grow beyond these named forms stands as a design
+# question note to the gate, undecided; no form outside this
+# set and the three CH-23 anchors is quoted by this cure.
+_NAMED_LINE_FORMS = (
+    re.compile(r"^Blocking: [0-9]+"),
+    re.compile(r"^Companion count: [0-9]+"),
+    re.compile(r"^Headed entries: [0-9]+"),
+    re.compile(r"^Self check: sums (?:do not )?agree"),
+    re.compile(r"^Limbo: "),
+)
+
+
+def _opens_with_anchor(text):
+    """Whether a printed form opens with a closing line anchor
+    or with one of the named figure and reconciliation forms."""
+    if text.startswith("Exit: code ") or \
+            text.startswith("Waiting: ") or \
+            _FINDINGS_INDEX_FORM.match(text):
+        return True
+    return any(form.match(text) for form in _NAMED_LINE_FORMS)
+
+
 def _column_zero_phrasing(value):
     """The printed form of a Status phrasing standing at
     column 0 on the crosswalk, appendix, and residue surfaces.
@@ -155,11 +183,17 @@ def _column_zero_phrasing(value):
     form a line anchored extraction would take for a genuine
     exit, waiting, or findings index line. Every other
     phrasing prints in its escaped form, as before.
+
+    Step 17 fix wave 4, CH-71: the quoting extends to the
+    figure and reconciliation line forms the finding names
+    (the Blocking, Companion count, Headed entries, Self
+    check, and Limbo forms), so a forged form of any of them
+    prints quoted on the same surfaces and no first match
+    extraction takes a forged figure ahead of the genuine
+    line. The anchor set stands bounded to the named forms.
     """
     text = escape_text(_text(value) or "")
-    if text.startswith("Exit: code ") or \
-            text.startswith("Waiting: ") or \
-            _FINDINGS_INDEX_FORM.match(text):
+    if _opens_with_anchor(text):
         return '"%s"' % text
     return text
 
@@ -712,7 +746,19 @@ def _group_title(name):
         return "Unparsed entries"
     if name == "Ambiguous":
         return "Ambiguous group"
-    return "%s group" % name
+    # Step 17 fix wave 4, CH-70: the carried group name takes
+    # the same escaping the other carried text takes, in both
+    # output forms, so no carried name writes a raw control
+    # byte, a raw newline, or a column 0 anchor into the
+    # output. A title whose escaped form opens with one of the
+    # closing line anchors or named line forms stands in
+    # double quotes, on the CH-23 ground. The cure stands on
+    # the escaping commitment for carried text generally and
+    # decides nothing about the note (d) inventory.
+    title = "%s group" % escape_text(name)
+    if _opens_with_anchor(title):
+        return '"%s"' % title
+    return title
 
 
 def _group_sections(output, entries, include_all_headings):

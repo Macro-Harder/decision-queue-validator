@@ -85,9 +85,17 @@ _LEADING_RUN_EXTRA = "\x0b\x0c\u200c\u200d\u2060\u00ad\u180e\u2028\u0085"
 
 
 def _in_leading_run(char):
+    # The run characters are read by Unicode class, not by
+    # enumerated list (Step 17 round 4 triage, record section
+    # 38 ruling (e)): the format, separator, and control
+    # classes and the mark classes stand in the run beside
+    # the enumerated characters above, so a character of
+    # those classes, an Arabic letter mark among them,
+    # stands in the run at every surface this helper serves.
     return char in _LEADING_STATUS_CHARS or \
         char in _LEADING_RUN_EXTRA or \
-        unicodedata.category(char).startswith("M")
+        unicodedata.category(char).startswith("M") or \
+        unicodedata.category(char) in ("Cf", "Cc", "Zl", "Zp", "Zs")
 
 
 def _leading_status_run(text):
@@ -98,14 +106,38 @@ def _leading_status_run(text):
     return index
 
 
+def _is_blank_presenting(char):
+    """Whether a character outside the run class presents as
+    blank: a symbol or letter category character whose glyph
+    is blank, read from its Unicode name (a braille pattern
+    blank, the hangul fillers, an object replacement
+    character). Such a character stands outside the run
+    class at every surface: at the Status leading and
+    separator surfaces it takes the near marker signal rather
+    than a silent demotion or a silent folded extraction, on
+    the cure bounds stated for charges CH-55 and CH-56 at
+    record section 38."""
+    if unicodedata.category(char) not in ("So", "Lo"):
+        return False
+    name = unicodedata.name(char, "")
+    return "BLANK" in name or "FILLER" in name or \
+        "REPLACEMENT" in name
+
+
 def _separator_run(text):
     """The separator run at the head of the text after a Status
-    marker: whitespace and format characters in a run."""
+    marker: a run read by Unicode class, whitespace and the
+    format, separator, control, and mark categories (round 4
+    charge CH-56, on the ruling (e) class ground stated at
+    _in_leading_run), so a control character behind a leading
+    plain space stands in the run and takes the near marker
+    report where the earlier class let it fold into the value
+    in silence."""
     index = 0
     while index < len(text) and (
             text[index].isspace() or
             unicodedata.category(text[index]) in
-            ("Cf", "Mn", "Mc", "Me")):
+            ("Cf", "Cc", "Zs", "Zl", "Zp", "Mn", "Mc", "Me")):
         index += 1
     return text[:index]
 
@@ -251,6 +283,17 @@ def _final_line_is_cut_off(line_text):
     stripped = text.strip()
     if not stripped:
         return False
+    # The line is read behind the same leading run the
+    # governed surfaces read (Step 17 round 4, charge
+    # CH-57, ATK4-2-01): a final line standing behind a
+    # leading run character of the format or mark classes
+    # is read in the form its terminated twin is read in,
+    # under the one run set at _in_leading_run, before any
+    # of the completeness tests below. The members of that
+    # set the plain strip already covered stand as before.
+    stripped = stripped[_leading_status_run(stripped):]
+    if not stripped:
+        return False
     if stripped.startswith(_STATUS_MARKER):
         return stripped[len(_STATUS_MARKER):].strip() == ""
     if stripped.startswith(_VARIANT_MARKER):
@@ -274,7 +317,8 @@ def _final_line_is_cut_off(line_text):
         # is cut off.
         return not _labelled_value_stands_whole(
             label_match.group(1), label_match.group(2))
-    if stripped.startswith("- "):
+    bullet = re.match(r"(?:[-*+]|[0-9]+\.)\s+(.*)$", stripped)
+    if bullet is not None:
         # A bullet item stands whole in item form with no
         # sentence close, but its content is read under the
         # same fragment and joining word guards the labelled
@@ -282,8 +326,15 @@ def _final_line_is_cut_off(line_text):
         # (b) at record section 26): an item cut mid word, or
         # ending on a joining word, stands cut in form, and a
         # complete item stands whole, as the complete bullet
-        # pin of ATK2-2-05 stands.
-        tokens = re.findall(r"\w+(?:['’./-]\w+)*", stripped[2:])
+        # pin of ATK2-2-05 stands. The marker forms are the
+        # dash, the star, the plus, and the numbered marker
+        # (Step 17 round 4, charge CH-57, ATK4-2-03): the
+        # completeness reading reaches complete items under
+        # every one of them, and the cut side guards above
+        # apply to each marker alike, so a cut item under a
+        # new marker does not stand whole by this cure.
+        tokens = re.findall(r"\w+(?:['’./-]\w+)*",
+                            bullet.group(1))
         if not tokens:
             return False
         return _last_token_is_fragment(tokens) or \
@@ -460,8 +511,26 @@ def _labelled_value_stands_whole(label, value):
             re.fullmatch(r"[A-Za-z0-9]", item) is not None
             for item in items)
     if label_key in ("blocks", "what it blocks"):
-        parts = [part.strip() for part in
-                 re.split(r",|\band\b", core)]
+        # Each part is read whole, as the neighbouring
+        # branches read their values: a part carries the
+        # trailing inert characters of the run classes
+        # disregarded, in the classes the leading limb of
+        # charge CH-57 names (ATK4-2-02, a trailing zero
+        # width space standing parsed as a trailing byte
+        # order mark and a trailing no break space do), and
+        # a lone carriage return standing between two
+        # references is an ordinary character of its line
+        # under the terminator rule, standing as a part
+        # boundary here as the field reading of the same
+        # bytes on a terminated line takes it (ATK4-2-04).
+        # A part that is a cut reference on either side of
+        # the carriage return still fails its full match.
+        parts = []
+        for part in re.split(r",|\band\b|\r", core):
+            part = part.strip()
+            while part and _in_leading_run(part[-1]):
+                part = part[:-1]
+            parts.append(part)
         return bool(parts) and all(parts) and all(
             part == "None" or
             re.fullmatch(r"DQ-[0-9]{3,}", part) is not None
@@ -518,32 +587,67 @@ def _disposition_from_value(value):
 
 # The joints of a guarded output row, widened at Step 17 fix
 # wave 3, charges CH-50 and CH-51, to the disposition reading
-# own width (record section 26, flag ruling (l)): the
-# disposition forms fire on a state word wherever a word
-# boundary stands before it and a colon followed by whitespace
-# stands after it, so the words of a row may be joined by any
-# run of characters that are neither word characters nor
-# sentence punctuation, which covers every whitespace character
-# the reading takes, the zero width and format characters that
-# leave the boundary standing, and decoration standing between
-# the words of a row (emphasis, backticks, and link brackets
-# around one word of the row). A word character at a joint, an
-# underscore included, leaves no boundary for either reading,
-# and sentence punctuation ends the row form, so neither stands
-# in a joint.
-_GUARD_JOINT = r"[^\w:.;!?]+"
-_GUARD_JOINT_OPT = r"[^\w:.;!?]*"
+# own width (record section 26, flag ruling (l)), and widened
+# again at Step 17 fix wave 4, charge CH-68 (record section
+# 38, ruling (d)): guard recognition is a matching matter,
+# recognising whatever the disposition reading denotes at the
+# disposition reading own width, on the count, joint, heading,
+# and tally surfaces alike. The disposition forms fire on a
+# state word wherever a word boundary stands before it and a
+# colon followed by whitespace stands after it, so the words
+# of a row may be joined by any run of non word characters,
+# sentence punctuation included: a period, colon, semicolon,
+# or question mark at a joint leaves the state word and its
+# colon standing as a new sentence or clause, and the reading
+# fires across exactly those characters. The run covers every
+# whitespace character the reading takes, the zero width and
+# format characters that leave the boundary standing, and
+# decoration standing between the words of a row (emphasis,
+# backticks, and link brackets around one word of the row). A
+# word character at a joint, an underscore included, leaves
+# no boundary for either reading, and stands in no joint.
+_GUARD_JOINT = r"[^\w]+"
+_GUARD_JOINT_OPT = r"[^\w]*"
 _GUARD_STATE = (
     r"(?:Settled in part|Closed as decided|Ruled|Settled|Closed|"
     r"Open|Banked|Parked|Presented)")
+
+# A count at the disposition reading own width (CH-68): the
+# reading needs no count at all and fires on the state word
+# and its colon in every count form, so the guard count is a
+# count phrase, one or more count tokens joined by a space, a
+# no break space, or a hyphen, with an approximator word
+# standing before it where one stands. A count token is a
+# number word (the units, the tens, and the scale words
+# hundred, thousand, million, and billion, and the word no
+# standing as a count), a Roman numeral, or a run of numeric
+# characters: a Unicode decimal digit in any script, or a
+# character of another numeric class (superscript and
+# subscript digits, vulgar fractions, and the numeric forms
+# of the enclosed and Roman ranges). The phrase stops at the
+# first token that is no count token, the word entries
+# included, so a span ends at its count and a genuine ruling
+# standing after the row on the same line still counts. This
+# is a matching width only: no data reading in the product
+# reads counts through this pattern, and data readings
+# elsewhere keep their ASCII digit ground (FLAG 11).
+_GUARD_COUNT_TOKEN = (
+    r"(?:(?i:zero|one|two|three|four|five|six|seven|eight|"
+    r"nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|"
+    r"forty|fifty|sixty|seventy|eighty|ninety|hundred|"
+    r"thousand|million|billion|no)|(?i:[ivxlcdm]+)|"
+    r"(?:\d|[\u00b2\u00b3\u00b9\u00bc-\u00be\u2070-\u2079"
+    r"\u2080-\u2089\u2160-\u2189\u2460-\u2473])+"
+    r"(?:[.,]\d+)*)(?!\w)")
 _GUARD_COUNT = (
-    r"(?:[0-9]+|\d+|(?i:zero|one|two|three|four|five|six|seven|"
-    r"eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
-    r"sixteen|seventeen|eighteen|nineteen|twenty))")
+    r"(?:(?:(?i:about|around|approximately|nearly|roughly|"
+    r"almost)[ \t ]+)?" + _GUARD_COUNT_TOKEN +
+    r"(?:(?:[ \t ]+|-)" + _GUARD_COUNT_TOKEN + r")*)")
 
 _COUNT_ROW_RE = re.compile(
     r"(?i:canonical)" + _GUARD_JOINT +
-    r"(?:(?i:state)" + _GUARD_JOINT_OPT + r":" + _GUARD_JOINT_OPT +
+    r"(?:(?i:state)" + _GUARD_JOINT_OPT +
     r")?" + _GUARD_STATE + _GUARD_JOINT_OPT + r":" +
     _GUARD_JOINT_OPT + _GUARD_COUNT)
 
@@ -555,7 +659,8 @@ _COUNT_ROW_RE = re.compile(
 # after its colon, which is no tally form, takes no span.
 _CROSSWALK_ROW_RE = re.compile(
     _GUARD_STATE + r":" + _GUARD_JOINT + _GUARD_STATE +
-    _GUARD_JOINT + r"[0-9]+, total [0-9]+")
+    _GUARD_JOINT + _GUARD_COUNT + _GUARD_JOINT +
+    r"(?i:total)" + _GUARD_JOINT + _GUARD_COUNT)
 
 # The verbatim appendix tally row the tool prints for one
 # phrasing: the phrasing, its occurrence kind, and its
@@ -565,13 +670,16 @@ _CROSSWALK_ROW_RE = re.compile(
 # form and takes no span, so quoted ruling rows still denote.
 _APPENDIX_ROW_RE = re.compile(
     _GUARD_STATE + _GUARD_JOINT_OPT +
-    r"\|[ \t]*(?:line start|embedded|variant)[ \t]*\|[ \t]*"
-    r"[0-9]+ occurrences?")
+    r"\|" + _GUARD_JOINT_OPT +
+    r"(?:(?i:line)" + _GUARD_JOINT + r"(?i:start)|"
+    r"(?i:embedded)|(?i:variant))" + _GUARD_JOINT_OPT +
+    r"\|" + _GUARD_JOINT_OPT + _GUARD_COUNT +
+    _GUARD_JOINT_OPT + r"(?i:occurrences?)")
 
 _GROUP_HEADING_RE = re.compile(
-    r"(Settled\s+in\s+part|Closed\s+as\s+decided|Ruled|Settled|"
-    r"Closed|Parked|Presented|Open|Banked|Conditional|Ambiguous)"
-    r"\s+group",
+    r"((?:Settled[^\w]+in[^\w]+part|Closed[^\w]+as[^\w]+"
+    r"decided|Ruled|Settled|Closed|Parked|Presented|Open|"
+    r"Banked|Conditional|Ambiguous)[^\w]+group)",
     re.IGNORECASE)
 
 
@@ -626,16 +734,32 @@ def _guarded_output_spans(text):
       its count takes the digit forms and word forms the
       disposition reading accepts, since that reading needs no
       count at all and fires on the state word and its colon in
-      every count form.
+      every count form. At CH-68 the joints take sentence
+      punctuation as well, the census label takes any joint
+      after the word state in place of its colon alone, and
+      the count takes the count phrase at _GUARD_COUNT.
     - A crosswalk tally row and a verbatim appendix tally row,
       in the forms the tool prints them: each states a state
       word and counts only, and names no decider, ruling text,
-      or landing for the entry it is reused inside.
+      or landing for the entry it is reused inside. At CH-68
+      their tails take the count row width: the joints are any
+      non word run (a doubled space, a tab, or a no break
+      space before the word total, the comma standing or
+      missing), the word total stands in either case, the
+      appendix occurrence kind takes any joint inside it and
+      either case, and every tally count takes the count
+      phrase width at _GUARD_COUNT, Unicode decimal digits
+      and word counts included.
     - A rendered group heading line standing as its own
       sentence: a state word and the word group, with only
       quoting or emphasis decoration around it, any whitespace
       standing between its words, and any trailing sentence
-      punctuation standing after it, a period included.
+      punctuation standing after it, a period included. At
+      CH-68 the heading joint is any non word run, a zero
+      width space included, and a heading carrying trailing
+      matter past the word group takes a span ending at the
+      word group, so the trailing matter itself stands
+      outside the span.
 
     The guard is confined to the row or heading itself: a
     disposition form standing outside these spans, later on
@@ -656,6 +780,21 @@ def _guarded_output_spans(text):
             " \t*|>#- ​﻿")
         if _GROUP_HEADING_RE.fullmatch(core.rstrip(".,:;!?")):
             spans.append((span_start, span_end))
+            continue
+        # A heading carrying trailing matter past the word
+        # group (CH-68, F-20-4-3): the head disposition form
+        # still fires on the state word at the head of the
+        # sentence, so the heading itself takes a span, and
+        # the span ends at the word group. Trailing matter
+        # stands outside the span, segment aware, so a genuine
+        # ruling standing in it or after it still counts.
+        lead = re.match(
+            r"[ \t\*\|>#\-\u00a0\u200b\ufeff]*",
+            text[span_start:span_end]).end()
+        heading = _GROUP_HEADING_RE.match(
+            text, span_start + lead)
+        if heading is not None and heading.start() < span_end:
+            spans.append((heading.start(), heading.end()))
     return spans
 
 
@@ -1059,19 +1198,59 @@ def _is_near_marker(text):
                 zip(match.group(1).lower(), "status")
                 if left != right) == 2:
         return True
+    colon = text.find(":")
+    if colon > 0:
+        # An invisible character standing inside the Status
+        # label or at its colon edge: the label read with its
+        # run class characters removed is the Status label,
+        # while the label as written is not (round 4 charge
+        # CH-56, seat 17 finding S17-ATK4-17-03). The line
+        # takes the near marker report, so no Ambiguous stands
+        # unexplained on those forms.
+        label = text[:colon]
+        cleaned = "".join(
+            char for char in label if not _in_leading_run(char))
+        if cleaned == "Status" and cleaned != label:
+            return True
     return False
 
 
 def _heading_info(line_text):
     # A prefix standing before a heading is absorbed: the
     # heading form is read from the text after any leading run
-    # of the one run set stated at ruling (d) (byte order marks,
-    # spaces, and tabs, and every character that ruling adds),
+    # of the one run reading stated at ruling (e) of record
+    # section 38 (the format, separator, control, and mark
+    # classes, holding every character ruling (d) enumerated),
     # on every path, so a mark combined with a space or a tab,
     # or a space standing alone, never deletes a heading.
     match = _HEADING_RE.match(
         line_text[_leading_status_run(line_text):])
     if not match:
+        return None
+    return len(match.group(1)), match.group(2)
+
+
+_TAB_HEADING_RE = re.compile(r"^(#{1,6})\t(.*)$")
+
+
+def _tab_heading_info(line_text):
+    """A heading line whose hashes stand separated from its
+    text by a tab, or None where the line is no such heading.
+
+    The plain space is the only separator the heading reader
+    takes after the hashes, so the tab form is no heading at
+    all to _heading_info: no unmatched heading Warning can
+    fire for it, and its body falls inside the preceding
+    entry span (Step 17 round 4, charge CH-58, seat 6
+    Finding 1). This reading names the form so the parse
+    can give it the unmatched heading treatment its
+    displaced neighbours take. It returns the heading level
+    and the heading text as written after the tab, read
+    behind the same leading run _heading_info reads behind.
+    """
+    match = _TAB_HEADING_RE.match(
+        line_text[_leading_status_run(line_text):])
+    if not match or not match.group(2):
         return None
     return len(match.group(1)), match.group(2)
 
@@ -1383,8 +1562,11 @@ class _EntryBuilder:
                 len(effective) > len(_STATUS_MARKER):
             separator = _separator_run(
                 effective[len(_STATUS_MARKER):])
+            folded = effective[
+                len(_STATUS_MARKER) + len(separator):]
             if effective[len(_STATUS_MARKER)] != " " or \
-                    any(char != " " for char in separator):
+                    any(char != " " for char in separator) or \
+                    (folded and _is_blank_presenting(folded[0])):
                 # A separator other than the taught colon and
                 # space, a tab or no space at all, takes the
                 # near marker report instead of passing as the
@@ -1427,17 +1609,46 @@ class _EntryBuilder:
                 ))
                 continue
             if start > 0:
+                prefix = effective[:start]
+                if prefix and any(
+                        _is_blank_presenting(char)
+                        for char in prefix) and all(
+                        _in_leading_run(char) or
+                        _is_blank_presenting(char)
+                        for char in prefix):
+                    # A marker standing behind a run of run
+                    # class and blank presenting characters
+                    # only, at what reads as the head of the
+                    # line, is demoted from its line start
+                    # standing by characters a reader cannot
+                    # see: it takes the near marker report
+                    # instead of passing as an embedded
+                    # element in silence (round 4 charge
+                    # CH-55, seat 17 finding S17-ATK4-17-02).
+                    self.near.append(NearMarkerOccurrence(
+                        line=number, text=text))
+                    continue
                 embedded_separator = _separator_run(
                     effective[end:stop])
-                if embedded_separator and any(
-                        char != " " for char in embedded_separator):
+                embedded_folded = effective[
+                    end + len(embedded_separator):stop]
+                if (embedded_separator and any(
+                        char != " " for char in embedded_separator)) or \
+                        (embedded_folded and
+                         _is_blank_presenting(embedded_folded[0])):
                     # The separator test reaches embedded
                     # occurrences on the same terms as line start
                     # occurrences (round 3 charge CH-38): a
                     # separator run carrying any whitespace or
                     # format character beyond plain spaces takes
                     # the near marker report and carries no
-                    # element.
+                    # element. A blank presenting character
+                    # standing at the head of the value, behind
+                    # a plain separator or as the whole
+                    # separator, takes the same report at the
+                    # embedded position alike, where it folded
+                    # into the value in silence (round 4 charge
+                    # CH-56, seat 17 finding S17-ATK4-17-01).
                     self.near.append(NearMarkerOccurrence(
                         line=number, text=text))
                     continue
@@ -1713,7 +1924,8 @@ class _EntryBuilder:
                              or label == "Decision"):
                 masked_first = _mask_comment_segments(first_text)
                 if any(span_start == 0 and
-                       not masked_first[span_end:].strip()
+                       not masked_first[span_end:].strip(
+                           " \t.,:;!?")
                        for span_start, span_end in
                        _guarded_output_spans(masked_first)):
                     # The paragraph first line is wholly a
@@ -1724,7 +1936,13 @@ class _EntryBuilder:
                     # stands on it. A first line carrying any
                     # matter past the row takes its element as
                     # before, and quoted ruling lines, which take
-                    # no guarded span, are untouched.
+                    # no guarded span, are untouched. At CH-68
+                    # the wholly test reads the row at the same
+                    # width as the span test: trailing sentence
+                    # punctuation standing after the row, a
+                    # period included, is no matter past the
+                    # row, so the two guard loci read the row at
+                    # one width (F-20-4-4, second mechanism).
                     return
                 block = DecisionBlock(
                     marking_form="unheaded labelled paragraph",
@@ -2012,6 +2230,58 @@ class _EntryBuilder:
 _FENCE_RUN_RE = re.compile(r"(`{3,}|~{3,})")
 
 
+def _stored_form(text):
+    """The stored form of one line, and its comment state.
+
+    Returns a pair: the line with its comment segments
+    removed, and whether a segment stands unclosed at the
+    end of the line. The parts of the line are joined at
+    the segment boundaries, and the join is normalised at
+    those boundaries alone (Step 17 fix wave 4, charge
+    CH-69, FLAG 4 at record section 38): where a segment
+    stood between two words, the spaces the segment was
+    fenced by become the one word break the line as
+    written carries, so a multiword label standing genuine
+    in the file reads as the label it is; where a segment
+    stood between a label and its colon, or before other
+    closing punctuation, no space stands at the boundary;
+    where a segment stood inside one word, the parts join
+    as they stood. Whitespace standing elsewhere in the
+    line, written in the file with no segment on it, is
+    untouched, so a space before a colon written in the
+    file keeps its form and its near marker treatment.
+    """
+    parts = []
+    index = 0
+    in_comment = False
+    while True:
+        opening = text.find("<!--", index)
+        if opening < 0:
+            parts.append(text[index:])
+            break
+        parts.append(text[index:opening])
+        closing = text.find("-->", opening + 4)
+        if closing < 0:
+            in_comment = True
+            break
+        index = closing + 3
+    stored = parts[0]
+    for part in parts[1:]:
+        if not part:
+            continue
+        if not stored:
+            stored = part
+            continue
+        core = part.lstrip(" \t")
+        if core and core[0] in ":,.;!?":
+            stored = stored.rstrip(" \t") + core
+        elif stored[-1] in " \t" or part[0] in " \t":
+            stored = stored.rstrip(" \t") + " " + core
+        else:
+            stored = stored + part
+    return stored, in_comment
+
+
 def _blank_line_genuine(text):
     """Blank one line standing outside any container.
 
@@ -2040,22 +2310,16 @@ def _blank_line_genuine(text):
     a fence and the line is blank whole, whether the run
     stood at the head of the line as written or stands at the
     head of the stored form after a closed segment.
+
+    The stored form itself is built by _stored_form, in the
+    same one act (Step 17 fix wave 4, charge CH-69): the
+    join at a segment boundary is normalised at that
+    boundary, at a word break and at a label colon, so the
+    matter the stored form carries is the matter the line
+    as written carries.
     """
-    parts = []
-    index = 0
-    in_comment = False
-    while True:
-        opening = text.find("<!--", index)
-        if opening < 0:
-            parts.append(text[index:])
-            break
-        parts.append(text[index:opening])
-        closing = text.find("-->", opening + 4)
-        if closing < 0:
-            in_comment = True
-            break
-        index = closing + 3
-    stored = "".join(parts).lstrip()
+    stored, in_comment = _stored_form(text)
+    stored = stored.lstrip()
     run = _FENCE_RUN_RE.match(stored)
     if run:
         return "", (run.group(1)[0], len(run.group(1))), False
@@ -2080,6 +2344,17 @@ def _inert_blanked_texts(lines):
     run, a run of the other character, and a run carrying an
     info string are fence content, not delimiters (F-11R2-01).
 
+    The closing test reads the same stored form the opening
+    side reads (Step 17 fix wave 4, charge CH-69, FLAG 4 at
+    record section 38): a closing line carrying a comment
+    segment, before its run or after it, is tested on its
+    stored form with the segments removed, so such a line
+    closes the fence on the same terms as a plain closing
+    line, and genuine matter after it stands credited. A
+    candidate whose stored form carries matter after its
+    run, an info string included, closes nothing, in a
+    segment position as in a plain one.
+
     The blanked lines are inert for exactly the two surfaces
     the M6 charges name: the presence tests and the field
     tests. Field recording reads blanked lines, and the body
@@ -2098,11 +2373,14 @@ def _inert_blanked_texts(lines):
         number = index + 1
         if fence is not None:
             blanked[number] = ""
-            run = _FENCE_RUN_RE.match(text.strip())
+            stored, unclosed = _stored_form(text)
+            candidate = stored.strip()
+            run = _FENCE_RUN_RE.match(candidate)
             if run and run.group(1)[0] == fence[0] and \
                     len(run.group(1)) >= fence[1] and \
-                    not text.strip()[run.end():].strip():
+                    not candidate[run.end():].strip():
                 fence = None
+                in_comment = unclosed
             continue
         if in_comment:
             closing = text.find("-->")
@@ -2212,8 +2490,13 @@ def parse_queue(input_value, limits):
                     "heading is present")
 
     headings = []
+    tab_heading_numbers = set()
     for index, line in enumerate(lines):
         info = _heading_info(line)
+        if info is None:
+            info = _tab_heading_info(line)
+            if info is not None:
+                tab_heading_numbers.add(index + 1)
         if info is not None:
             headings.append((index + 1, info[0], info[1]))
 
@@ -2238,9 +2521,19 @@ def parse_queue(input_value, limits):
                 return ("unnumbered", unnumbered)
         return None
 
+    def live_entry_form(number, level, heading_text):
+        # A tab separated heading stands in no live entry
+        # form (charge CH-58): it proves no entry heading
+        # presence and no section, as the displaced forms at
+        # levels 4 to 6 prove none, and its treatment stands
+        # in the starts loop below.
+        if number in tab_heading_numbers:
+            return None
+        return entry_form(level, heading_text)
+
     has_entry_heading = any(
-        entry_form(level, heading_text)
-        for _number, level, heading_text in headings)
+        live_entry_form(number, level, heading_text)
+        for number, level, heading_text in headings)
 
     if not has_entry_heading and not queue_header_present:
         return _failure(
@@ -2293,7 +2586,8 @@ def parse_queue(input_value, limits):
         # first held entry stands at level 2, as the reversed
         # tail of WV-2 puts DQ-171 first under its introduction.
         for later in headings[position + 1:]:
-            if later[1] == 2 and not entry_form(later[1], later[2]):
+            if later[1] == 2 and not live_entry_form(
+                    later[0], later[1], later[2]):
                 stop = later[0]
                 break
         else:
@@ -2303,10 +2597,11 @@ def parse_queue(input_value, limits):
             if other[0] >= stop:
                 break
             window.append(other)
-        if not any(entry_form(other[1], other[2])
+        if not any(live_entry_form(other[0], other[1], other[2])
                    for other in window):
             return False
-        if any(other[1] == 3 and entry_form(other[1], other[2])
+        if any(other[1] == 3 and live_entry_form(
+                other[0], other[1], other[2])
                for other in window):
             return True
         # The window holds entry headings at level 2 only. Such
@@ -2318,7 +2613,7 @@ def parse_queue(input_value, limits):
         # heading form before the first entry pins.
         first_entry_line = None
         for other in headings:
-            if entry_form(other[1], other[2]):
+            if live_entry_form(other[0], other[1], other[2]):
                 first_entry_line = other[0]
                 break
         return first_entry_line is not None \
@@ -2328,6 +2623,29 @@ def parse_queue(input_value, limits):
     started = False
     current_kind = "file header"
     for position, (number, level, heading_text) in enumerate(headings):
+        if number in tab_heading_numbers and not (
+                position == 0 and level == 1) and \
+                entry_form(level, heading_text):
+            # A heading line whose hashes stand separated
+            # from its text by a tab, standing in entry
+            # heading form, is no entry: it takes the
+            # unmatched heading treatment under PIN-06,
+            # naming the heading as written, as its
+            # displaced neighbours at levels 1 and 4 to 6
+            # do, and its lines stand in an orphan segment,
+            # in no entry span (Step 17 round 4, charge
+            # CH-58). The cure names displaced entry heading
+            # forms only: a tab separated heading in no entry
+            # form takes the ordinary heading handling below,
+            # and the queue header at the first position
+            # stands as file structure above, taking no
+            # Warning and no entry from this cure, under the
+            # CH-49 bound at FLAG 12.
+            starts.append((number, "orphan unmatched",
+                           (level, heading_text, None)))
+            started = True
+            current_kind = "orphan"
+            continue
         form = entry_form(level, heading_text)
         if form:
             starts.append((number, "entry", (level, heading_text, form)))
@@ -2371,6 +2689,22 @@ def parse_queue(input_value, limits):
                 started = True
                 current_kind = "section introduction"
                 continue
+            starts.append((number, "orphan unmatched",
+                           (level, heading_text, None)))
+            started = True
+            current_kind = "orphan"
+            continue
+        if level == 4 and current_kind == "entry" and (
+                _numbered_heading(heading_text) or
+                _unnumbered_heading(heading_text)):
+            # A level 4 heading in entry heading form, number
+            # and title in the taught form at the wrong level,
+            # is no decision block: it takes the unmatched
+            # heading treatment under PIN-06, naming the
+            # heading as written, as the level 1 entry form
+            # does above, and its lines stand in an orphan
+            # segment, in no entry above it (Step 17 round 4
+            # charge CH-63, F4-8-1).
             starts.append((number, "orphan unmatched",
                            (level, heading_text, None)))
             started = True
@@ -2603,8 +2937,22 @@ def parse_queue(input_value, limits):
                 # space preamble line escape this report while
                 # its zero and one space forms took it.
                 lead = text[_leading_status_run(text):]
+                blank_lead = lead
+                while blank_lead and \
+                        _is_blank_presenting(blank_lead[0]):
+                    blank_lead = blank_lead[1:]
                 if lead.startswith(_STATUS_MARKER) or \
-                        _is_near_marker(lead):
+                        _is_near_marker(lead) or (
+                        len(blank_lead) < len(lead) and (
+                            blank_lead.startswith(_STATUS_MARKER)
+                            or _is_near_marker(blank_lead))):
+                    # The preamble reading takes the same run
+                    # as the entry scan, and a blank presenting
+                    # character standing before the marker takes
+                    # the same report there, so a preamble line
+                    # does not escape the rule 2 finding behind
+                    # a character a reader cannot see (round 4
+                    # charge CH-55, the preamble limb).
                     first_builder.near.append(
                         NearMarkerOccurrence(line=number, text=text))
 
