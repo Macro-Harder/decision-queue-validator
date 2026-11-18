@@ -272,7 +272,9 @@ def _content_carries_cut_reference(content):
     return re.search(r"\bDQ-(?![0-9])", content) is not None
 
 
-def _final_line_is_cut_off(line_text, inside_fence=False):
+def _final_line_is_cut_off(line_text, inside_fence=False,
+                           inside_comment=False,
+                           previous_line=None):
     """Whether a final line with no terminator is cut off in form.
 
     A missing terminator alone does not cut a line off: under
@@ -323,6 +325,22 @@ def _final_line_is_cut_off(line_text, inside_fence=False):
     full stop form; and a heading or bullet content carrying
     a cut DQ reference stands cut, the heading limb reaching
     level 4 and below only.
+
+    Round 6 limbs (charge CH-95, record section 58): the
+    structural branches disregard a trailing run of the
+    ruling (a) ground classes after the closing mark, and
+    the prose branch disregards such a run after the
+    sentence closing punctuation; a final line standing
+    inside an HTML comment stands whole as comment matter,
+    on the inside_comment argument the caller reads at
+    _line_stands_inside_comment; a labelled line whose only
+    value matter is a run character stands as no value; the
+    Blocks reading drops the empty part between two
+    adjacent boundaries; the bullet marker set carries the
+    parenthesised marker and the bracket marker; and the
+    completeness reading reaches a dash setext underline in
+    underline position, on the previous_line argument, and
+    an underscore thematic break in its own closing form.
     """
     text = line_text
     if text.endswith("\r"):
@@ -352,6 +370,17 @@ def _final_line_is_cut_off(line_text, inside_fence=False):
         # no fence stands open before it, and its reading
         # stands as the delimiter and prose branches give it.
         return False
+    if inside_comment:
+        # A final line standing inside an HTML comment is
+        # comment matter, as the parser reads it on every
+        # other line: it stands whole in that form, on the
+        # posture of the fence content limb above (Step 17
+        # round 6, charge CH-95, ATK6-2-03). The comment
+        # opener standing as the final line itself stands
+        # outside this limb: no comment stands open before
+        # it, and its reading stands as the prose branch
+        # gives it.
+        return False
     if stripped.startswith(_STATUS_MARKER):
         return stripped[len(_STATUS_MARKER):].strip() == ""
     if stripped.startswith(_VARIANT_MARKER):
@@ -364,6 +393,19 @@ def _final_line_is_cut_off(line_text, inside_fence=False):
                 ci_match.group(1).strip().lower() not in (
                     "status", "status unchanged"):
             label_match = ci_match
+    if label_match and (label_match.group(2) or "").strip() and \
+            not "".join(
+                char for char in label_match.group(2)
+                if not _in_leading_run(char)).strip():
+        # A labelled line whose only value matter is a run
+        # of the ground classes carries no value in form: a
+        # value carrying nothing but characters of those
+        # classes stands as no value for the limb 6 reading
+        # below, as its terminated twin stands parsed with a
+        # Warning (Step 17 round 6, charge CH-95, ATK6-2-04).
+        # A run character standing before value matter is a
+        # value, not no value, and stands outside this limb.
+        return False
     if label_match and (label_match.group(2) or "").strip():
         # A labelled line carrying a value stands whole only
         # where the value is complete in its own form: the
@@ -386,8 +428,9 @@ def _final_line_is_cut_off(line_text, inside_fence=False):
         # above, as the docstring of this rule states, and
         # that member is not reached here.
         return False
-    bullet = re.match(r"(?:[-*+]|[0-9]+\.|[0-9]+\))\s+(.*)$",
-                      stripped)
+    bullet = re.match(
+        r"(?:[-*+]|[0-9]+\.|[0-9]+\)|\([0-9]+\)|[0-9]+\])"
+        r"\s+(.*)$", stripped)
     if bullet is not None:
         # A bullet item stands whole in item form with no
         # sentence close, but its content is read under the
@@ -407,6 +450,10 @@ def _final_line_is_cut_off(line_text, inside_fence=False):
         # Step 17 round 5, charge CH-81, ATK5-2-03, the K9
         # bound of the digits and full stop form extended by
         # this one form as charged, under the same guards.
+        # The parenthesised marker and the bracket marker
+        # stand in the set from Step 17 round 6, charge
+        # CH-95, ATK6-2-06, under the same guards, the cut
+        # side stated for each newly reached marker.
         # The content is also tested for a cut DQ reference
         # (charge CH-81, ATK5-2-04): a reference token is not
         # alphabetic in the fragment guard form, so a cut
@@ -448,28 +495,54 @@ def _final_line_is_cut_off(line_text, inside_fence=False):
         # A fence delimiter is complete as a delimiter: it
         # closes on its run and carries no prose to cut.
         return False
-    if stripped.startswith("<!--") and len(stripped) >= 7 and \
-            stripped.find("-->", 4) == len(stripped) - 3:
+    # The structural branches disregard a trailing run of
+    # the ground classes standing after the closing mark, as
+    # the labelled branches disregard those characters at the
+    # end of a labelled value (Step 17 round 6, charge CH-95,
+    # ATK6-2-01): the closed form is read on the line with
+    # its trailing run removed, so a line cut inside its
+    # closing mark, whose mark stands incomplete on that
+    # reading, falls through and stands cut.
+    closed = stripped
+    while closed and _in_leading_run(closed[-1]):
+        closed = closed[:-1]
+    if closed.startswith("<!--") and len(closed) >= 7 and \
+            closed.find("-->", 4) == len(closed) - 3:
         # An HTML comment closing on its closing mark is
         # complete in its own form (Step 17 round 5, charge
         # CH-81, ATK5-2-01). A comment left unclosed falls
         # through to the prose branch below.
         return False
-    if re.fullmatch(r"=+", stripped):
+    if re.fullmatch(r"=+", closed):
         # A setext heading underline of equals signs is
         # complete in its own form: it closes on its run
-        # (charge CH-81, ATK5-2-01). The dash run forms stand
-        # as the thematic break forms round 4 left them and
-        # are not reached here.
+        # (charge CH-81, ATK5-2-01).
         return False
-    if len(stripped) > 1 and stripped.startswith("|") and \
-            stripped.endswith("|") and stripped.count("|") >= 2:
+    if re.fullmatch(r"-{3,}", closed) and \
+            previous_line is not None and \
+            previous_line.strip() != "":
+        # A setext heading underline of dashes standing in
+        # underline position, its preceding line carrying
+        # matter, is complete in its own form (Step 17 round
+        # 6, charge CH-95, ATK6-2-07). A dash run standing in
+        # break position, after a blank line or at the head
+        # of the file, stands as the thematic break forms
+        # round 4 left it and is not reached here.
+        return False
+    if re.fullmatch(r"_{3,}", closed):
+        # An underscore thematic break is complete in its
+        # own form: it closes on its run of three or more
+        # underscores (charge CH-95, ATK6-2-07). A shorter
+        # run closes no form and falls through.
+        return False
+    if len(closed) > 1 and closed.startswith("|") and \
+            closed.endswith("|") and closed.count("|") >= 2:
         # A table row closing on its final pipe is complete
         # in its own form (charge CH-81, ATK5-2-01), subject
         # to the reference completeness test of ATK5-2-04.
         # A row missing its final pipe falls through to the
         # prose branch below.
-        return _content_carries_cut_reference(stripped)
+        return _content_carries_cut_reference(closed)
     blockquote = re.match(r">\s*(.+)$", stripped)
     if blockquote is not None:
         # A blockquote line is complete in its own form: it
@@ -505,6 +578,15 @@ def _final_line_is_cut_off(line_text, inside_fence=False):
         return False
     core = stripped.rstrip("\"')]}"
                            "”’")
+    # The prose branch disregards a trailing run of the
+    # ground classes standing after the sentence closing
+    # punctuation, before its sentence close test (Step 17
+    # round 6, charge CH-95, ATK6-2-02): a run character
+    # standing after the punctuation hides no sentence
+    # close, and a run character rescues no line that
+    # closes no sentence.
+    while core and _in_leading_run(core[-1]):
+        core = core[:-1]
     return not core.endswith((".", "?", "!"))
 
 
@@ -677,12 +759,24 @@ def _labelled_value_stands_whole(label, value):
         # terminated twin. An empty part at any other
         # boundary, a trailing joining word among them,
         # still fails its test below.
-        parts = []
+        split_parts = []
         for part in re.split(
                 r",|\band\b|\r", re.sub(r"\r+", "\r", core)):
             part = part.strip()
             while part and _in_leading_run(part[-1]):
                 part = part[:-1]
+            split_parts.append(part)
+        # Two part boundaries standing adjacent yield an
+        # empty part between them: that empty part stands as
+        # the field reading of the same bytes takes it, no
+        # part at all, so it is dropped here (Step 17 round
+        # 6, charge CH-95, ATK6-2-05). An empty part at any
+        # other boundary, a trailing joining word among
+        # them, still fails its test below.
+        parts = []
+        for index, part in enumerate(split_parts):
+            if part == "" and 0 < index < len(split_parts) - 1:
+                continue
             parts.append(part)
         return bool(parts) and all(parts) and all(
             part == "None" or
@@ -828,10 +922,27 @@ _GUARD_COUNT = (
 # phrase bound stood. Where no entries noun stands after
 # the colon, the CH-68 count phrase at _GUARD_COUNT
 # stands as the count reading, whole on its listed forms.
+# At CH-107 (record section 58, ruling (b)) the count
+# width stands restated in its own terms: the region
+# joints take any whitespace character and the zero
+# width characters, a clause breaking mark standing
+# between the count and its noun is region matter, the
+# row noun stands as entries, entry, items, questions,
+# or cases, a trailing underscore on the noun standing
+# as row matter, and a single count token standing
+# alone takes its span where no noun form stands. The
+# K3 stated bounds stand superseded at this limb in
+# the open by that ruling.
 _GUARD_COUNT_WIDE = (
-    r"(?:(?i:entries)(?!\w)|[^\s;:!?]+"
-    r"(?:[ \t\u00a0]+[^\s;:!?]+)*?"
-    r"[ \t\u00a0]+(?i:entries)(?!\w))")
+    r"(?:(?i:entries|entry|items|questions|cases)"
+    r"_*(?!\w)|[^\s;:!?\u200b\u200c\u200d\ufeff]+"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?\u200b\u200c\u200d\ufeff]+)*?"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*[;:!?]+"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*)"
+    r"(?i:entries|entry|items|questions|cases)"
+    r"_*(?!\w)|[^\s;:!?\u200b\u200c\u200d\ufeff]+)")
 
 # A tally count at the same width (CH-88): the CH-68
 # count phrase, or any single count region token standing
@@ -840,15 +951,29 @@ _GUARD_COUNT_WIDE = (
 # of a crosswalk row, the pipes and occurrence word of an
 # appendix row), so one token past the phrase vocabulary
 # is the whole of its width, and no span lengthens past
-# its delimiter into ruling matter.
+# its delimiter into ruling matter. At CH-107 the tally
+# count width stands restated in its own terms: the
+# CH-68 count phrase, or one or more count region
+# tokens joined by whitespace, so a tally count spelled
+# in several words stands at the reading width between
+# its delimiters, and no span lengthens past its
+# delimiter into ruling matter on that ground either.
 _GUARD_COUNT_TALLY = (
-    r"(?:" + _GUARD_COUNT + r"|[^\s;:!?,|]+)")
+    r"(?:" + _GUARD_COUNT + r"|[^\s;:!?,|]+"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+)*)")
 
 # The crosswalk total word at its tally width (CH-88):
 # the word total in either case, its plural, and its
 # prefixed subtotal form, where the CH-68 pattern read
-# the exact word total alone.
-_GUARD_TOTAL_WORD = r"(?i:(?:sub)?totals?)"
+# the exact word total alone. At CH-107 the total word
+# width stands restated in its own terms: the word
+# total in either case, its plural, its prefixed
+# subtotal form, the two word form grand total, and
+# the word sum.
+_GUARD_TOTAL_WORD = (
+    r"(?:(?i:grand)[^\w]+(?i:total)|"
+    r"(?i:(?:sub)?totals?)|(?i:sum))")
 
 _COUNT_ROW_RE = re.compile(
     r"(?i:canonical)" + _GUARD_JOINT +
@@ -877,13 +1002,20 @@ _COUNT_ROW_RE = re.compile(
 # row at one width, one step past the CH-68 trailing
 # punctuation form: a trailing word that is the row noun
 # is row matter, and any other matter past the row takes
-# its labelled element as before.
+# its labelled element as before. At CH-107 the tail
+# width stands restated in its own terms: a single word
+# token standing after the final count at a whitespace
+# joint is row matter, the final noun items in that
+# form, and any further matter past that token takes
+# its labelled element as before, so the span and the
+# wholly row test still read the row at one width.
 _CROSSWALK_ROW_RE = re.compile(
     _GUARD_STATE + _GUARD_JOINT_OPT + r":" + _GUARD_JOINT +
     _GUARD_STATE + _GUARD_JOINT + _GUARD_COUNT_TALLY +
     r"(?:" + _GUARD_JOINT + _GUARD_TOTAL_WORD +
     _GUARD_JOINT + _GUARD_COUNT_TALLY +
-    r"(?:[ \t\u00a0]+(?i:entries)(?!\w))?|" +
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+)?|" +
     _GUARD_JOINT + r"(?i:in)" + _GUARD_JOINT +
     _GUARD_TOTAL_WORD + r")")
 
@@ -900,12 +1032,20 @@ _CROSSWALK_ROW_RE = re.compile(
 # ordinary words time and hit a tally takes when it is
 # copied through prose): the row shape, its phrasing,
 # kind, count, and entries list, is the guard ground,
-# not the one noun the printer puts in that place.
+# not the one noun the printer puts in that place. At
+# CH-107 the appendix kind width stands restated in
+# its own terms, at the charged limb only: the kind
+# slot stands as one to three word tokens joined by
+# whitespace between its pipes, the word joined form
+# line_start standing as one such token, a kind with a
+# leading word standing as three, and a kind word
+# outside the three printed kinds standing as one.
 _APPENDIX_ROW_RE = re.compile(
     _GUARD_STATE + _GUARD_JOINT_OPT +
     r"\|" + _GUARD_JOINT_OPT +
-    r"(?:(?i:line)" + _GUARD_JOINT + r"(?i:start)|"
-    r"(?i:embedded)|(?i:variant))" + _GUARD_JOINT_OPT +
+    r"(?:[^\s;:!?,|]+"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+){0,2})" + _GUARD_JOINT_OPT +
     r"\|" + _GUARD_JOINT_OPT + _GUARD_COUNT_TALLY +
     _GUARD_JOINT_OPT + r"[^\s;:!?,|]+")
 
@@ -1408,6 +1548,35 @@ def _one_edit_away(word, target):
     return word[index:] == target[index + 1:]
 
 
+def _is_charged_label_damage(label):
+    """Whether a label carries one charged non letter
+    character of round 6 charge CH-111: a digit, an
+    underscore, a hyphen, or a braille dot pattern character
+    substituted for one letter of the Status word, or one
+    such character standing inside the word beside its whole
+    letters, or one digit standing after the complete word.
+    Two such characters, a letter in any of those positions,
+    and any character other than a digit after the complete
+    word stand outside the charge."""
+    def charged(char):
+        return (char.isascii() and char.isdigit()) or \
+            char in "_-" or "\u2800" <= char <= "\u28ff"
+    if len(label) == 6:
+        differing = [index for index in range(6)
+                     if label[index] != "Status"[index]]
+        return len(differing) == 1 and \
+            charged(label[differing[0]])
+    if len(label) == 7:
+        for index in range(7):
+            if label[:index] + label[index + 1:] == "Status":
+                char = label[index]
+                if index == 6:
+                    return char.isascii() and char.isdigit()
+                return charged(char)
+        return False
+    return False
+
+
 def _is_near_marker(text):
     """The near marker forms.
 
@@ -1457,6 +1626,18 @@ def _is_near_marker(text):
         cleaned = "".join(
             char for char in label if not _in_leading_run(char))
         if cleaned == "Status" and cleaned != label:
+            return True
+        # A label carrying one charged non letter character
+        # inside the label word, or one digit standing after
+        # the complete label word (round 6 charge CH-111,
+        # seat 17 finding S17-ATK6-17-01): the character
+        # stands in neither the letter readings above nor the
+        # cleaning ground restated at record section 52
+        # ruling (a), so the label took no near marker report
+        # and its Ambiguous stood unexplained. The near
+        # marker reading takes the charged forms at that
+        # joint, on the bound stated at _is_charged_label_damage.
+        if _is_charged_label_damage(label):
             return True
     return False
 
@@ -1527,8 +1708,17 @@ def _separator_heading_info(line_text):
     if not separator.strip(" "):
         return None
     heading_text = rest[index:]
-    if not heading_text:
-        return None
+    # The empty text form stands in this reading (Step 17
+    # round 6, charge CH-100, seat 6 Finding 1): a heading
+    # line separated from an empty text by a separator
+    # character of the ground takes the same unmatched
+    # heading treatment the plain space form takes, naming
+    # the heading as written, where it was no heading at
+    # all to the reader before and was named on no surface.
+    # The no heading side stands as stated above: a
+    # separator character outside the ground makes no
+    # heading, and bare hashes with no separator at all
+    # make no heading.
     return len(match.group(1)), heading_text
 
 
@@ -1650,12 +1840,31 @@ def _bullet_token_continues(text, position):
     if any(part in name for part in
            ("BLANK", "FILLER", "FILL", "REPLACEMENT")):
         return True
-    if (unicodedata.category(character)[0] in "LS"
-            or unicodedata.category(character) == "Pc") \
+    if unicodedata.category(character)[0] in "LSP" \
             and position + 1 < len(text) \
             and text[position + 1] in "0123456789":
         return True
+    # CH-97, seat 4 F-2: a hyphen class character standing
+    # immediately after a token's digits, in the trailing
+    # position as in the inside position, marks the token
+    # as hyphenated matter, not the clean token, on the
+    # parse claim scans this guard serves.
+    if unicodedata.category(character) == "Pd":
+        return True
     return False
+
+
+def _guarded_dq_tokens(text):
+    """The DQ tokens of a segment line under the
+    continuation guard: a token whose digits continue in a
+    character of the guard ground, inside its digits or
+    after them, is refused whole, never named in part as
+    its ASCII head. The segment claim naming reading stands
+    on this guard (Step 17 round 6, CH-97, seat 4 F-2)."""
+    for match in _DQ_TOKEN_RE.finditer(text):
+        if _bullet_token_continues(text, match.end()):
+            continue
+        yield match.group(0)
 
 
 def _heading_borne(record):
@@ -1873,6 +2082,7 @@ class _EntryBuilder:
         # genuine matter on the same line, before or after a
         # comment segment, is read at its own position.
         scanned = _mask_comment_segments(text)
+        stored_taken = False
         masked_head = scanned[_leading_status_run(scanned):]
         if "<!--" in text and not (
                 masked_head.startswith(_STATUS_MARKER)
@@ -1902,6 +2112,7 @@ class _EntryBuilder:
             if stored_head.startswith(_STATUS_MARKER) or \
                     stored_head.startswith(_VARIANT_MARKER):
                 scanned = stored
+                stored_taken = True
         offset = 0
         effective = scanned
         run = _leading_status_run(scanned)
@@ -2024,6 +2235,58 @@ class _EntryBuilder:
             value = effective[end:stop].lstrip(" ")
             if stop < len(effective):
                 value = value.rstrip(" ")
+            if start == 0 and not stored_taken and \
+                    "<!--" in text:
+                # The element value reading on a plain label
+                # line takes the stored form act (round 6
+                # charge CH-108, F-11R6-01, ruled at record
+                # section 58 ruling (d)): where the label
+                # stands plain the masked form opens with the
+                # marker, the CH-89 gate above is not met, and
+                # the scan proceeds on the masked form, in
+                # which a comment segment standing inside the
+                # disposition value word or after it stands as
+                # a run of spaces, splitting the word or
+                # padding its recorded form. Where a closed
+                # segment stands at or after the start of the
+                # value on such a line, the value is read from
+                # the stored form of the line, its segments
+                # removed and its parts joined at the segment
+                # boundaries alone under the CH-69 act, so the
+                # value word stands whole and a segment after
+                # it leaves no masked padding in the recorded
+                # value. Every other position on the line
+                # keeps its standing reading: the label and
+                # the colon keep the masked and CH-89 readings,
+                # the separator keeps the masked separator
+                # reading that credits a segment standing
+                # between the colon and the value, the
+                # occurrence positions keep the masked
+                # positions, and a segment left unclosed
+                # credits nothing past its opening, the masked
+                # reading standing on such a line whole.
+                value_start = offset + end + len(
+                    _separator_run(effective[end:]))
+                openings = [match.start() for match in
+                            re.finditer(re.escape("<!--"), text)]
+                stored, unclosed = _stored_form(text)
+                stored_head = stored[
+                    _leading_status_run(stored):]
+                if not unclosed and openings and \
+                        any(opening >= value_start
+                            for opening in openings) and \
+                        stored_head.startswith(_STATUS_MARKER):
+                    stored_rest = stored_head[
+                        len(_STATUS_MARKER):]
+                    stored_rest = stored_rest[
+                        len(_separator_run(stored_rest)):]
+                    stored_stop = len(stored_rest)
+                    for marker in (_STATUS_MARKER,
+                                   _VARIANT_MARKER):
+                        found = stored_rest.find(marker, 1)
+                        if 0 < found < stored_stop:
+                            stored_stop = found
+                    value = stored_rest[:stored_stop].rstrip(" ")
             if value.strip() == "":
                 # An empty Status value is not a phrasing: it
                 # carries no element and derivation never reads
@@ -2806,6 +3069,41 @@ def _line_stands_inside_fence(lines, final_index):
     return fence is not None
 
 
+def _line_stands_inside_comment(lines, final_index):
+    """Whether the line at final_index stands inside an HTML
+    comment: a comment opened by an earlier line of the file
+    and not closed before it. The comment state is tracked
+    on the same terms _line_stands_inside_fence tracks the
+    fence state, so the final line test reads the container
+    the parser itself applies to every other line (Step 17
+    round 6, charge CH-95, ATK6-2-03)."""
+    fence = None
+    in_comment = False
+    for text in lines[:final_index]:
+        if fence is not None:
+            stored, unclosed = _stored_form(text)
+            candidate = stored.strip()
+            run = _FENCE_RUN_RE.match(candidate)
+            if run and run.group(1)[0] == fence[0] and \
+                    len(run.group(1)) >= fence[1] and \
+                    not candidate[run.end():].strip():
+                fence = None
+                in_comment = unclosed
+            continue
+        if in_comment:
+            closing = text.find("-->")
+            if closing < 0:
+                continue
+            _rest, fence, in_comment = _blank_line_genuine(
+                text[closing + 3:])
+            continue
+        if "<!--" not in text and \
+                not _FENCE_RUN_RE.match(text.strip()):
+            continue
+        _blanked, fence, in_comment = _blank_line_genuine(text)
+    return in_comment
+
+
 def _inert_line_numbers(lines):
     """The lines carrying container matter, by line number."""
     return set(_inert_blanked_texts(lines))
@@ -3205,7 +3503,7 @@ def parse_queue(input_value, limits):
                 scan_lines = segment_lines
             named = []
             for _number, segment_text in scan_lines:
-                for token in _DQ_TOKEN_RE.findall(segment_text):
+                for token in _guarded_dq_tokens(segment_text):
                     if token not in named:
                         named.append(token)
                 for token in _R_TOKEN_RE.findall(segment_text):
@@ -3223,7 +3521,7 @@ def parse_queue(input_value, limits):
                 claim_named = []
                 for _number, segment_text in scan_lines:
                     if segment_text.startswith("- "):
-                        for token in _DQ_TOKEN_RE.findall(segment_text):
+                        for token in _guarded_dq_tokens(segment_text):
                             if token not in claim_named:
                                 claim_named.append(token)
                 claims.append(SegmentClaim(
@@ -3345,6 +3643,55 @@ def parse_queue(input_value, limits):
         builders[start] = _EntryBuilder(record, lines_by_number)
         builders[start].inert_line_numbers = inert
         builders[start].inert_blanked_texts = inert_texts
+
+    # A split part opening with an entry heading, at either
+    # charged join character, takes the file level signal
+    # (Step 17 round 6, charge CH-96, seat 3 finding A6-3-F1,
+    # ruled at record section 58 ruling (e), option (i)): the
+    # CH-78 tail scan above splits a joined line on the join
+    # characters but selects a split part only where it opens
+    # with a marker, a variant marker, or a near marker, so a
+    # part opening with an entry heading was selected by
+    # nothing and the entry stood deleted from every count
+    # in silence. The cure stands at the tail scan selection:
+    # such a part is signalled at file level in the README
+    # form, the unmatched heading Warning naming the heading
+    # as written, on an orphan segment of the standing form.
+    # The brief partition rule at _partition_lines stands
+    # unmoved, no entry is raised for the joined heading, and
+    # every CH-78 pin stands whole: a part opening with no
+    # heading form, and a part opening with a heading in no
+    # entry form, takes no signal.
+    for index, line in enumerate(lines):
+        if not any(char in line
+                   for char in "\r\u2028\u2029\u0085\x0b\x0c"):
+            continue
+        parts = re.split(
+            r"[\r\u2028\u2029\u0085\x0b\x0c]", line)
+        for part in parts[1:]:
+            joined_info = _heading_info(part)
+            if joined_info is None:
+                joined_info = _separator_heading_info(part)
+            if joined_info is None:
+                continue
+            if not entry_form(joined_info[0], joined_info[1]):
+                continue
+            number = index + 1
+            orphans.append(OrphanSegment(
+                kind="other file level segment",
+                span=Span(number, number, "heading cut"),
+                heading_text=joined_info[1],
+                unmatched_heading=True,
+                lines=[(number, part)],
+            ))
+            parse_notes.append(ParseNote(
+                kind="unmatched heading",
+                text="the heading " + joined_info[1] +
+                     " matches no entry form, no known file "
+                     "level form and no sub part form; its lines "
+                     "stand in an orphan segment",
+                line_span=Span(number, number, "heading cut"),
+            ))
 
     if builders:
         # A Status line standing in the file header or a section
@@ -3584,7 +3931,10 @@ def parse_queue(input_value, limits):
             line_count
             and _final_line_is_cut_off(
                 lines_by_number[line_count],
-                _line_stands_inside_fence(lines, line_count - 1)))
+                _line_stands_inside_fence(lines, line_count - 1),
+                _line_stands_inside_comment(lines, line_count - 1),
+                lines_by_number[line_count - 1]
+                if line_count >= 2 else None))
         # The unparsed marker, under the Entry shape at brief
         # section 5.5 and PIN-05: the express exception is the
         # heading borne determining element, the element PIN-05

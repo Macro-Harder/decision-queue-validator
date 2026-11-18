@@ -1362,7 +1362,7 @@ def _chain_lines(output):
         line = " -> ".join(escape_text(item) for item in ids)
         if cycle:
             line += " (cycle)"
-        rendered.append(line)
+        rendered.append(_column_zero_carried_line(line))
     if not rendered:
         return []
     lines = ["Supersession map", "", MAP_HEAD_LINE]

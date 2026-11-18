@@ -560,6 +560,114 @@ _REMAINDER_PATTERNS = (
     re.compile(r"[Tt]he rest, (.+?), (?:also )?stays undecided\b"),
     re.compile(r"([Tt]he remainder) (?:also )?stays undecided\b"),
     re.compile(r"([Tt]he rest) (?:also )?stays undecided\b"),
+    # Round 6 limbs (charge CH-106, A6-10-F2), appended after
+    # every standing pattern, so a form a standing pattern
+    # already reads keeps that reading first: the plain is
+    # pending and is undecided forms; stands pending; stays
+    # outstanding and is still outstanding; remains
+    # undecided; is not yet decided; awaits a decision and
+    # is awaiting decision; has yet to be decided; is left
+    # undecided; stands unresolved; is held open; and
+    # continues to remain open. Each verb stands for both
+    # subjects, the rest and the remainder, in the named
+    # form and in the bare form, as the CH-87 limbs stand.
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?is pending\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?is pending\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?is pending\b"),
+    re.compile(r"([Tt]he rest) (?:also )?is pending\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"is undecided\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?is undecided\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?is undecided\b"),
+    re.compile(r"([Tt]he rest) (?:also )?is undecided\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"stands pending\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"stands pending\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"stands pending\b"),
+    re.compile(r"([Tt]he rest) (?:also )?stands pending\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"stays outstanding\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"stays outstanding\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"stays outstanding\b"),
+    re.compile(r"([Tt]he rest) (?:also )?"
+               r"stays outstanding\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"is still outstanding\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"is still outstanding\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"is still outstanding\b"),
+    re.compile(r"([Tt]he rest) (?:also )?"
+               r"is still outstanding\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"remains undecided\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"remains undecided\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"remains undecided\b"),
+    re.compile(r"([Tt]he rest) (?:also )?"
+               r"remains undecided\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"is not yet decided\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"is not yet decided\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"is not yet decided\b"),
+    re.compile(r"([Tt]he rest) (?:also )?is not yet decided\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"awaits a decision\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"awaits a decision\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"awaits a decision\b"),
+    re.compile(r"([Tt]he rest) (?:also )?awaits a decision\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"is awaiting decision\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"is awaiting decision\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"is awaiting decision\b"),
+    re.compile(r"([Tt]he rest) (?:also )?"
+               r"is awaiting decision\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"has yet to be decided\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"has yet to be decided\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"has yet to be decided\b"),
+    re.compile(r"([Tt]he rest) (?:also )?"
+               r"has yet to be decided\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"is left undecided\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"is left undecided\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"is left undecided\b"),
+    re.compile(r"([Tt]he rest) (?:also )?is left undecided\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"stands unresolved\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"stands unresolved\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"stands unresolved\b"),
+    re.compile(r"([Tt]he rest) (?:also )?stands unresolved\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"is held open\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?is held open\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?is held open\b"),
+    re.compile(r"([Tt]he rest) (?:also )?is held open\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"continues to remain open\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"continues to remain open\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"continues to remain open\b"),
+    re.compile(r"([Tt]he rest) (?:also )?"
+               r"continues to remain open\b"),
 )
 
 
@@ -1230,6 +1338,9 @@ def _derive(entry):
                                  claim_statement, re.IGNORECASE)
         _verdict_noun = re.search(r"\bverdict\b",
                                   claim_statement, re.IGNORECASE)
+        _settlement_noun = re.search(r"\bsettlement\b",
+                                      claim_statement,
+                                      re.IGNORECASE)
         _shut_form = re.search(r"\bshut\b",
                                claim_statement, re.IGNORECASE)
         _sealed_form = re.search(r"\bsealed\b",
@@ -1243,6 +1354,14 @@ def _derive(entry):
         # beside sealed and the verdict noun beside shut are
         # not crossings of this reading, and no cure here
         # widens by pattern family.
+        # CH-102, S17-ATK6-7-04, named crossings only under
+        # the same ruling (f) as restated at section 58: two
+        # further named crossings, the ruling noun beside
+        # sealed and the settlement noun beside shut, derive
+        # as the CH-84 crossings derive. The two bound
+        # guards stand pinned deriving Open in both
+        # directions, and no cure here widens by pattern
+        # family.
         if ((_decided_verb and _closed_form)
                 or (_decision_noun and _closed_form)
                 or (_shut_form and _ruling_noun)
@@ -1251,7 +1370,9 @@ def _derive(entry):
                 or (_ruling_noun and _closed_form)
                 or (_verdict_noun and _closed_form)
                 or (_decided_verb and _shut_form)
-                or (_verdict_noun and _sealed_form)):
+                or (_verdict_noun and _sealed_form)
+                or (_ruling_noun and _sealed_form)
+                or (_settlement_noun and _shut_form)):
             others = [e for e in effective
                       if e is not determining
                       and _denoted_state(entry, e, elements)
@@ -1731,8 +1852,14 @@ def _check2(entry, display_id):
     # its head only; no governed heading form carries that
     # marker, and no heading becomes an occurrence by this
     # limb.
+    # CH-101, S17-ATK6-7-06: the heading limb reads the
+    # Status marker in either case, as the ghost and claim
+    # scans of this surface read their forms in either
+    # case; the capitalised form's counted and listed
+    # treatment stands unmoved.
     for line_number, text in _body_lines(entry):
-        if re.match(r"^\s*#{1,6}\s+Status\s*:", text or ""):
+        if re.match(r"^\s*#{1,6}\s+Status\s*:", text or "",
+                    re.IGNORECASE):
             findings.append(_finding(
                 2, "Warning", display_id,
                 Span(line_number, line_number), text,
@@ -2171,8 +2298,14 @@ _GHOST_SUBJECT_PATTERNS = (
     # Ruled, Decided, and Settled stand in this list beside
     # the present forms, as Closed and Settled stand in the
     # evidence verb first list since CH-60.
+    # CH-101, S17-ATK6-7-01: the Closed form and the
+    # Resolve forms (Resolve, Resolves, Resolved) stand in
+    # this list beside the standing forms, as Closed and
+    # Resolve stand in the evidence verb first list since
+    # CH-60. No other list member moves.
     re.compile(r"\b(?:Settle|Settles|Close|Closes|Rule|Rules|"
-               r"Decide|Decides|Ruled|Decided|Settled)\s+"
+               r"Decide|Decides|Ruled|Decided|Settled|Closed|"
+               r"Resolve|Resolves|Resolved)\s+"
                r"DQ-([0-9]+)\b", re.IGNORECASE),
     re.compile(r"\bquestion for DQ-([0-9]+)\b", re.IGNORECASE),
     # CH-39, S17-ATK3-7-02: the was form on the entry own
@@ -2197,8 +2330,17 @@ _GHOST_SUBJECT_PATTERNS = (
                r"decided|shut)(?:\s+(?:yesterday|today|already|"
                r"earlier|recently|now|last\s+week|in\s+full)\b"
                r"|\s*\.)", re.IGNORECASE),
+    # CH-101, S17-ATK6-7-02: the stands pattern carries
+    # the same state list the remains and stays pattern
+    # carries, decided included, and the left closed form
+    # stands read by the predicate family in its own
+    # pattern. No state word beyond the charged forms is
+    # added to any list.
     re.compile(r"\bDQ-([0-9]+)\s+stands\s+(?:closed|settled|"
-               r"ruled|banked|open|shut)\b", re.IGNORECASE),
+               r"ruled|banked|open|shut|decided)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+left\s+closed\b",
+               re.IGNORECASE),
     # CH-83, S17-ATK5-7-01: the remains and stays forms the
     # prose claim scan reads stand in this scan beside the
     # stands form CH-60 added, on the same Status line
@@ -2237,6 +2379,21 @@ def _ghost_subject_texts(entry, derived, elements, field_span):
         if (text or "").strip().startswith("####"):
             texts.append((text or "", Span(line_number, line_number)))
     return texts
+
+
+def _guarded_ghost_matches(pattern, text):
+    """The ghost subject pattern matches of a text, under
+    the CH-97 continuation guard: a match whose subject
+    token continues in a character of the guard ground,
+    inside its digits or after them, is refused whole,
+    never read in part as its ASCII head. Every read of
+    _GHOST_SUBJECT_PATTERNS stands on this guard (Step 17
+    round 6, seat 4 F-2)."""
+    text = text or ""
+    for match in pattern.finditer(text):
+        if _token_continues_at(text, match.end(1)):
+            continue
+        yield match
 
 
 def _check5(entry, display_id, derived, elements,
@@ -2634,7 +2791,8 @@ def _check5(entry, display_id, derived, elements,
     body_lines = _body_lines(entry)
     for index, (_line, text) in enumerate(body_lines):
         decider_match = re.match(
-            r"^\s*(?:Ruled|Settled|Decided) by:\s*(.*?)\s*$",
+            r"^\s*(?:[-*+]\s+|>\s*)?"
+            r"(?:Ruled|Settled|Decided)[ \t]+by:\s*(.*?)\s*$",
             text or "", re.IGNORECASE)
         if not decider_match:
             continue
@@ -2645,7 +2803,18 @@ def _check5(entry, display_id, derived, elements,
             # CH-85, F5-8-6): the next line counts as the
             # value only where it stands alone as a name, a
             # short line carrying no sentence of its own.
-            following = (body_lines[index + 1][1] or "").strip()
+            # Round 6 charge CH-103, F6-8-6: blank lines
+            # standing between the decider line and its
+            # value are read over, so the first non blank
+            # line stands as the candidate value.
+            follow_index = index + 1
+            while follow_index < len(body_lines) and \
+                    not (body_lines[follow_index][1] or "").strip():
+                follow_index += 1
+            following = ""
+            if follow_index < len(body_lines):
+                following = (
+                    body_lines[follow_index][1] or "").strip()
             if re.fullmatch(r"[A-Za-z][A-Za-z .'-]{0,40}",
                             following) and \
                     not re.match(
@@ -2696,7 +2865,7 @@ def _check5(entry, display_id, derived, elements,
         texts = _ghost_subject_texts(entry, derived, elements, span)
         for text, text_span in texts:
             for pattern in _GHOST_SUBJECT_PATTERNS:
-                for match in pattern.finditer(text):
+                for match in _guarded_ghost_matches(pattern, text):
                     number = int(match.group(1))
                     if number == host_number:
                         continue
@@ -2800,14 +2969,23 @@ def _family_of_label(label):
 def _render_echo_lines(entry):
     """The body line numbers standing in the render append
     form inside this entry: a rendered per entry block, whose
-    run of consecutive lines opens with an entry label line,
-    carries the rendered row lines (a Date line, a Status as
-    written line, a State line, and a Determining element
-    line), and then repeats the entry field lines as echoes
+    run opens with an entry label line, carries the rendered
+    row lines (a Date line, a Status as written line, a State
+    line, and a Determining element line) in their printed
+    order, and then repeats the entry field lines as echoes
     of the rendered entries. Field lines standing after the
     Determining element line of such a run are echoes of the
     tool own output, not field statements of this entry
-    (CH-94, disposition item D-5-1)."""
+    (CH-94, disposition item D-5-1).
+
+    CH-112, F-20-6-5, under ruling (i) of section 58: the
+    run reading stands on the render append form in its
+    printed order, and a blank line standing between any
+    two lines of a rendered run stands as no break in the
+    run, so the double spaced form a pasted output
+    ordinarily takes reads as the same run. A field line
+    standing in no rendered run stands as a field statement
+    exactly as the CH-94 bound states."""
     echo = set()
     run = []
 
@@ -2826,16 +3004,23 @@ def _render_echo_lines(entry):
                     echo.add(number)
                 return
 
-    previous = None
     for number, text in _body_lines(entry):
-        if text and text.strip() and previous is not None \
-                and number == previous + 1:
-            run.append((number, text))
-        else:
+        if not (text and text.strip()):
+            # A blank line inside a run is no break in it,
+            # and a blank line outside a run starts none.
+            continue
+        if not run and not re.match(r"^DQ-[0-9]+\s*:", text):
+            # A run opens at an entry label line; lines
+            # standing before one stand in no run.
+            continue
+        if run and re.match(r"^DQ-[0-9]+\s*:", text) and any(
+                item.startswith("Determining element:")
+                for _n, item in run):
+            # A further entry label line standing after a
+            # completed run opens the next rendered block.
             flush()
-            run = [(number, text)] if text and text.strip() \
-                else []
-        previous = number if text and text.strip() else None
+            run = []
+        run.append((number, text))
     flush()
     return echo
 
@@ -3317,8 +3502,14 @@ def _token_continues_at(text, position):
     character = text[position]
     if _is_token_continuation(character):
         return True
-    if (unicodedata.category(character)[0] in "LS"
-            or unicodedata.category(character) == "Pc") \
+    # CH-97, seat 4 F-1, as restated at section 58: the
+    # digit following ground is classes L, S, and P whole.
+    # The full stop stands excepted at the terminator
+    # bound of CH-39 and CH-73: a full stop visibly ends a
+    # token, and its governed pin form (a Blocks token
+    # split by a full stop) still reads in part.
+    if character != "." \
+            and unicodedata.category(character)[0] in "LSP" \
             and position + 1 < len(text) \
             and text[position + 1] in "0123456789":
         return True
@@ -3377,7 +3568,7 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
     # split across the lines of one paragraph, on the same
     # terms the supersession unit reads them.
     sup_covered = set()
-    for entry in entries:
+    for sup_index, entry in enumerate(entries):
         source_id = _display_id(entry)
         lines = _body_lines(entry)
         units = []
@@ -3408,16 +3599,24 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
             for token in _dq_tokens(text):
                 targets.add("DQ-%03d" % int(token.group(1)))
             for target in targets:
-                sup_covered.add((source_id, int(target[3:])))
+                # CH-109, F-15-6-2: the coverage pair carries
+                # the entry making the supersession statement
+                # itself, by its enumeration index, not its
+                # display identifier alone, so a twin copy
+                # citation of the same number stands reported
+                # on its own ground.
+                sup_covered.add((sup_index, int(target[3:])))
 
-    def scan_citations(lines, source_key, entry_identifier):
+    def scan_citations(lines, source_key, entry_identifier,
+                       sup_key=None):
         for line_number, text in lines:
             for pattern in _CITATION_PATTERNS:
                 for match in _guarded_matches(pattern, text):
                     number = int(match.group(1))
                     if number in numbers:
                         continue
-                    if (source_key, number) in sup_covered:
+                    if (sup_key if sup_key is not None
+                            else source_key, number) in sup_covered:
                         continue
                     key = (source_key, number)
                     if key in cited:
@@ -3431,9 +3630,17 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
                         % number,
                         basis="a cited number with no heading"))
 
-    for entry in entries:
-        scan_citations(_body_lines(entry), _display_id(entry),
-                       _display_id(entry))
+    # CH-109, F-15-6-1: the framed citation set and its
+    # snapshot carry the entry being scanned, by its
+    # enumeration index, not its display identifier alone,
+    # so one report stands per citing entry in both orders
+    # and the same entry suppression stands exactly as
+    # CH-90 states it.
+    for framed_index, entry in enumerate(entries):
+        scan_citations(_body_lines(entry),
+                       ("entry", framed_index),
+                       _display_id(entry),
+                       sup_key=framed_index)
     segments = list(_get(model, "orphan_segments") or [])
     for index, segment in enumerate(segments):
         lines = [(n, t) for n, t in (_get(segment, "lines") or [])]
@@ -3478,15 +3685,22 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
                 number = int(token.group(1))
                 if number in numbers or number in skip_numbers:
                     continue
-                if (source_key, number) in sup_covered:
-                    continue
+                # CH-109: the coverage and framed suppression
+                # tests of an entry scan read the entry being
+                # scanned, by its enumeration index, on the
+                # same entry bound as the dedup below.
                 if entry_index is not None:
-                    if (source_key, number) in framed_cited:
+                    if (entry_index, number) in sup_covered:
+                        continue
+                    if (("entry", entry_index), number) \
+                            in framed_cited:
                         continue
                     plain_key = (entry_index, number)
                     if plain_key in plain_seen:
                         continue
                     plain_seen.add(plain_key)
+                elif (source_key, number) in sup_covered:
+                    continue
                 else:
                     key = (source_key, number)
                     if key in cited:
@@ -3521,7 +3735,8 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
             for text, _text_span in _ghost_subject_texts(
                     entry, derived, elements, None):
                 for pattern in _GHOST_SUBJECT_PATTERNS:
-                    for match in pattern.finditer(text or ""):
+                    for match in _guarded_ghost_matches(
+                            pattern, text):
                         skip.add(int(match.group(1)))
         scan_plain_citations(_body_lines(entry), source_id,
                              source_id, skip_numbers=skip,
@@ -3616,16 +3831,25 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # this predicate state list beside the closed forms,
         # as it stands in the is, was, has been, has, and got
         # lists of this same scan.
+        # CH-101, S17-ATK6-7-05: this list carries parked
+        # and presented beside its standing words, as the is
+        # list of this same scan already carries both as
+        # governed states, for the remains parked and stands
+        # presented forms only.
         re.compile(r"[^.;]{0,110}?\b(stays|remains|stands|left)\s+"
                    r"(banked|open|settled|ruled|closed|shut|"
-                   r"decided)\b"),
+                   r"decided|parked|presented)\b"),
         # The still forms of the same claims, in the ordinary
         # phrasings a stale claim takes: a state stated with
         # still standing before it, and the waiting form that
         # states an open claim in words (Step 17 charge
         # F-11-06).
+        # CH-101, S17-ATK6-7-05: the is still list carries
+        # decided beside its standing words, as its sibling
+        # lists of this scan already carry it, for the is
+        # still decided form only.
         re.compile(r"DQ-[0-9]+\s+is\s+still\s+(settled|ruled|open|"
-                   r"banked|closed|parked|presented)\b",
+                   r"banked|closed|parked|presented|decided)\b",
                    re.IGNORECASE),
         re.compile(r"[^.;]{0,110}?\bstill waiting\b"),
         # The past tense forms of the same claims, and the is
@@ -3690,17 +3914,20 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
     # Ruled and Decided stand in this list beside Closed and
     # Settled, the past forms CH-60 added, as the past forms
     # of two verbs the list itself reads in the present.
+    # CH-101, S17-ATK6-7-03: Resolved, the past form of a
+    # verb this list reads in the present since CH-60,
+    # stands in the list beside its present form.
     verb_claim_pattern = re.compile(
         r"\b(?:Settle|Settles|Rule|Rules|Close|Closes|Decide|"
-        r"Decides|Closed|Settled|Resolve|Resolves|Ruled|"
-        r"Decided)\s+"
+        r"Decides|Closed|Settled|Resolve|Resolves|Resolved|"
+        r"Ruled|Decided)\s+"
         r"DQ-([0-9]+)\b", re.IGNORECASE)
     # CH-60, S17-ATK4-7-07: the Decision on noun form naming
     # a headed entry in decision evidence takes the same
     # Note as a verb first form.
     decision_on_pattern = re.compile(
         r"\bDecision\s+on\s+DQ-([0-9]+)\b", re.IGNORECASE)
-    for entry in entries:
+    for claiming_index, entry in enumerate(entries):
         claiming_id = _display_id(entry)
         for line_number, text in _body_lines(entry):
             if text.startswith("Status:"):
@@ -3715,8 +3942,16 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
             label_head = stripped.split(":", 1)[0] if ":" in stripped \
                 else ""
             if label_head in _GHOST_FIELD_LABELS:
-                verb_matches = list(
-                    verb_claim_pattern.finditer(text or ""))
+                # CH-97, seat 4 F-2: the verb first matches
+                # of this scan stand under the continuation
+                # guard whole, refused where the target token
+                # continues in a character of the guard
+                # ground, never read in part.
+                verb_matches = [
+                    match for match in
+                    verb_claim_pattern.finditer(text or "")
+                    if not _token_continues_at(
+                        text or "", match.end(1))]
                 verb_matches += list(
                     decision_on_pattern.finditer(text or ""))
                 for match in verb_matches:
@@ -3728,7 +3963,8 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
                     if end >= 0:
                         quoted = quoted[:end + 1]
                     quoted = quoted.strip()
-                    key = (claiming_id, target_id, quoted)
+                    key = (claiming_index, claiming_id,
+                           target_id, quoted)
                     if key in seen_claims:
                         continue
                     seen_claims.add(key)
@@ -3750,7 +3986,8 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
                         break
                 if quoted is None:
                     continue
-                key = (claiming_id, target_id, quoted)
+                key = (claiming_index, claiming_id,
+                       target_id, quoted)
                 if key in seen_claims:
                     continue
                 seen_claims.add(key)
@@ -3767,7 +4004,7 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
     # reading (the CH-7 entry heading citation surface stands
     # untouched above), and no heading line is read for any
     # other scan by this limb.
-    for entry in entries:
+    for claiming_index, entry in enumerate(entries):
         claiming_id = _display_id(entry)
         heading_line = _get(entry, "heading_line")
         heading_text = _get(entry, "heading") or ""
@@ -3786,7 +4023,7 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
                     break
             if quoted is None:
                 continue
-            key = (claiming_id, target_id, quoted)
+            key = (claiming_index, claiming_id, target_id, quoted)
             if key in seen_claims:
                 continue
             seen_claims.add(key)
@@ -4061,6 +4298,21 @@ def _near_miss_identifications(sentence):
 _SEMICOLON_LIST_RE = re.compile(
     r"DQ-[0-9]+(?:\s*;\s*DQ-[0-9]+)+")
 
+# The charged joiner list forms of Step 17 round 6,
+# CH-104, ruled at record section 58 ruling (h): a target
+# list joined by a slash, a pipe, an ampersand, or a
+# fullwidth semicolon (U+FF1B). Like the semicolon form,
+# these lists are read for the near miss signal only: the
+# CH-64 joiner set (commas, the word and, or both) stands
+# unmoved and no pointer derives from any charged joiner
+# list.
+_CHARGED_JOINER_LIST_RES = (
+    re.compile(r"DQ-[0-9]+(?:\s*/\s*DQ-[0-9]+)+"),
+    re.compile(r"DQ-[0-9]+(?:\s*\|\s*DQ-[0-9]+)+"),
+    re.compile(r"DQ-[0-9]+(?:\s*&\s*DQ-[0-9]+)+"),
+    re.compile("DQ-[0-9]+(?:\\s*\uFF1B\\s*DQ-[0-9]+)+"),
+)
+
 
 def _semicolon_list_identifications(sentence):
     """The entry identifiers a sentence names in a target
@@ -4082,6 +4334,27 @@ def _semicolon_list_identifications(sentence):
             entry_id = "DQ-%03d" % int(token.group(1))
             if entry_id not in ordered:
                 ordered.append(entry_id)
+    return ordered
+
+
+def _charged_list_identifications(sentence):
+    """The entry identifiers a sentence names in a target
+    list joined by a charged joiner, in list order: the
+    semicolon form of CH-93 and the four joiner forms of
+    Step 17 round 6, CH-104 (slash, pipe, ampersand, and
+    fullwidth semicolon). Signal only, on the same bound
+    as the semicolon reading: it widens no derivation, the
+    CH-64 joiner set stands unmoved, and the supersession
+    unit reports the named targets the identification
+    patterns did not reach, subject to the signal
+    condition of record section 58 ruling (h)."""
+    ordered = _semicolon_list_identifications(sentence)
+    for pattern in _CHARGED_JOINER_LIST_RES:
+        for match in pattern.finditer(sentence or ""):
+            for token in _dq_tokens(match.group(0)):
+                entry_id = "DQ-%03d" % int(token.group(1))
+                if entry_id not in ordered:
+                    ordered.append(entry_id)
     return ordered
 
 
@@ -4591,6 +4864,20 @@ def _supersession_unit(model, entries, derived_list):
             continue
         body = _body_lines(entry)
         handled = set()
+        # The charged list signal candidates of this entry
+        # (Step 17 round 6, CH-104), each as (target, quote,
+        # span) in the order its statement stands. The
+        # signal is not emitted at the statement that names
+        # it: under record section 58 ruling (h) the signal
+        # stands only for a target for which no pointer
+        # stands in the same run from this same entry, in
+        # either statement order, and a later statement of
+        # this entry may still derive that pointer. The
+        # candidates are held here and emitted at the end
+        # of the entry, filtered on the pointers then
+        # standing.
+        pending_signal = []
+        pending_signal_seen = set()
         for line_number, text in body:
             # The statement unit is the whole line: a statement can
             # state its displacement in one sentence and identify
@@ -4652,30 +4939,36 @@ def _supersession_unit(model, entries, derived_list):
                 if variant_named:
                     note_not_recognised(
                         self_id, variant_named, quote, span)
-                # A target list joined by semicolons (Step 17
-                # round 5, CH-93): the identification patterns
+                # A target list joined by a charged joiner
+                # (the semicolon form of Step 17 round 5,
+                # CH-93, and the slash, pipe, ampersand, and
+                # fullwidth semicolon forms of Step 17 round
+                # 6, CH-104): the identification patterns
                 # reach the head of the list and its last
                 # target, and the targets between them stand
-                # named in the statement with no pointer. They
-                # take the near miss signal here, a headed
-                # middle target in the not recognised Note and
-                # a ghost middle target under PD-R7, so a
-                # missed pointer stands told from an absent
-                # one. Signal only: no pointer derives.
-                semicolon_named = []
-                for target in _semicolon_list_identifications(
+                # named in the statement with no pointer.
+                # They take the near miss signal, a headed
+                # middle target in the not recognised Note
+                # and a ghost middle target under PD-R7, so
+                # a missed pointer stands told from an
+                # absent one. Signal only: no pointer
+                # derives. Under record section 58 ruling
+                # (h) the signal is held as a candidate and
+                # emitted at the end of the entry, only for
+                # a target for which no pointer stands in
+                # the same run from this same entry, in
+                # either statement order; the condition
+                # governs every signal this charge produces,
+                # in either limb.
+                for target in _charged_list_identifications(
                         unit):
                     if target == self_id or target in identified:
                         continue
                     handled.add(target)
-                    if target in headed_set:
-                        if target not in semicolon_named:
-                            semicolon_named.append(target)
-                    else:
-                        note_pd_r7(quote, target, span)
-                if semicolon_named:
-                    note_not_recognised(
-                        self_id, semicolon_named, quote, span)
+                    if target not in pending_signal_seen:
+                        pending_signal_seen.add(target)
+                        pending_signal.append(
+                            (target, quote, span))
                 continue
             for target in identified:
                 if target not in headed_set and target != self_id:
@@ -4764,13 +5057,28 @@ def _supersession_unit(model, entries, derived_list):
                         if _claims_displacement(s)]
             if not claiming:
                 continue
+            # The targets of the joined run stand gathered
+            # against a set beside the ordered list (Step 17
+            # round 6, CH-99, under record section 58 ruling
+            # (f) limb two): the list membership reading paid,
+            # for each target the run named, a scan of every
+            # target the run had already gathered, so the
+            # reading cost of one entry grew with the square
+            # of its statement count. The set reading gathers
+            # the same targets in the same order at a per
+            # statement cost independent of the statements the
+            # entry already carries, and the findings below
+            # stand exact.
             targets = []
+            targets_seen = set()
             for segment in segments:
                 for target in _identifications(segment):
-                    if target not in targets:
+                    if target not in targets_seen:
+                        targets_seen.add(target)
                         targets.append(target)
             for target in _near_miss_identifications(joined):
-                if target not in targets:
+                if target not in targets_seen:
+                    targets_seen.add(target)
                     targets.append(target)
             pending = [t for t in targets
                        if t != self_id and t not in handled]
@@ -4788,6 +5096,39 @@ def _supersession_unit(model, entries, derived_list):
             if split_named:
                 note_not_recognised(
                     self_id, split_named, quote, span)
+        # The held charged list signals of this entry, emitted
+        # now that every statement of the entry has been read
+        # (Step 17 round 6, CH-104, record section 58 ruling
+        # (h)): a candidate takes its signal only where no
+        # pointer stands for its target from this same entry
+        # in the same run, in either statement order. A
+        # pointer another entry derives for the same target
+        # does not answer this entry's statement and does not
+        # suppress the signal. Headed candidates of one
+        # statement stand together in one not recognised
+        # Note, in list order, on that statement's quote and
+        # span; a ghost candidate takes its PD-R7 Note.
+        signal_groups = []
+        signal_group_index = {}
+        for target, quote, span in pending_signal:
+            if self_id in pointers.get(target, []):
+                continue
+            key = (quote, span.start_line, span.end_line)
+            if key not in signal_group_index:
+                signal_group_index[key] = len(signal_groups)
+                signal_groups.append((quote, span, []))
+            signal_groups[signal_group_index[key]][2].append(
+                target)
+        for quote, span, group_targets in signal_groups:
+            group_named = []
+            for target in group_targets:
+                if target in headed_set:
+                    group_named.append(target)
+                else:
+                    note_pd_r7(quote, target, span)
+            if group_named:
+                note_not_recognised(
+                    self_id, group_named, quote, span)
 
     # Distinct cycles, each reported once as one Warning naming
     # every entry in the cycle in chain order and quoting the
@@ -4923,6 +5264,7 @@ def _supersession_unit(model, entries, derived_list):
         # are charged to the recorded cycle, which was
         # charged when it was recorded, not counted again.
         cycle_successors = []
+        cycle_pure = []
         cycles_by_node = {}
         for component in components:
             if len(component) == 1:
@@ -4933,6 +5275,29 @@ def _supersession_unit(model, entries, derived_list):
             ordered = sorted(
                 members, key=lambda n: file_order.get(n, 0))
             for start in ordered:
+                # The walk bound of Step 17 round 6, CH-113,
+                # ruled at record section 58 ruling (a): a
+                # recorded cycle is not re-walked from each
+                # of its starts. Where a recorded cycle is
+                # pure (every entry of the cycle carries the
+                # cycle edge as its only edge in this
+                # relation), a descent from a later start of
+                # that cycle can do nothing but walk the
+                # cycle edges in order: it has no branch to
+                # take, it counts no examination (every edge
+                # it would examine follows the recorded
+                # cycle), and it can record no cycle, because
+                # the cycle was recorded from its earliest
+                # entry, which stands earlier in file order
+                # than this start and blocks the walk before
+                # it can close. Such a start is not walked at
+                # all. Every other start is walked exactly as
+                # before, so the inventory, the counts, the
+                # refusal figures, and the PIN-10 counts stand
+                # exactly as counted.
+                if any(cycle_pure[ci] for ci in
+                       cycles_by_node.get(start, ())):
+                    continue
                 start_order = file_order.get(start, 0)
                 # Simple paths from start through entries of the
                 # component that stand at or after start in file
@@ -4987,6 +5352,10 @@ def _supersession_unit(model, entries, derived_list):
                                     succ[cyc_node] = path[
                                         (idx + 1) % len(path)]
                                 cycle_successors.append(succ)
+                                cycle_pure.append(all(
+                                    adjacency[cyc_node] == [
+                                        succ[cyc_node]]
+                                    for cyc_node in path))
                                 ci = len(cycle_successors) - 1
                                 for cyc_node in path:
                                     cycles_by_node.setdefault(
@@ -5192,6 +5561,7 @@ def _segment_claim_findings(model, entries):
         quarantined_heading_line = _quarantined_heading_line(
             segment, span)
         claims = list(_get(segment, "claims") or [])
+        combined_claimed = {}
         if claims:
             heading_line_text = None
             if quarantined_heading_line is not None:
@@ -5217,25 +5587,62 @@ def _segment_claim_findings(model, entries):
                 findings.append(finding)
         else:
             seen_claims = set()
+            combined_claimed = {}
             for line_number, text in (_get(segment, "lines") or []):
                 if quarantined_heading_line is not None and \
                         line_number == quarantined_heading_line:
                     continue
+                # The claim Notes of one line stand combined
+                # where the line names more than one claim
+                # target (Step 17 round 6, CH-98, under record
+                # section 58 ruling (f) limb one, the combining
+                # ground of section 52 ruling (d) reaching the
+                # claim print): the fresh targets of the line
+                # are gathered first, under the standing per
+                # segment dedup, and the line then takes either
+                # its governed single claim Note, word for word
+                # as it stood, or one combined Note naming every
+                # fresh target in line order and quoting the
+                # line once as its evidence.
+                fresh = []
                 for match in _guarded_segment_claim_matches(text):
                     target = "DQ-%03d" % int(match.group(1))
                     if target in seen_claims:
                         continue
                     seen_claims.add(target)
+                    fresh.append((target, match.group(0)))
+                if len(fresh) == 1:
+                    target, quoted = fresh[0]
                     finding = _finding(
                         "PIN-09", "Note", unit_id,
                         Span(line_number, line_number), text,
                         "A file level note section records a claim "
                         "about %s: \"%s\" The claim is reported as "
                         "a claim and is never applied."
-                        % (target, match.group(0)),
+                        % (target, quoted),
                         basis="a governing or state claim by a "
                               "file level note section, PIN-09")
                     finding.named_entries = [target]
+                    finding.claiming_unit = unit_id
+                    findings.append(finding)
+                elif len(fresh) >= 2:
+                    names = [target for target, _quoted in fresh]
+                    combined_claimed[line_number] = set(names)
+                    if len(names) == 2:
+                        joined = "%s and %s" % (names[0], names[1])
+                    else:
+                        joined = ", ".join(names[:-1]) + \
+                            " and " + names[-1]
+                    finding = _finding(
+                        "PIN-09", "Note", unit_id,
+                        Span(line_number, line_number), text,
+                        "A file level note section records claims "
+                        "about %s: \"%s\" The claims are reported "
+                        "as claims and are never applied."
+                        % (joined, text),
+                        basis="a governing or state claim by a "
+                              "file level note section, PIN-09")
+                    finding.named_entries = names
                     finding.claiming_unit = unit_id
                     findings.append(finding)
         seen_cited = set()
@@ -5246,6 +5653,19 @@ def _segment_claim_findings(model, entries):
             for token in _dq_tokens(text or ""):
                 target = "DQ-%03d" % int(token.group(1))
                 if target in headed_set or target in seen_cited:
+                    continue
+                # A target a combined claim Note of this same
+                # line already names stands reported on that
+                # line, in the combined Note that quotes the
+                # line once (CH-98): the cited scan of the same
+                # line does not report the same naming a second
+                # time under PD-R7. A line carrying one claim
+                # keeps its standing form whole, and its cited
+                # Note stands beside its claim Note exactly as
+                # governed (TG-S5-03), and a target cited on a
+                # line that does not claim it stands reported
+                # on that line as before.
+                if target in combined_claimed.get(line_number, ()):
                     continue
                 seen_cited.add(target)
                 findings.append(_pd_r7_finding(
@@ -5639,16 +6059,40 @@ def _line_carries_content(text):
         # An identifier standing beside other words keeps
         # its content reading below, untouched.
         return False
+    unwrapped = visible.strip()
+    while len(unwrapped) >= 2 and (
+            (unwrapped.startswith("(") and unwrapped.endswith(")"))
+            or (unwrapped.startswith("[") and unwrapped.endswith("]"))
+            or (unwrapped.startswith("{") and unwrapped.endswith("}"))):
+        unwrapped = unwrapped[1:-1].strip()
+    if re.fullmatch(
+            r"(?:DQ|R)[\s\-_]?[0-9]+[.,;:]*"
+            r"(?:[\s,;/]+(?:DQ|R)[\s\-_]?[0-9]+[.,;:]*)*",
+            unwrapped, re.IGNORECASE):
+        # The identifier only line in a further respelled
+        # form states no content either (round 6 charge
+        # CH-103, F6-8-1): trailing punctuation, a wrapper,
+        # an underscore in place of the hyphen, or a second
+        # identifier joined by punctuation each leave the
+        # line stating nothing but cross references.
+        return False
     stripped = visible.strip()
-    if re.match(r"Landed(?:\s|:)", stripped) or \
-            re.match(r"Origin\s*:", stripped):
+    if re.match(r"Landed(?:\s|:)", stripped, re.IGNORECASE) or \
+            re.match(r"Origin\s*:", stripped, re.IGNORECASE) or \
+            re.match(r"Filed(?:\s|:)", stripped, re.IGNORECASE) or \
+            re.match(r"Source\s*:", stripped):
         # A landed line states where a ruling landed and
         # no disposition, and an Origin line is a label
         # only and carries no element by itself: a block
         # whose only body is one of these lines carries no
         # disposition statement and states no census
         # content (round 5 charge CH-85, F5-8-2, toward
-        # the PIN-01 form 1 ground).
+        # the PIN-01 form 1 ground). Round 6 charge CH-103,
+        # F6-8-2, widens the reading: the landed and Origin
+        # forms stand case aside, and a Filed line, stating
+        # where a record was filed, and a Source line, a
+        # label only on the same PIN-05 ground, state no
+        # census content either.
         return False
     words = re.findall(r"[^\W_]+", visible)
     return any(
@@ -5698,8 +6142,8 @@ def _is_heading_shaped_line(text):
             stripped = stripped[wrap.end():].lstrip()
             continue
         match = re.match(
-            r"(?:[-*+\u2022\u25e6\u2013\u2014]|\d+[.)]"
-            r"|[A-Za-z]{1,3}[.)]|[ivxlcdmIVXLCDM]+[.)])\s+",
+            r"(?:[-*+\u2022\u25e6\u2013\u2014\u2023\u00b7]|\d+[.)]"
+            r"|[A-Za-z]{1,4}[.)]|[ivxlcdmIVXLCDM]+[.)])\s+",
             stripped)
         if match:
             stripped = stripped[match.end():].lstrip()
@@ -5718,9 +6162,12 @@ def _is_open_field_labelled_line(text):
     charge CH-19, F2-8-1, its labelled field form). The
     decision evidence labels a block exists to carry stand
     outside this set and keep their content reading."""
-    stripped = (text or "").strip()
+    stripped = "".join(
+        char for char in (text or "")
+        if not _is_run_character(char)).strip()
     match = re.match(
-        r"^([A-Za-z][A-Za-z0-9 \t()-]{0,80})[ \t\u00a0]*:",
+        r"^([A-Za-z][A-Za-z0-9 \t()_-]{0,80})[ \t\u00a0\u2009]*"
+        r"(?::|\uff1a)",
         stripped)
     if not match:
         # A taught multi word label standing as the opening
@@ -5746,6 +6193,7 @@ def _is_open_field_labelled_line(text):
         return False
     normalised = re.sub(r"\s+", " ",
                         match.group(1).replace("-", " ")
+                        .replace("_", " ")
                         ).strip().lower()
     if normalised in _OPEN_FIELD_LABELS_FOR_CENSUS:
         return True
@@ -5888,7 +6336,25 @@ def _absorbed_h4_entry_heading(entry):
             if token and all(char.isdecimal() for char in token) \
                     and not token.isascii():
                 return number, stripped
+            if re.match(r"^DQ-[0-9]+:(?:\s{2,}|\t)", heading_text):
+                # Two spaces or a tab after the colon (round
+                # 6 charge CH-103, F6-8-5, the remaining forms
+                # of that limb, stated at the fall through
+                # reading below).
+                return number, stripped
             continue
+        if re.match(r"^DQ-[0-9]+(?:\s+:|:\s{2,}|:\t|\uff1a|\s+\S)",
+                    heading_text) or \
+                re.match(r"^dq-[0-9]+:", heading_text):
+            # A level 4 entry heading in a further non exact
+            # form (round 6 charge CH-103, F6-8-5): a space
+            # before the colon, two spaces or a tab after it,
+            # a lower case entry prefix, a fullwidth colon,
+            # or no colon at all. The exact form, a colon and
+            # one space, stands outside this reading and keeps
+            # its standing treatment, as the numbered branch
+            # above leaves it.
+            return number, stripped
         if re.match(r"^R-[0-9]+(?::|\s)", heading_text) and \
                 heading_text != "R-7 closure conflict":
             return number, stripped
@@ -6341,6 +6807,14 @@ _BLOCKS_NO_ITEM_VALUES = frozenset({
     "no blocks recorded", "not blocking", "non-blocking",
     "none at present", "nothing outstanding",
     "no pending entries", "nothing hinders", "free", "vacant",
+    "zilch", "nada", "no blockage", "unobstructed",
+    "nothing obstructs", "no obstruction",
+    "nothing is blocked", "zero entries blocked",
+    "no item blocks", "does not block", "all clear",
+    "no impediments", "nothing impedes", "free of blockers",
+    "blocked by none", "no entries blocked",
+    "no blocking entries", "nothing blocks anything",
+    "0 entries", "zero entries",
 })
 
 
@@ -6437,7 +6911,7 @@ def _blocks_part_names_an_item(part):
     # for the bracket, brace, quote, and asterisk wrappers
     # beside it).
     wrapper_pairs = (("(", ")"), ("[", "]"), ("{", "}"),
-                     ('"', '"'), ("'", "'"))
+                     ('"', '"'), ("'", "'"), ("<", ">"))
     changed = True
     while changed and len(read) >= 2:
         changed = False
@@ -6453,9 +6927,17 @@ def _blocks_part_names_an_item(part):
             read = re.sub(
                 r"[\s.!?]+$", "", read.strip("*").strip())
             changed = True
+        if not changed and read.startswith("_") and \
+                read.endswith("_"):
+            # An underscore wrapper stands beside the
+            # asterisk wrapper (round 6 charge CH-105,
+            # A6-10-F1, the _none_ form).
+            read = re.sub(
+                r"[\s.!?]+$", "", read.strip("_").strip())
+            changed = True
     if read in _BLOCKS_NO_ITEM_VALUES:
         return False
-    joined = re.split(r"\s*[/+:|~\\]\s*", read)
+    joined = re.split(r"\s*[/+:|~\\=@#\-]\s*", read)
     if len(joined) > 1:
         return any(
             _blocks_part_names_an_item(sub)
@@ -7156,11 +7638,17 @@ def validate_model(model, vocabulary, output_form_edition=None):
         # a claim the findings scan recognises in plain prose, in
         # the fallback form _segment_claim_findings applies for
         # the PIN-09 findings of the same segment. The reports
-        # carry those claims on the same terms, one report per
-        # named entry, so the Segment claims section of both
-        # outputs stands for every claim the findings report and
-        # no claim the findings recognise is dropped from the
-        # render output, which prints no findings list.
+        # carry those claims on the same terms as the findings:
+        # one report per named entry where a line names one
+        # claim target, and, where a line names more than one,
+        # one combined report for the line naming every fresh
+        # target it carries and carrying the line once as its
+        # statement (Step 17 round 6, CH-98, the combining of
+        # the claim print reaching the Segment claims section
+        # the reports feed), so the Segment claims section of
+        # both outputs stands for every claim the findings
+        # report and no claim the findings recognise is dropped
+        # from the render output, which prints no findings list.
         seen_reported = set()
         report_quarantined_line = _quarantined_heading_line(
             segment, _get(segment, "span"))
@@ -7168,18 +7656,22 @@ def validate_model(model, vocabulary, output_form_edition=None):
             if report_quarantined_line is not None and \
                     _line_number == report_quarantined_line:
                 continue
+            fresh_reported = []
             for match in _guarded_segment_claim_matches(text):
                 target = "DQ-%03d" % int(match.group(1))
                 if target in seen_reported:
                     continue
                 seen_reported.add(target)
-                segment_claim_reports.append({
-                    "segment_heading":
-                        _get(segment, "heading_text") or "",
-                    "statement": text or "",
-                    "named_entries": [target],
-                    "reported_as": "claim",
-                })
+                fresh_reported.append(target)
+            if not fresh_reported:
+                continue
+            segment_claim_reports.append({
+                "segment_heading":
+                    _get(segment, "heading_text") or "",
+                "statement": text or "",
+                "named_entries": fresh_reported,
+                "reported_as": "claim",
+            })
 
     # The residue list, in the ResidueItem contract form at plan
     # Item 3, section 3.6: one item per untranslatable phrasing
