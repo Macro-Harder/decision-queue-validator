@@ -4136,7 +4136,7 @@ def _class_rule_statement(class_name):
             % class_name)
 
 
-def _census(entries, derived_list):
+def _census(entries, derived_list, banked_cut_ids=None):
     pairs = list(zip(entries, derived_list))
     decided = [(e, d) for e, d in pairs if d["state"] in DECIDED_OUTCOMES]
 
@@ -4311,7 +4311,8 @@ def _census(entries, derived_list):
     # paragraphs only. A Banked head entry carrying none of the
     # three forms stands in no group and no fourth group is
     # created for it.
-    population, groups = _banked_evidence_groups(entries, derived_list)
+    population, groups = _banked_evidence_groups(
+        entries, derived_list, banked_cut_ids)
     for name, members in groups:
         if not members:
             continue
@@ -4485,7 +4486,39 @@ def _h4_block_has_body(entry, block):
     return False
 
 
-def _banked_evidence_groups(entries, derived_list):
+def _banked_cut_entry_ids(model, entries):
+    """The display identifiers of entries cut by an unmatched
+    heading: entries whose span ends on the line directly
+    before the span of an orphan segment whose record carries
+    unmatched_heading. The heading that cuts such an entry is
+    the heading the run itself reports under PIN-06, and the
+    prose standing under it stands in the orphan segment,
+    outside the entry body, quarantined as file level matter,
+    so it can never stand as evidence of the entry it cut
+    (fix wave 3 closing, defect D1, register item 17R-170)."""
+    cut_starts = set()
+    for segment in _get(model, "orphan_segments") or []:
+        if not _get(segment, "unmatched_heading"):
+            continue
+        span = _get(segment, "span")
+        start = _get(span, "start_line") if span is not None else None
+        if start is not None:
+            cut_starts.add(start)
+    cut_ids = set()
+    if not cut_starts:
+        return cut_ids
+    for entry in entries:
+        span = _get(entry, "span")
+        if span is None:
+            spans = _get(entry, "spans") or []
+            span = spans[-1] if spans else None
+        end = _get(span, "end_line") if span is not None else None
+        if end is not None and end + 1 in cut_starts:
+            cut_ids.add(_display_id(entry))
+    return cut_ids
+
+
+def _banked_evidence_groups(entries, derived_list, cut_ids=None):
     """The Banked head population and its three evidence groups.
 
     Population: entries whose first line start Status line is the
@@ -4493,7 +4526,16 @@ def _banked_evidence_groups(entries, derived_list):
     line in the body is in the first group whatever else its body
     carries; an entry with no later Status line and a level 4
     decision block is in the second; an entry with neither, whose
-    body carries unheaded paragraphs, is in the third.
+    body carries unheaded paragraphs, is in the third. One
+    bound on the population stands beside the unparsed bound
+    below: an entry cut by an unmatched heading, named in
+    cut_ids, that takes no group stands outside the population,
+    because its evidence body was cut off by that heading and
+    the matter behind the heading is the segment's, not the
+    entry's. A cut entry that takes a group keeps its population
+    and group standing exactly as before, and an entry with no
+    such cut that takes no group stays in the population, so
+    its footing failure stands as before.
     """
     population = []
     group1, group2, group3 = [], [], []
@@ -4516,6 +4558,7 @@ def _banked_evidence_groups(entries, derived_list):
             continue
         display = _display_id(entry)
         population.append(display)
+        population_index = len(population) - 1
         later = [e for e in elements
                  if e.occurrence_kind == "line start"
                  and e is not first_line]
@@ -4577,6 +4620,11 @@ def _banked_evidence_groups(entries, derived_list):
             break
         if has_paragraph:
             group3.append(display)
+        elif cut_ids and display in cut_ids:
+            # The entry takes no group and stands cut by an
+            # unmatched heading, so it stands outside the
+            # population, on the bound in the docstring above.
+            del population[population_index]
     groups = [
         ("Banked head evidence group: later Status line in the "
          "body", group1),
@@ -5196,7 +5244,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
     entry_findings.sort(key=entry_order_key)
     findings = file_findings + entry_findings
 
-    census = _census(entries, derived_list)
+    banked_cut_ids = _banked_cut_entry_ids(model, entries)
+    census = _census(entries, derived_list, banked_cut_ids)
 
     canonical_counts = {name: 0 for name in CANONICAL_STATES}
     ambiguous_count = 0
@@ -5312,7 +5361,9 @@ def validate_model(model, vocabulary, output_form_edition=None):
     # head entry carrying none of the three evidence forms stands
     # in no group, the footing fails, and the run takes the exit
     # 4 tool inconsistency outcome with no finding against the
-    # file (plan Item 3, section 3.8).
+    # file (plan Item 3, section 3.8). The population here is the
+    # census population of _banked_evidence_groups, with its
+    # bound for an entry cut by an unmatched heading.
     if sum(findings_per_severity.values()) != len(findings):
         fail(4, "component footing: the severity view sums to %d "
                 "against a findings list of %d"
@@ -5322,7 +5373,7 @@ def validate_model(model, vocabulary, output_form_edition=None):
                 "against a findings list of %d"
                 % (sum(findings_per_rule.values()), len(findings)))
     census_population, census_groups = _banked_evidence_groups(
-        entries, derived_list)
+        entries, derived_list, banked_cut_ids)
     census_group_total = sum(len(members)
                              for _name, members in census_groups)
     census_footing_holds = (
