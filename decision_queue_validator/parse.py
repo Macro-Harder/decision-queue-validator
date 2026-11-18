@@ -53,7 +53,7 @@ __all__ = [
 _HEADING_RE = re.compile(r"^(#{1,6}) (.*)$")
 _NUMBERED_RE = re.compile(r"^DQ-([0-9]+): (\S.*)$")
 _NAMED_UNNUMBERED_HEADING = "R-7 closure conflict"
-_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _ADDITION_RE = re.compile(
     r"^(?:[A-Za-z]+ )?addition to (DQ-\d{3})\b", re.IGNORECASE)
 _LABEL_RE = re.compile(r"^([A-Z][A-Za-z0-9 '&()/.-]{0,58}?):(?:[ ]+(.*)|[ ]*)$")
@@ -74,12 +74,40 @@ _LEADING_STATUS_CHARS = (
     "\u202f\u205f\u3000")
 
 
+# The one leading run set stated at the round 3 triage ruling,
+# section 26 ruling (d), applied at the heading prefix surface,
+# the Status marker leading surface, and the separator surface:
+# the cured set above together with a vertical tab, a form
+# feed, U+200C, U+200D, U+2060, U+00AD, U+180E, U+2028, and
+# U+0085, and combining marks as a class. The no break space
+# and the zero width space stand in the cured set above.
+_LEADING_RUN_EXTRA = "\x0b\x0c\u200c\u200d\u2060\u00ad\u180e\u2028\u0085"
+
+
+def _in_leading_run(char):
+    return char in _LEADING_STATUS_CHARS or \
+        char in _LEADING_RUN_EXTRA or \
+        unicodedata.category(char).startswith("M")
+
+
 def _leading_status_run(text):
     """The length of the leading run of the characters above."""
     index = 0
-    while index < len(text) and text[index] in _LEADING_STATUS_CHARS:
+    while index < len(text) and _in_leading_run(text[index]):
         index += 1
     return index
+
+
+def _separator_run(text):
+    """The separator run at the head of the text after a Status
+    marker: whitespace and format characters in a run."""
+    index = 0
+    while index < len(text) and (
+            text[index].isspace() or
+            unicodedata.category(text[index]) in
+            ("Cf", "Mn", "Mc", "Me")):
+        index += 1
+    return text[:index]
 
 _DISPOSITION_WORDS = {
     "BANKED": "Banked",
@@ -203,10 +231,13 @@ def _final_line_is_cut_off(line_text):
     carrying a value stands whole only where its value is
     complete in its own form, under
     _labelled_value_stands_whole. A line also stands whole in
-    two further closed forms: a bullet item, which is complete
-    in item form with no sentence close, and a line closing on
-    a balanced bracket group, whose closing bracket is its
-    terminal mark. A byte order mark standing on the line is
+    further closed forms: a bullet item, which is complete
+    in item form with no sentence close, its content read
+    under the fragment and joining word guards; a line
+    complete in a structural form the tool itself teaches, a
+    heading closing on its text or a fence delimiter closing
+    on its run; and a line closing on a balanced bracket
+    group, whose closing bracket is its terminal mark. A byte order mark standing on the line is
     inert, as it is in every other position this slice reads,
     and takes no part in the test. A label is read in its
     lower case form as well as its capital form, so a complete
@@ -244,6 +275,36 @@ def _final_line_is_cut_off(line_text):
         return not _labelled_value_stands_whole(
             label_match.group(1), label_match.group(2))
     if stripped.startswith("- "):
+        # A bullet item stands whole in item form with no
+        # sentence close, but its content is read under the
+        # same fragment and joining word guards the labelled
+        # forms take (Step 17 fix wave 3, charge CH-34, ruling
+        # (b) at record section 26): an item cut mid word, or
+        # ending on a joining word, stands cut in form, and a
+        # complete item stands whole, as the complete bullet
+        # pin of ATK2-2-05 stands.
+        tokens = re.findall(r"\w+(?:['’./-]\w+)*", stripped[2:])
+        if not tokens:
+            return False
+        return _last_token_is_fragment(tokens) or \
+            tokens[-1].lower() in _NAME_FORM_WORDS
+    heading = _HEADING_RE.match(stripped)
+    if heading is not None:
+        # A final line complete in a structural form the tool
+        # itself teaches stands whole in its own form (Step
+        # 17 fix wave 3, charge CH-34): a heading closes on
+        # its text, read under the same fragment and joining
+        # word guards, so a heading whose text stands cut mid
+        # word stands cut in form.
+        tokens = re.findall(r"\w+(?:['’./-]\w+)*",
+                            heading.group(2))
+        if not tokens:
+            return False
+        return _last_token_is_fragment(tokens) or \
+            tokens[-1].lower() in _NAME_FORM_WORDS
+    if re.fullmatch(r"(`{3,}|~{3,})", stripped):
+        # A fence delimiter is complete as a delimiter: it
+        # closes on its run and carries no prose to cut.
         return False
     if _final_bracket_group_start(
             stripped.rstrip("\"'”’")) is not None:
@@ -381,9 +442,21 @@ def _labelled_value_stands_whole(label, value):
     if label_key in _SENTENCE_VALUE_LABELS:
         return False
     if label_key in ("options", "the options"):
-        items = [item.strip() for item in core.split(",")]
+        # Each item is tested whole, as the Blocks branch
+        # tests each part whole, splitting on the comma and
+        # on the joining word as the Blocks branch does, and
+        # a value whose last token is a joining word is
+        # refused, as the generic branch refuses it (Step 17
+        # fix wave 3, charge CH-34). A prefix match on an item
+        # admitted trailing matter after a full item, so a
+        # list cut after a joining word stood whole.
+        tokens = re.findall(r"\w+(?:['’./-]\w+)*", core)
+        if tokens and tokens[-1].lower() in _NAME_FORM_WORDS:
+            return False
+        items = [item.strip() for item in
+                 re.split(r",|\band\b", core)]
         return bool(items) and all(items) and all(
-            re.match(r"^Option\s+\S", item) is not None or
+            re.fullmatch(r"Option\s+\S+", item) is not None or
             re.fullmatch(r"[A-Za-z0-9]", item) is not None
             for item in items)
     if label_key in ("blocks", "what it blocks"):
@@ -443,14 +516,62 @@ def _disposition_from_value(value):
     return None
 
 
+# The joints of a guarded output row, widened at Step 17 fix
+# wave 3, charges CH-50 and CH-51, to the disposition reading
+# own width (record section 26, flag ruling (l)): the
+# disposition forms fire on a state word wherever a word
+# boundary stands before it and a colon followed by whitespace
+# stands after it, so the words of a row may be joined by any
+# run of characters that are neither word characters nor
+# sentence punctuation, which covers every whitespace character
+# the reading takes, the zero width and format characters that
+# leave the boundary standing, and decoration standing between
+# the words of a row (emphasis, backticks, and link brackets
+# around one word of the row). A word character at a joint, an
+# underscore included, leaves no boundary for either reading,
+# and sentence punctuation ends the row form, so neither stands
+# in a joint.
+_GUARD_JOINT = r"[^\w:.;!?]+"
+_GUARD_JOINT_OPT = r"[^\w:.;!?]*"
+_GUARD_STATE = (
+    r"(?:Settled in part|Closed as decided|Ruled|Settled|Closed|"
+    r"Open|Banked|Parked|Presented)")
+_GUARD_COUNT = (
+    r"(?:[0-9]+|\d+|(?i:zero|one|two|three|four|five|six|seven|"
+    r"eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty))")
+
 _COUNT_ROW_RE = re.compile(
-    r"(?i:canonical)[ \t]+(?:(?i:state)[ \t]*:[ \t]*)?"
-    r"(Settled in part|Closed as decided|Ruled|Settled|Closed|"
-    r"Open|Banked|Parked|Presented)[ \t]*:[ \t]*[0-9]+")
+    r"(?i:canonical)" + _GUARD_JOINT +
+    r"(?:(?i:state)" + _GUARD_JOINT_OPT + r":" + _GUARD_JOINT_OPT +
+    r")?" + _GUARD_STATE + _GUARD_JOINT_OPT + r":" +
+    _GUARD_JOINT_OPT + _GUARD_COUNT)
+
+# The crosswalk tally row the tool prints for one head phrasing:
+# the phrasing, a colon, the canonical state, a count, and the
+# total. Guarded at CH-51 on the same terms as the count rows:
+# the row states file level tallies and names no decider,
+# ruling text, or landing, so a phrasing carrying ruling text
+# after its colon, which is no tally form, takes no span.
+_CROSSWALK_ROW_RE = re.compile(
+    _GUARD_STATE + r":" + _GUARD_JOINT + _GUARD_STATE +
+    _GUARD_JOINT + r"[0-9]+, total [0-9]+")
+
+# The verbatim appendix tally row the tool prints for one
+# phrasing: the phrasing, its occurrence kind, and its
+# occurrence count, with an entries list where members stand.
+# Guarded at CH-51 on the same terms: a phrasing carrying a
+# decider form or ruling text before the first pipe is no tally
+# form and takes no span, so quoted ruling rows still denote.
+_APPENDIX_ROW_RE = re.compile(
+    _GUARD_STATE + _GUARD_JOINT_OPT +
+    r"\|[ \t]*(?:line start|embedded|variant)[ \t]*\|[ \t]*"
+    r"[0-9]+ occurrences?")
 
 _GROUP_HEADING_RE = re.compile(
-    r"(Settled in part|Closed as decided|Ruled|Settled|Closed|"
-    r"Parked|Presented|Open|Banked|Conditional|Ambiguous) group",
+    r"(Settled\s+in\s+part|Closed\s+as\s+decided|Ruled|Settled|"
+    r"Closed|Parked|Presented|Open|Banked|Conditional|Ambiguous)"
+    r"\s+group",
     re.IGNORECASE)
 
 
@@ -487,30 +608,53 @@ def _mask_comment_segments(text):
 def _guarded_output_spans(text):
     """The spans of one line that state tool output, not a ruling.
 
-    Two output forms stand guarded, recognised by their meaning
+    The output forms stand guarded, recognised by their meaning
     wherever they stand in the line (Step 17 fix wave 2, charge
-    CH-15, flag ruling (g) at record section 19):
+    CH-15, flag ruling (g) at record section 19; widened at Step
+    17 fix wave 3, charges CH-50 and CH-51, flag ruling (l) at
+    record section 26, to whatever the disposition reading
+    denotes, at that reading own width, neither wider nor
+    narrower):
 
     - A count row of the tool own output, in either spelling:
       the reconciliation spelling, Canonical, a state word, a
       colon, and a count; and the census spelling, Canonical
       state, a colon, a state word, a colon, and a count. The
       row states a file level count and names no decider,
-      ruling text, or landing for the entry it stands in.
+      ruling text, or landing for the entry it stands in. Its
+      joints take the widened joint form at _GUARD_JOINT, and
+      its count takes the digit forms and word forms the
+      disposition reading accepts, since that reading needs no
+      count at all and fires on the state word and its colon in
+      every count form.
+    - A crosswalk tally row and a verbatim appendix tally row,
+      in the forms the tool prints them: each states a state
+      word and counts only, and names no decider, ruling text,
+      or landing for the entry it is reused inside.
     - A rendered group heading line standing as its own
       sentence: a state word and the word group, with only
-      quoting or emphasis decoration around it.
+      quoting or emphasis decoration around it, any whitespace
+      standing between its words, and any trailing sentence
+      punctuation standing after it, a period included.
 
     The guard is confined to the row or heading itself: a
     disposition form standing outside these spans, later on
-    the same line included, still counts.
+    the same line included, still counts. No span in this
+    programme covers a line whose phrasing carries ruling text
+    or a decider form, so quoted genuine ruling lines denote
+    for their host entry exactly as they stood.
     """
     spans = []
     for match in _COUNT_ROW_RE.finditer(text):
         spans.append((match.start(), match.end()))
+    for match in _CROSSWALK_ROW_RE.finditer(text):
+        spans.append((match.start(), match.end()))
+    for match in _APPENDIX_ROW_RE.finditer(text):
+        spans.append((match.start(), match.end()))
     for span_start, span_end in _sentence_spans(text):
-        core = text[span_start:span_end].strip(" \t*|>#-")
-        if _GROUP_HEADING_RE.fullmatch(core.rstrip(".")):
+        core = text[span_start:span_end].strip(
+            " \t*|>#- ​﻿")
+        if _GROUP_HEADING_RE.fullmatch(core.rstrip(".,:;!?")):
             spans.append((span_start, span_end))
     return spans
 
@@ -921,10 +1065,12 @@ def _is_near_marker(text):
 def _heading_info(line_text):
     # A prefix standing before a heading is absorbed: the
     # heading form is read from the text after any leading run
-    # of byte order marks, spaces, and tabs, on every path, so
-    # a mark combined with a space or a tab, or a space standing
-    # alone, never deletes a heading.
-    match = _HEADING_RE.match(line_text.lstrip("﻿ \t"))
+    # of the one run set stated at ruling (d) (byte order marks,
+    # spaces, and tabs, and every character that ruling adds),
+    # on every path, so a mark combined with a space or a tab,
+    # or a space standing alone, never deletes a heading.
+    match = _HEADING_RE.match(
+        line_text[_leading_status_run(line_text):])
     if not match:
         return None
     return len(match.group(1)), match.group(2)
@@ -996,7 +1142,7 @@ _HEADING_WORD_BY_RE = re.compile(
 _HEADING_TAIL_WORD_RE = re.compile(
     r"\b(RULED|SETTLED|ORDERED|BANKED|CLOSED|PARKED|PRESENTED|OPEN|"
     r"Ruled|Settled|Ordered|Banked|Closed|Parked|Presented|Open)"
-    r"( \d{4}-\d{2}-\d{2})?\s*$")
+    r"( [0-9]{4}-[0-9]{2}-[0-9]{2})?\s*$")
 _ADDITION_THIS_ENTRY_RE = re.compile(
     r"^Addition to this entry\b", re.IGNORECASE)
 _SEGMENT_STATE_CLAIM_RE = re.compile(
@@ -1235,17 +1381,20 @@ class _EntryBuilder:
             return False
         if effective.startswith(_STATUS_MARKER) and \
                 len(effective) > len(_STATUS_MARKER):
-            separator = re.match(
-                r"[ \t]*", effective[len(_STATUS_MARKER):]).group(0)
+            separator = _separator_run(
+                effective[len(_STATUS_MARKER):])
             if effective[len(_STATUS_MARKER)] != " " or \
-                    "\t" in separator:
+                    any(char != " " for char in separator):
                 # A separator other than the taught colon and
                 # space, a tab or no space at all, takes the
                 # near marker report instead of passing as the
                 # true form. A separator run of plain spaces
-                # stands as it stood; a run carrying a tab in
-                # any position is the tab form, not a plain
-                # space separator.
+                # stands as it stood; a run carrying any
+                # whitespace or format character beyond plain
+                # spaces, a tab in any position among them, is
+                # no plain space separator and takes the same
+                # report, on the CH-21 ground (round 3 charge
+                # CH-38).
                 self.near.append(
                     NearMarkerOccurrence(line=number, text=text))
                 return False
@@ -1277,6 +1426,21 @@ class _EntryBuilder:
                     decision_block=decision_block,
                 ))
                 continue
+            if start > 0:
+                embedded_separator = _separator_run(
+                    effective[end:stop])
+                if embedded_separator and any(
+                        char != " " for char in embedded_separator):
+                    # The separator test reaches embedded
+                    # occurrences on the same terms as line start
+                    # occurrences (round 3 charge CH-38): a
+                    # separator run carrying any whitespace or
+                    # format character beyond plain spaces takes
+                    # the near marker report and carries no
+                    # element.
+                    self.near.append(NearMarkerOccurrence(
+                        line=number, text=text))
+                    continue
             value = effective[end:stop].lstrip(" ")
             if stop < len(effective):
                 value = value.rstrip(" ")
@@ -1547,6 +1711,21 @@ class _EntryBuilder:
         if not hits:
             if labelled and (label in _LABEL_DISPOSITIONS
                              or label == "Decision"):
+                masked_first = _mask_comment_segments(first_text)
+                if any(span_start == 0 and
+                       not masked_first[span_end:].strip()
+                       for span_start, span_end in
+                       _guarded_output_spans(masked_first)):
+                    # The paragraph first line is wholly a
+                    # guarded output row, a crosswalk tally row
+                    # in this branch (CH-51): its label word is
+                    # the tally phrasing, not a decision label
+                    # performing an act, so no labelled element
+                    # stands on it. A first line carrying any
+                    # matter past the row takes its element as
+                    # before, and quoted ruling lines, which take
+                    # no guarded span, are untouched.
+                    return
                 block = DecisionBlock(
                     marking_form="unheaded labelled paragraph",
                     span=Span(paragraph[0][0], paragraph[-1][0],
@@ -1840,30 +2019,47 @@ def _blank_line_genuine(text):
     line leaves behind (a character and run length pair, or
     None), and whether the line ends inside an HTML comment.
 
-    A line whose stripped form opens with a fence run opens a
-    fence and is blank whole. Otherwise the blanking unit is
-    the comment segment, not the line (Step 17 fix wave 2,
-    charge CH-16): each comment segment on the line is removed,
-    genuine matter before, between, and after segments stands,
-    and a segment left unclosed at the end of the line leaves
-    the comment open for the lines under it, a comment
-    reopened on the same line after a closed one included.
+    The blanking unit is the comment segment, not the line
+    (Step 17 fix wave 2, charge CH-16): each comment segment
+    on the line is removed, genuine matter before, between,
+    and after segments stands, and a segment left unclosed
+    at the end of the line leaves the comment open for the
+    lines under it, a comment reopened on the same line
+    after a closed one included.
+
+    The stored form of the blanked line is decided first, in
+    one act (Step 17 fix wave 3, charge CH-45, ruling (e) at
+    record section 26): the comment segments are removed and
+    the separator space a segment leaves at the head of the
+    line is stripped, on the same terms as the rest of a
+    comment closing line is stripped in _inert_blanked_texts,
+    so genuine matter after a closed segment stands at the
+    head of its stored line and is read as the same matter on
+    a closing line is read. The fence test then reads that
+    stored form: a stored form opening with a fence run opens
+    a fence and the line is blank whole, whether the run
+    stood at the head of the line as written or stands at the
+    head of the stored form after a closed segment.
     """
-    run = _FENCE_RUN_RE.match(text.strip())
-    if run:
-        return "", (run.group(1)[0], len(run.group(1))), False
     parts = []
     index = 0
+    in_comment = False
     while True:
         opening = text.find("<!--", index)
         if opening < 0:
             parts.append(text[index:])
-            return "".join(parts), None, False
+            break
         parts.append(text[index:opening])
         closing = text.find("-->", opening + 4)
         if closing < 0:
-            return "".join(parts), None, True
+            in_comment = True
+            break
         index = closing + 3
+    stored = "".join(parts).lstrip()
+    run = _FENCE_RUN_RE.match(stored)
+    if run:
+        return "", (run.group(1)[0], len(run.group(1))), False
+    return stored, None, in_comment
 
 
 def _inert_blanked_texts(lines):
@@ -2141,6 +2337,22 @@ def parse_queue(input_value, limits):
         if level == 1:
             if position == 0:
                 continue
+            if _numbered_heading(heading_text) or \
+                    _unnumbered_heading(heading_text):
+                # An entry heading at level 1 stands in no
+                # entry form: it takes the unmatched heading
+                # treatment under PIN-06, naming the heading
+                # as written, as the level 4 to 6 forms do
+                # (round 3 charge CH-49). The cure names entry
+                # heading forms only: a level 1 heading in no
+                # entry form stands as file structure below,
+                # and the queue header at the first position
+                # stands untouched above.
+                starts.append((number, "orphan unmatched",
+                               (level, heading_text, None)))
+                started = True
+                current_kind = "orphan"
+                continue
             starts.append((number, "file header",
                            (level, heading_text, None)))
             started = True
@@ -2237,8 +2449,18 @@ def parse_queue(input_value, limits):
                 unmatched = True
             segment_lines = [(number, lines_by_number[number])
                              for number in range(start, end + 1)]
+            # CH-39, seat 4 F-1: a segment whose record carries
+            # unmatched_heading stands quarantined at its heading
+            # line only. Every claim and citation reading of the
+            # segment stands outside that one line; heading lines
+            # generally are not excluded, and a valid entry
+            # heading line stands as a citation surface.
+            if unmatched:
+                scan_lines = segment_lines[1:]
+            else:
+                scan_lines = segment_lines
             named = []
-            for _number, segment_text in segment_lines:
+            for _number, segment_text in scan_lines:
                 for token in _DQ_TOKEN_RE.findall(segment_text):
                     if token not in named:
                         named.append(token)
@@ -2247,15 +2469,15 @@ def parse_queue(input_value, limits):
                         named.append(token)
             claims = []
             segment_joined = "\n".join(
-                item[1] for item in segment_lines)
+                item[1] for item in scan_lines)
             if "governs" in segment_joined:
                 statement = ""
-                for _number, segment_text in segment_lines:
+                for _number, segment_text in scan_lines:
                     if "governs" in segment_text:
                         statement = segment_text
                         break
                 claim_named = []
-                for _number, segment_text in segment_lines:
+                for _number, segment_text in scan_lines:
                     if segment_text.startswith("- "):
                         for token in _DQ_TOKEN_RE.findall(segment_text):
                             if token not in claim_named:
@@ -2263,7 +2485,7 @@ def parse_queue(input_value, limits):
                 claims.append(SegmentClaim(
                     named_entries=claim_named or named,
                     statement=statement))
-            for _number, segment_text in segment_lines:
+            for _number, segment_text in scan_lines:
                 # A state claim in the Manager addition note form:
                 # a bullet naming one entry as its subject and
                 # stating that entry's state, as the note at the
@@ -2315,7 +2537,10 @@ def parse_queue(input_value, limits):
             # are, so each occurrence is counted exactly once.
             # Every tail part is scanned, not only the first:
             # a part whose marker stands behind a byte order
-            # mark is selected on its mark stripped form and
+            # mark is selected on its run stripped form (the
+            # one run set at ruling (d), so a tail behind one
+            # plain space, or behind run characters, is selected
+            # as the same text on an ordinary body line is) and
             # passed whole, so the scan reads the marker at its
             # own position, and a part carrying a near marker or
             # a marker in another letter case is selected as
@@ -2325,7 +2550,7 @@ def parse_queue(input_value, limits):
             parts = heading_text.split("\r")
             tails = []
             for part in parts[1:]:
-                candidate = part.lstrip("﻿")
+                candidate = part[_leading_status_run(part):]
                 if candidate.startswith(_STATUS_MARKER) or \
                         candidate.startswith(_VARIANT_MARKER) or \
                         _is_near_marker(candidate):

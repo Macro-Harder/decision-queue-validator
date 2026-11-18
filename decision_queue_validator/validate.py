@@ -410,6 +410,17 @@ _REMAINDER_PATTERNS = (
                r"(?:stands open|stays\b)"),
     re.compile(r"([Tt]he rest) (?:also )?(?:still )?"
                r"(?:stands open|stays banked|stands banked)\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?"
+               r"(?:remains|stays) open\b"),
+    re.compile(r"[Tt]he remainder, (.+?), (?:also )?is still open\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?"
+               r"(?:remains|stays) open\b"),
+    re.compile(r"[Tt]he rest, (.+?), (?:also )?is still open\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?"
+               r"(?:remains|stays) open\b"),
+    re.compile(r"([Tt]he remainder) (?:also )?is still open\b"),
+    re.compile(r"([Tt]he rest) (?:also )?(?:remains|stays) open\b"),
+    re.compile(r"([Tt]he rest) (?:also )?is still open\b"),
 )
 
 
@@ -1048,12 +1059,30 @@ def _derive(entry):
         # closed, is closed, stands closed, been closed, closed
         # in full, or the bare word closed (Step 17 round 2
         # charge CH-8, S17-ATK2-7-02).
-        if (re.search(r"\b(?:ruled|settled|decided)\b",
-                      claim_statement, re.IGNORECASE)
-                and re.search(r"\b(?:now closed|is closed|"
-                              r"stands closed|been closed|"
-                              r"closed in full|closed)\b",
-                              claim_statement, re.IGNORECASE)):
+        # The same contradiction stands stated in noun forms
+        # as well: a decision stated by its noun (the decision,
+        # a decision) beside one of the closure forms above, or
+        # closure stated by the word shut beside a ruling noun,
+        # is the same status bearing statement in the
+        # determining element position (Step 17 round 3 charge
+        # CH-41, S17-ATK3-7-04). Each noun form stands only
+        # beside its paired form: a decision noun with no
+        # closure stated, and shut with no ruling noun stated,
+        # stand outside this reading.
+        _closed_form = re.search(
+            r"\b(?:now closed|is closed|stands closed|"
+            r"been closed|closed in full|closed)\b",
+            claim_statement, re.IGNORECASE)
+        if ((re.search(r"\b(?:ruled|settled|decided)\b",
+                       claim_statement, re.IGNORECASE)
+                and _closed_form)
+                or (re.search(r"\bdecision\b",
+                              claim_statement, re.IGNORECASE)
+                    and _closed_form)
+                or (re.search(r"\bshut\b",
+                              claim_statement, re.IGNORECASE)
+                    and re.search(r"\bruling\b",
+                                  claim_statement, re.IGNORECASE))):
             others = [e for e in effective
                       if e is not determining
                       and _denoted_state(entry, e, elements)
@@ -1098,6 +1127,16 @@ def _derive(entry):
                 condition = _effective_condition(determining)
                 if condition:
                     return finish("Conditional")
+                if (scope.startswith("Part")
+                        and disposition in ("Ruled", "Settled")
+                        and _part_remainder(entry, determining)):
+                    # The trailing open element is the remainder
+                    # naming itself, in one of the remainder verb
+                    # forms (round 3 charge CH-44, A3-10-F2): the
+                    # reassigned part act derives its part state
+                    # here, as the same act does where the
+                    # remainder paragraph bears no element.
+                    return finish("Settled in part")
             else:
                 result["state"] = "Ambiguous"
                 result["sub_label"] = "Conflict"
@@ -1359,7 +1398,26 @@ def _options_value_present(entry):
         label = str(_get(f, "label", "") or "")
         lowered = label.lower()
         if _options_alias_label(lowered):
-            return bool((_get(f, "value") or "").strip())
+            if (_get(f, "value") or "").strip():
+                return True
+            # The alias limb takes the collected lines reading
+            # the exact label limb takes (round 3 charge CH-38,
+            # alias limb of S17-ATK3-17-03): on an empty value
+            # the label alone with its option lines standing as
+            # the following body lines counts as present.
+            collected = False
+            for _line, text in _body_lines(entry):
+                stripped = (text or "").strip()
+                if stripped == label + ":" or \
+                        stripped.startswith(label + ":"):
+                    collected = True
+                    continue
+                if collected:
+                    if stripped.startswith("- "):
+                        return True
+                    if stripped:
+                        break
+            return False
     # The corpus prose form, reached only where no recorded
     # Options field stands at all, so the empty value ground
     # above is untouched: the prose heading line counts as
@@ -1377,16 +1435,25 @@ def _options_value_present(entry):
     return False
 
 
-def _field_value_present(entry, labels, prefixes=()):
+def _field_value_present(entry, labels, prefixes=(),
+                         require_word_character=False):
     """Whether a field stands present on its value, not on
     its label alone: a recorded field whose label matches and
     whose value carries non empty matter (Step 17 charge
-    F-17-02)."""
+    F-17-02). Where require_word_character stands, a value of
+    punctuation only, carrying no word character, stands as no
+    value, as a whitespace only value already does (Step 17
+    round 3 charge CH-40, S17-ATK3-7-01, on the three decided
+    entry limbs in _check5 that read through this test)."""
     for f in _get(entry, "fields") or []:
         label = str(_get(f, "label", "") or "")
         if label in labels or any(
                 label.startswith(prefix) for prefix in prefixes):
-            if (_get(f, "value") or "").strip():
+            value = _get(f, "value") or ""
+            if require_word_character:
+                if re.search(r"\w", value):
+                    return True
+            elif value.strip():
                 return True
     return False
 
@@ -1827,6 +1894,11 @@ _GHOST_SUBJECT_PATTERNS = (
     re.compile(r"\b(?:Settle|Settles|Close|Closes|Rule|Rules)\s+"
                r"DQ-([0-9]+)\b", re.IGNORECASE),
     re.compile(r"\bquestion for DQ-([0-9]+)\b", re.IGNORECASE),
+    # CH-39, S17-ATK3-7-02: the was form on the entry own
+    # Status line, DQ-999 was closed, is read by this scan on
+    # the same terms as the is form.
+    re.compile(r"\bDQ-([0-9]+)\s+was\s+(?:decided|closed|settled|"
+               r"ruled)\b", re.IGNORECASE),
 )
 
 
@@ -1942,7 +2014,8 @@ def _check5(entry, display_id, derived, elements,
         # the label alone, carrying an empty value, records no
         # ruling text (charge CH-6).
         ruling_text = _field_value_present(
-            entry, ("Ruling text", "Ruling texts", "Settlement"))
+            entry, ("Ruling text", "Ruling texts", "Settlement"),
+            require_word_character=True)
     if not ruling_text:
         for element in derived["effective_elements"]:
             if (element.kind in ("decision block matter", "closing prose",
@@ -2029,7 +2102,8 @@ def _check5(entry, display_id, derived, elements,
         # outcome (charge CH-6).
         outcome = _field_value_present(
             entry, ("Decision", "Outcome", "Outcome of this decision"),
-            prefixes=("Ruling outcome", "Form outcome"))
+            prefixes=("Ruling outcome", "Form outcome"),
+            require_word_character=True)
     if not outcome:
         for element in derived["effective_elements"]:
             statement = element.statement or ""
@@ -2042,6 +2116,20 @@ def _check5(entry, display_id, derived, elements,
             statement = element.statement or ""
             if ("Ruled:" in statement or "Settled:" in statement
                     or "Ruling outcome" in statement):
+                # A statement standing in the Ruling outcome
+                # labelled form counts on its matter, not on
+                # its label alone: where the matter after that
+                # label carries no word character, the statement
+                # records no outcome on this limb (charge CH-40,
+                # on the outcome limb of _check5).
+                labelled = re.search(
+                    r"Ruling outcome[^:]*:\s*(.*)$", statement,
+                    re.DOTALL)
+                if (labelled is not None
+                        and "Ruled:" not in statement
+                        and "Settled:" not in statement
+                        and not re.search(r"\w", labelled.group(1))):
+                    continue
                 outcome = True
                 break
     if not outcome:
@@ -2058,7 +2146,8 @@ def _check5(entry, display_id, derived, elements,
                 break
     if not outcome:
         outcome = _field_value_present(
-            entry, ("Ruled", "Settlement", "Fill-in"))
+            entry, ("Ruled", "Settlement", "Fill-in"),
+            require_word_character=True)
     landing = cross_reference
     if not landing:
         # Presence on the value, as at the tests above, with
@@ -2074,7 +2163,8 @@ def _check5(entry, display_id, derived, elements,
             prefixes=("Where the ruling landed",
                       "Where the settlement landed",
                       "Where the settlement is to land",
-                      "Where it landed"))
+                      "Where it landed"),
+            require_word_character=True)
     if not landing:
         body_lines = _body_lines(entry)
         for index, (_line, text) in enumerate(body_lines):
@@ -2568,13 +2658,23 @@ def _unmatched_heading_findings(model):
 # refuse a match where the number continues in any decimal
 # digit script, so a mixed script token is never read in
 # part as its ASCII head.
+# CH-39, seat 4 F-2: a citation token continues not only in a
+# decimal digit or a colon but also in a combining mark or a
+# format character, inside its digits or after them, and a
+# token continuing in any of those is refused whole, never
+# read in part. A full stop and punctuation that visibly ends
+# a token stand as legitimate terminators, outside the charge.
+_TOKEN_CONTINUATION = (
+    r"\d:\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff"
+    r"\ufe00-\ufe0f\ufe20-\ufe2f\u200b-\u200f\u202a-\u202e"
+    r"\u2060-\u2064\ufeff\u00ad")
 _CITATION_PATTERNS = (
-    re.compile(r"\bunder DQ-([0-9]+)(?![\d:])"),
-    re.compile(r"\bunder the DQ-([0-9]+)(?![\d:])"),
-    re.compile(r"\bat DQ-([0-9]+)(?![\d:])"),
-    re.compile(r"\bsee DQ-([0-9]+)(?![\d:])"),
-    re.compile(r"\bper DQ-([0-9]+)(?![\d:])"),
-    re.compile(r"\bcross reference to DQ-([0-9]+)(?![\d:])"),
+    re.compile(r"\bunder DQ-([0-9]+)(?![" + _TOKEN_CONTINUATION + r"])"),
+    re.compile(r"\bunder the DQ-([0-9]+)(?![" + _TOKEN_CONTINUATION + r"])"),
+    re.compile(r"\bat DQ-([0-9]+)(?![" + _TOKEN_CONTINUATION + r"])"),
+    re.compile(r"\bsee DQ-([0-9]+)(?![" + _TOKEN_CONTINUATION + r"])"),
+    re.compile(r"\bper DQ-([0-9]+)(?![" + _TOKEN_CONTINUATION + r"])"),
+    re.compile(r"\bcross reference to DQ-([0-9]+)(?![" + _TOKEN_CONTINUATION + r"])"),
 )
 
 _CLAIM_PATTERNS = (
@@ -2772,19 +2872,22 @@ def _check8(model, entries, derived_by_id, derived_lists=None):
         # number, contradicting a standing copy in both orders
         # (Step 17 round 2 charge CH-7, seat 6 Finding 2).
         copies = (derived_lists or {}).get(target_id) or []
-        distinct = []
-        for one in copies:
-            text = state_text_of(one)
-            if text not in distinct:
-                distinct.append(text)
-        if len(distinct) > 1:
+        # CH-39, seat 6 Finding 1: the Note lists one state for
+        # each standing copy in file order, as its own closing
+        # words state, at three or more copies as at two. The
+        # singular same state form stands where every copy
+        # shares one state.
+        copy_states = [state_text_of(one) for one in copies]
+        if len(copy_states) > 1 and len(set(copy_states)) > 1:
+            listed = ", ".join(copy_states[:-1]) + " and " \
+                + copy_states[-1]
             statement = (
                 "%s records a claim about the state of %s: \"%s\" "
                 "The claim is reported as a claim. The derived "
                 "states of %s in this run are %s, one for each "
                 "standing copy."
                 % (claiming_id, target_id, quoted, target_id,
-                   " and ".join(distinct)))
+                   listed))
             finding = _finding(
                 8, "Note", claiming_id, span, quoted, statement,
                 basis="a cross entry state claim, reported as a claim")
@@ -2833,10 +2936,30 @@ def _check8(model, entries, derived_by_id, derived_lists=None):
                    re.IGNORECASE),
         re.compile(r"DQ-[0-9]+\s+has\s+been\s+(settled|ruled|"
                    r"closed|decided)\b", re.IGNORECASE),
+        # CH-39, S17-ATK3-7-05: the present perfect without
+        # been, the got passive, and the bare past forms state
+        # the same decided state and take the same Note. The
+        # future, progressive, and gerund forms state no such
+        # state and stand outside the charge.
+        re.compile(r"DQ-[0-9]+\s+has\s+(settled|ruled|"
+                   r"closed|decided)\b", re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+\s+got\s+(settled|ruled|"
+                   r"closed|decided)\b", re.IGNORECASE),
+        # The bare past form stands as a sentence closing
+        # on a time adverb (DQ-338 closed yesterday.); a
+        # ruling reference carrying an object after the verb
+        # (DQ-031 ruled that, DQ-029 settled R-92) is a
+        # mention of that ruling, not a state claim, and the
+        # governed corpus pins stand on that reading.
+        re.compile(r"DQ-[0-9]+\s+(settled|ruled|closed|"
+                   r"decided)\s+(yesterday|today|already|"
+                   r"earlier|recently|now)\b", re.IGNORECASE),
     )
+    # CH-39, S17-ATK3-7-03: the verb first form reads its
+    # verbs in either case, as the ghost scan does.
     verb_claim_pattern = re.compile(
         r"\b(?:Settle|Settles|Rule|Rules|Close|Closes|Decide|"
-        r"Decides)\s+DQ-([0-9]+)\b")
+        r"Decides)\s+DQ-([0-9]+)\b", re.IGNORECASE)
     for entry in entries:
         claiming_id = _display_id(entry)
         for line_number, text in _body_lines(entry):
@@ -2975,7 +3098,8 @@ def _check8(model, entries, derived_by_id, derived_lists=None):
 # level claim and cited number reports (PIN-10, PIN-09, PD-R7)
 # ---------------------------------------------------------------------
 
-_DQ_TOKEN_RE = re.compile(r"\bDQ-([0-9]+)\b")
+_DQ_TOKEN_RE = re.compile(
+    r"\bDQ-([0-9]+)(?![" + _TOKEN_CONTINUATION + r"])\b")
 
 _IDENTIFICATION_PATTERNS = (
     re.compile(r"displaces the rulings? at "
@@ -3074,6 +3198,19 @@ def _pd_r7_finding(sentence, number_id, span, identifier=None):
 
 _MAP_SIZE_BOUND = 2000000
 _MAP_SIZE_CAP = 2000001
+
+# The supersession cycle count bound (Step 17 round 3, CH-32):
+# the distinct simple cycle inventory of one run stands
+# reported in full at or under this bound, and a run whose
+# inventory passes it refuses at exit 3 in the standing
+# refusal family, naming this bound. The enumeration itself
+# stops during enumeration on passing the bound, so the
+# refusal arrives before the factorial cost of the full
+# inventory is paid, on validate and on render alike. The
+# capped measured value is the bound plus one, the count at
+# which enumeration stopped.
+_CYCLE_COUNT_BOUND = 1000
+_CYCLE_COUNT_CAP = 1001
 _MAP_HEAD_LINE = (
     "Supersession concerns form and internal consistency only. "
     "No chain in this map judges which matter governs in "
@@ -3321,7 +3458,7 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
 
 def _supersession_unit(model, entries, derived_list):
     """Returns (pointers, findings, chains, cycle_records,
-    map_over_bound).
+    map_over_bound, cycle_over_bound).
 
     pointers maps a superseded entry identifier to the list of
     superseding entry identifiers, in file order of the
@@ -3471,6 +3608,18 @@ def _supersession_unit(model, entries, derived_list):
         runs = []
         run = []
         quote_open = False
+        # The standing run quote state is held as a running
+        # count of the quote characters of the lines the run
+        # already holds, added to line by line as each line is
+        # appended and reset when the run closes. The joined
+        # text of a run carries one plain space between its
+        # lines, which holds no quote character, so the parity
+        # of this count is the parity the joined text count
+        # gave. Recomputing that count by joining the whole
+        # standing run after every appended line paid the sum
+        # of the run prefixes in joined characters, a quadratic
+        # term in one unbroken run (Step 17 round 3, A3-21-2).
+        run_quote_count = 0
         for line_number, text in body:
             if not (text and text.strip()):
                 # A blank line does not break the run while a
@@ -3485,15 +3634,17 @@ def _supersession_unit(model, entries, derived_list):
                     runs.append(run)
                     run = []
                 quote_open = False
+                run_quote_count = 0
                 continue
             if not run or quote_open or (
                     line_number == run[-1][0] + 1):
                 run.append((line_number, text))
+                run_quote_count += text.count('"')
             else:
                 runs.append(run)
                 run = [(line_number, text)]
-            quote_open = (
-                " ".join(t for _n, t in run).count('"') % 2 == 1)
+                run_quote_count = text.count('"')
+            quote_open = (run_quote_count % 2 == 1)
         if run:
             runs.append(run)
         for run in runs:
@@ -3542,6 +3693,9 @@ def _supersession_unit(model, entries, derived_list):
         for holder in holders:
             displaces.setdefault(holder, []).append(target)
 
+    class _CycleBoundExceeded(Exception):
+        pass
+
     def find_cycles(relation, seeds):
         # Every distinct simple cycle of the relation stands
         # found, not only the first cycle a walk reaches through
@@ -3560,6 +3714,14 @@ def _supersession_unit(model, entries, derived_list):
         # file order, reading a cycle only from its earliest
         # entry in file order, so each distinct cycle stands
         # found exactly once, in chain order from that entry.
+        # The enumeration is bounded during enumeration (Step
+        # 17 round 3, CH-32): the moment the found count passes
+        # _CYCLE_COUNT_BOUND the search stops and returns the
+        # over bound flag beside the partial list, and the
+        # caller refuses the run on that flag, so no partial
+        # inventory is ever presented as complete and the
+        # factorial cost of a dense inventory is never paid in
+        # full. Returns (cycles, over_bound).
         adjacency = {}
         for seed in seeds:
             if seed not in headed_set:
@@ -3619,6 +3781,14 @@ def _supersession_unit(model, entries, derived_list):
             components.append(component)
         found_cycles = []
         seen_keys = set()
+        try:
+            return _enumerate_components(
+                components, adjacency, seen_keys, found_cycles)
+        except _CycleBoundExceeded:
+            return found_cycles, True
+
+    def _enumerate_components(
+            components, adjacency, seen_keys, found_cycles):
         for component in components:
             if len(component) == 1:
                 only = component[0]
@@ -3644,6 +3814,9 @@ def _supersession_unit(model, entries, derived_list):
                             if key not in seen_keys:
                                 seen_keys.add(key)
                                 found_cycles.append(list(path))
+                                if len(found_cycles) > \
+                                        _CYCLE_COUNT_BOUND:
+                                    raise _CycleBoundExceeded
                             continue
                         if nxt not in members or nxt in in_path:
                             continue
@@ -3664,10 +3837,22 @@ def _supersession_unit(model, entries, derived_list):
             key=lambda cycle: (
                 file_order.get(cycle[0], 0),
                 [file_order.get(n, 0) for n in cycle]))
-        return found_cycles
+        return found_cycles, False
 
-    cycles = find_cycles(displaces, headed_ids)
-    pointer_cycles = find_cycles(pointers, headed_ids)
+    cycles, cycles_over_bound = find_cycles(displaces, headed_ids)
+    pointer_cycles, pointer_cycles_over_bound = find_cycles(
+        pointers, headed_ids)
+    cycle_over_bound = cycles_over_bound or \
+        pointer_cycles_over_bound
+    if cycle_over_bound:
+        # The run refuses on this flag at exit 3 in the standing
+        # refusal family, on both subcommands, before any cycle
+        # Warning is built and before the map print size is
+        # computed: the render refusal is computed during
+        # enumeration, never only after it, and no partial
+        # inventory stands on the output as a complete one
+        # (Step 17 round 3, CH-32).
+        return pointers, findings, [], cycles, False, True
     for cycle in cycles:
         named = ", ".join(cycle)
         quotes = []
@@ -3701,7 +3886,7 @@ def _supersession_unit(model, entries, derived_list):
     map_size = _map_print_size(pointers, headed_ids, pointer_cycles)
     map_over_bound = map_size > _MAP_SIZE_BOUND
     if map_over_bound:
-        return pointers, findings, [], cycles, True
+        return pointers, findings, [], cycles, True, False
 
     # Chains for the render map, built from the pointers only.
     superseding_set = set()
@@ -3767,7 +3952,7 @@ def _supersession_unit(model, entries, derived_list):
                     continue
                 start_chain = cycle[:index + 1]
                 chains.extend(extend(start_chain, pointer))
-    return pointers, findings, chains, cycles, False
+    return pointers, findings, chains, cycles, False, False
 
 
 _SEGMENT_CLAIM_RE = re.compile(
@@ -3804,8 +3989,17 @@ def _segment_claim_findings(model, entries):
             segment, span)
         claims = list(_get(segment, "claims") or [])
         if claims:
+            heading_line_text = None
+            if quarantined_heading_line is not None:
+                for _ln, _lt in (_get(segment, "lines") or []):
+                    if _ln == quarantined_heading_line:
+                        heading_line_text = _lt
+                        break
             for claim in claims:
                 statement = _get(claim, "statement") or ""
+                if heading_line_text is not None and \
+                        statement == heading_line_text:
+                    continue
                 named = list(_get(claim, "named_entries") or [])
                 finding = _finding(
                     "PIN-09", "Note", unit_id, span, statement,
@@ -4191,17 +4385,20 @@ def _line_carries_content(text):
     are removed first, so a line of a zero width space or a
     left to right mark alone carries nothing. What remains
     must hold word matter: at least one word of two or more
-    letters or digits, or at least two words. A line of
-    punctuation alone (a full stop, a rule line) and a
-    single letter alone carry no disposition and no record
-    content, and state no content here."""
+    characters carrying a letter. A line of punctuation alone (a full
+    stop, a rule line), a single letter alone, two single
+    characters, and one bare number carry no disposition
+    and no record content, and state no content here
+    (round 3 charge CH-42, F3-8-1: digits alone state no
+    content, while a genuine short word in any script, two
+    CJK characters forming one word among them, stands)."""
     visible = "".join(
         char for char in (text or "")
         if char not in _INVISIBLE_LINE_CHARS)
     words = re.findall(r"[^\W_]+", visible)
-    if any(len(word) >= 2 for word in words):
-        return True
-    return len(words) >= 2
+    return any(
+        len(word) >= 2 and any(char.isalpha() for char in word)
+        for word in words)
 
 
 def _is_heading_shaped_line(text):
@@ -4211,13 +4408,29 @@ def _is_heading_shaped_line(text):
     with a hash. A quoted or listed genuine prose paragraph
     is not heading shaped and keeps its paragraph reading
     (Step 17 round 2 charge CH-19, F2-8-2, bounded by its
-    control G2)."""
-    stripped = (text or "").strip()
+    control G2). Round 3 charge CH-42 widens the reading:
+    invisible format characters standing before the heading
+    are removed first (F3-8-3), and the marker set read off
+    covers a number of any width, a lettered or roman
+    numeral marker, a bullet character beyond the plain
+    dash, star, and plus forms, and a bold wrap (F3-8-4),
+    each still only where the text behind it opens with a
+    hash, so genuine prose behind the same markers keeps
+    its paragraph reading."""
+    stripped = "".join(
+        char for char in (text or "")
+        if char not in _INVISIBLE_LINE_CHARS).strip()
     while True:
         if stripped.startswith(">"):
             stripped = stripped[1:].lstrip()
             continue
-        match = re.match(r"(?:[-*+]|\d{1,3}[.)])\s+", stripped)
+        if stripped.startswith("**"):
+            stripped = stripped[2:].lstrip()
+            continue
+        match = re.match(
+            r"(?:[-*+\u2022\u2013\u2014]|\d+[.)]"
+            r"|[A-Za-z][.)]|[ivxlcdmIVXLCDM]+[.)])\s+",
+            stripped)
         if match:
             stripped = stripped[match.end():].lstrip()
             continue
@@ -4343,6 +4556,15 @@ def _banked_evidence_groups(entries, derived_list):
                 # its credit below.
                 continue
             if re.match(r"^[A-Z][A-Za-z ]{0,40}:", stripped):
+                continue
+            if _is_open_field_labelled_line(text):
+                # A labelled field line takes no group credit
+                # in any case form, on any surface of the
+                # census: the same case aside reading the
+                # level 4 body test takes, standing beside
+                # the capitalised label skip above, which
+                # keeps its own forms (round 3 charge CH-42,
+                # F3-8-2).
                 continue
             if not _line_carries_content(text):
                 # The same content test as the level 4 group
@@ -4633,19 +4855,28 @@ def _apply_vocabulary_translation(entries, vocabulary):
 _BLOCKS_NO_ITEM_VALUES = frozenset({
     "none", "nothing", "nothing else", "nothing else at all",
     "no items", "no item",
+    "nothing at all", "none at all", "nothing whatsoever",
+    "nothing further", "no entries", "not applicable", "n/a",
+    "nil", "empty",
 })
 
 
 def _blocks_names_an_item(blocks):
     """Whether a Blocks field value names at least one item,
     under OP-Q12 as corrected (Step 17 round 2 charge CH-10,
-    A2-10-F2). The value is read in its ordinary sentence
-    form: case does not matter, a trailing full stop on the
-    value or on a part of it does not matter, and a value
-    made of parts joined by commas or by and names an item
+    A2-10-F2, widened at round 3 charge CH-43, A3-10-F1).
+    The value is read in its ordinary sentence
+    form: case does not matter, ordinary sentence punctuation
+    closing the value or a part of it (a full stop, an
+    exclamation mark, a space before the closing mark) does
+    not matter, and a value
+    made of parts joined by commas, by semicolons, by and,
+    by or, or by an ampersand names an item
     only where at least one part stands outside the no item
     values (none, nothing, nothing else, nothing else at
-    all, no items). A value naming a real reference beside
+    all, no items, and the round 3 phrases nothing at all,
+    none at all, nothing whatsoever, nothing further,
+    no entries, not applicable, n/a, nil, and empty). A value naming a real reference beside
     a no item part, DQ-002, none among them, names that
     reference and counts. The corpus form nothing named.
     stands outside this set by the Fix C3 bound recorded at
@@ -4668,8 +4899,8 @@ def _blocks_names_an_item(blocks):
     if not value:
         return False
     parts = []
-    for chunk in value.split(","):
-        for part in re.split(r"\s+and\s+", chunk):
+    for chunk in re.split(r"[,;]", value):
+        for part in re.split(r"\s+(?:and|or)\s+|\s*&\s*", chunk):
             part = part.strip()
             if part:
                 parts.append(part)
@@ -4678,7 +4909,8 @@ def _blocks_names_an_item(blocks):
     for part in parts:
         if part == "nothing.":
             return True
-        if part.rstrip(".") not in _BLOCKS_NO_ITEM_VALUES:
+        part_read = re.sub(r"[\s.!?]+$", "", part)
+        if part_read not in _BLOCKS_NO_ITEM_VALUES:
             return True
     return False
 
@@ -4820,7 +5052,8 @@ def validate_model(model, vocabulary, output_form_edition=None):
         entry_results.append(result)
 
     (sup_pointers, sup_findings, sup_chains,
-     _sup_cycles, sup_map_over_bound) = _supersession_unit(
+     _sup_cycles, sup_map_over_bound,
+     sup_cycle_over_bound) = _supersession_unit(
         model, entries, derived_list)
     for entry, result in zip(entries, entry_results):
         result.supersession_pointers = list(
@@ -5336,6 +5569,17 @@ def validate_model(model, vocabulary, output_form_edition=None):
     segment_claim_reports = []
     for segment in _get(model, "orphan_segments") or []:
         claims = list(_get(segment, "claims") or [])
+        report_q_line = _quarantined_heading_line(
+            segment, _get(segment, "span"))
+        report_heading_text = None
+        if report_q_line is not None:
+            for _ln, _lt in (_get(segment, "lines") or []):
+                if _ln == report_q_line:
+                    report_heading_text = _lt
+                    break
+        claims = [c for c in claims
+                  if report_heading_text is None
+                  or (_get(c, "statement") or "") != report_heading_text]
         for claim in claims:
             segment_claim_reports.append({
                 "segment_heading": _get(segment, "heading_text") or "",
@@ -5529,6 +5773,18 @@ def validate_model(model, vocabulary, output_form_edition=None):
     output.companion_count = companion_count
     output.map_over_bound = sup_map_over_bound
     output.supersession_map_over_bound = sup_map_over_bound
+    # The cycle count bound flag of the run (Step 17 round 3,
+    # CH-32): where the distinct cycle inventory passed the
+    # bound during enumeration, this flag stands and shell
+    # takes the exit 3 refusal naming the bound, on both
+    # subcommands, in place of any output of this run. The
+    # measured count stands capped at the bound plus one, the
+    # count at which enumeration stopped.
+    output.cycle_over_bound = sup_cycle_over_bound
+    output.supersession_cycle_over_bound = sup_cycle_over_bound
+    output.cycle_count_bound = _CYCLE_COUNT_BOUND
+    output.cycle_count_measured = min(
+        len(_sup_cycles), _CYCLE_COUNT_CAP)
     gap_over_bound, gap_naming_size = _gap_refusal_signal(entries)
     output.gap_over_bound = gap_over_bound
     output.gap_naming_over_bound = gap_over_bound

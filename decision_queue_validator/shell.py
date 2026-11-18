@@ -41,6 +41,9 @@ VOCABULARY_VERSION = Vocabulary.shipped().version
 MAP_SIZE_LIMIT = 2000000
 MAP_SIZE_CAPPED_VALUE = 2000001
 
+CYCLE_COUNT_LIMIT = 1000
+CYCLE_COUNT_CAPPED_VALUE = 1001
+
 GAP_NAMING_LIMIT = 2000000
 
 __all__ = [
@@ -270,6 +273,8 @@ def _os_error_cause(exc):
         return "its name is too long"
     if err == errno.EMFILE:
         return "too many files are open"
+    if err == errno.ENFILE:
+        return "too many files are open in the system"
     if err == errno.EIO:
         return "an input/output error occurred"
     return None
@@ -470,6 +475,24 @@ def _gap_refusal_output(input_name, facts_line, size,
         "whole file refusal: a limit breach")
 
 
+def _cycle_refusal_output(input_name, facts_line,
+                          measured=CYCLE_COUNT_CAPPED_VALUE):
+    fault_lines = [
+        "Supersession cycle count limit: the supersession "
+        "cycle inventory stands over the limit of %d distinct "
+        "cycles; counting stopped during enumeration at the "
+        "capped measured value of %d cycles, and the true "
+        "cycle inventory stands over the limit."
+        % (CYCLE_COUNT_LIMIT, measured),
+        "The cycle inventory does not stand complete on this "
+        "run, and no part of it is reported as a complete "
+        "inventory.",
+    ]
+    return _refusal_output(
+        input_name, fault_lines, facts_line,
+        "supersession cycle count limit")
+
+
 def _map_refusal_output(input_name, facts_line):
     fault_lines = [
         "Supersession map size limit: the supersession map print "
@@ -517,6 +540,20 @@ def _number(value):
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _cycle_refusal_signal(output):
+    """The cycle count refusal signal validate may carry, or
+    None. The signal stands where the distinct cycle
+    inventory passed its bound during enumeration, on either
+    subcommand (Step 17 round 3, CH-32)."""
+    if isinstance(output, FileLevelFailure):
+        return None
+    for name in ("cycle_over_bound",
+                 "supersession_cycle_over_bound"):
+        if _get(output, name):
+            return True
+    return None
 
 
 def _map_refusal_signal(output):
@@ -760,6 +797,30 @@ def main(argv=None):
         return _deliver_stderr_run(_gap_refusal_output(
             input_name, facts_line, gap_size,
             total_size=gap_total_size), 3)
+
+    # The cycle count bound (Step 17 round 3, CH-32): where
+    # the distinct cycle inventory passed its bound during
+    # enumeration, the run takes the whole file refusal at
+    # exit 3 naming the bound, on either subcommand, before
+    # any part of the ordinary output is delivered and before
+    # the render map refusal is read, since the cycle refusal
+    # is computed during enumeration and the map refusal only
+    # after it. No truncated cycle inventory is presented as
+    # complete on this surface or any other.
+    if _cycle_refusal_signal(output) is not None:
+        facts = _get(output, "file_facts", "file_facts_data")
+        facts_line = None
+        if facts is not None:
+            facts_line = _file_facts_line(
+                _number(_get(facts, "byte_count")),
+                _number(_get(facts, "line_count")),
+                _get(facts, "digest"),
+                _get(facts, "source_designation"))
+        measured = _number(_get(output, "cycle_count_measured"))
+        if not measured:
+            measured = CYCLE_COUNT_CAPPED_VALUE
+        return _deliver_stderr_run(_cycle_refusal_output(
+            input_name, facts_line, measured), 3)
 
     if subcommand == "render":
         signal = _map_refusal_signal(output)
