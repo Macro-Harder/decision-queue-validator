@@ -198,6 +198,40 @@ def _column_zero_phrasing(value):
     return text
 
 
+def _column_zero_carried_line(line, carried=None):
+    """The printed form of a line render composes at column 0
+    from a carried value standing first on it: the census row,
+    the findings index line, the findings section heading, and
+    the entry row first line.
+
+    Step 17 fix wave 5, CH-91: those lines took escape_text
+    only, so a carried census class name or entry identifier
+    opening with a closing line anchor or a named line form
+    stood at column 0 in that form, in the position a line
+    anchored extraction reads. The line now takes the quoting
+    guard in the form the CH-70 group title cure takes it:
+    where the line opens with an anchor or a named form under
+    the shared _opens_with_anchor predicate, the whole line
+    stands in double quotes. The cure stands in that guard
+    form, not by anchor list: it decides nothing on the FLAG
+    13 anchor set question and nothing on design question
+    note (d), both standing undecided for the gate. Every
+    other line prints in its escaped form, as before.
+
+    The findings index line stands apart in one respect: a
+    genuine index line is itself in the findings index form,
+    so that surface tests the carried identifier standing
+    first on it, handed in as carried, and not the composed
+    line. A genuine identifier opens with no anchor and its
+    index line prints as it printed; an identifier opening
+    with an anchor quotes the whole index line it stands on.
+    """
+    probe = line if carried is None else carried
+    if _opens_with_anchor(probe):
+        return '"%s"' % line
+    return line
+
+
 def _field(value, *names, default=None):
     for name in names:
         if isinstance(value, dict):
@@ -571,12 +605,13 @@ def _entry_row_lines(entry):
     title = _text(_field(entry, "title")) or ""
     heading = _text(_field(entry, "heading", "heading_text")) or ""
     if title:
-        lines.append("%s: %s" % (escape_text(ident),
-                                 escape_text(title)))
+        first_line = "%s: %s" % (escape_text(ident),
+                                 escape_text(title))
     elif heading:
-        lines.append(escape_text(heading))
+        first_line = escape_text(heading)
     else:
-        lines.append(escape_text(ident))
+        first_line = escape_text(ident)
+    lines.append(_column_zero_carried_line(first_line))
     date = _text(_field(entry, "date", "date_text"))
     lines.append("Date: %s" % (escape_text(date) if date
                                else "no date recorded"))
@@ -888,12 +923,15 @@ def _validate_body(output):
     if indexed:
         for _rank, _position, finding in indexed:
             span = _field(finding, "line_span", "span", "lines")
-            lines.append("%s %s %s %s" % (
-                escape_text(_finding_entry(finding) or ""),
-                escape_text(_finding_rule(finding)),
-                escape_text(_text(_field(finding, "severity",
-                                         "grade")) or ""),
-                _span_text(span)))
+            lines.append(_column_zero_carried_line(
+                "%s %s %s %s" % (
+                    escape_text(_finding_entry(finding) or ""),
+                    escape_text(_finding_rule(finding)),
+                    escape_text(_text(_field(finding, "severity",
+                                             "grade")) or ""),
+                    _span_text(span)),
+                carried=escape_text(
+                    _finding_entry(finding) or "")))
     else:
         lines.append("No per entry findings.")
     lines.append("")
@@ -907,7 +945,8 @@ def _validate_body(output):
             ident = _finding_entry(finding)
             if ident != current:
                 current = ident
-                lines.append("%s" % escape_text(ident or ""))
+                lines.append(_column_zero_carried_line(
+                    escape_text(ident or "")))
             span = _field(finding, "line_span", "span", "lines")
             lines.append("%s %s %s" % (
                 escape_text(_finding_rule(finding)),
@@ -1047,13 +1086,14 @@ def _census_lines(output):
                                "total"))
         unit = _text(_field(entry, "counting_unit", "unit"))
         if unit:
-            lines.append("%s: %s" % (
+            census_line = "%s: %s" % (
                 escape_text(name), _carried_unit_counted(
-                    count, escape_text(unit))))
+                    count, escape_text(unit)))
         else:
-            lines.append("%s: %s" % (escape_text(name),
-                                     _counted(count, "entry",
-                                              "entries")))
+            census_line = "%s: %s" % (escape_text(name),
+                                      _counted(count, "entry",
+                                               "entries"))
+        lines.append(_column_zero_carried_line(census_line))
         rule = _text(_field(entry, "class_rule_statement"))
         if rule:
             lines.append("Rule: %s" % escape_text(rule))
