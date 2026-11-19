@@ -12,6 +12,7 @@ never looks a phrasing up in any vocabulary: the forms are recognised
 by their surface forms alone.
 """
 
+import functools
 import hashlib
 import re
 import sys
@@ -84,6 +85,7 @@ _LEADING_STATUS_CHARS = (
 _LEADING_RUN_EXTRA = "\x0b\x0c\u200c\u200d\u2060\u00ad\u180e\u2028\u0085"
 
 
+@functools.lru_cache(maxsize=None)
 def _in_leading_run(char):
     # The run characters are read by Unicode class, not by
     # enumerated list (Step 17 round 4 triage, record section
@@ -98,6 +100,16 @@ def _in_leading_run(char):
     # FILL, or REPLACEMENT, read at _is_blank_presenting.
     # The private use class Co stands inside the ground at
     # every surface, decided expressly at that ruling.
+    # The classification is a pure function of the one
+    # character, and it is cached on the character (Step 17
+    # fix wave 10, CH-271): the near marker reading below
+    # classifies every character of the label before a
+    # line's first colon, so a long line closed by a colon
+    # paid the full classification, its Unicode name read
+    # included, once per character per scan, at a constant
+    # factor of about 3.4 times the colon free cost. The
+    # cache returns the identical classification for every
+    # character on every construction; no reading changes.
     return char in _LEADING_STATUS_CHARS or \
         char in _LEADING_RUN_EXTRA or \
         unicodedata.category(char).startswith("M") or \
@@ -114,6 +126,7 @@ def _leading_status_run(text):
     return index
 
 
+@functools.lru_cache(maxsize=None)
 def _is_blank_presenting(char):
     """Whether a character presents as blank, read from its
     Unicode name: a character in any category whose name
@@ -382,6 +395,31 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
     uniform cases, in every closing form the set reaches;
     and the bracket group reading strips the right
     guillemet beside its standing quote characters.
+
+    Round 10 limbs (charges CH-257 to CH-263, record
+    section 83): the closing character set of both
+    branches carries eight further members beside the
+    standing members (the left guillemet, the single
+    left guillemet, the closing white corner bracket,
+    the closing black lenticular bracket, the fullwidth
+    closing bracket, the fullwidth closing brace, the
+    tilde of a strikethrough span, and the closing angle
+    bracket), and every sentence close test of both
+    branches carries seven further marks beside the
+    standing marks (the ideographic full stop, the
+    fullwidth exclamation mark, the fullwidth question
+    mark, the fullwidth full stop, the interrobang, the
+    two dot leader, and the midline horizontal
+    ellipsis); the bullet marker set carries the
+    titlecase Lx tens family, a mixed case form of the
+    standard roman numeral, and the single character
+    Unicode roman numerals, in the closing forms the
+    charges name; the bracket group strip of the prose
+    branch carries the charged closing characters of
+    the sentence strip beside its standing members and
+    disregards a trailing run in alternation with them;
+    and the labelled branch takes its bracket group
+    probe of charge CH-262 as its own docstring states.
     """
     text = line_text
     if text.endswith("\r"):
@@ -516,8 +554,10 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
         r"(?:ix|iv|v?i{0,3})"
         r"|(?:Cm|Cd|Dc{0,3}|C)(?:xc|xl|l?x{0,3})"
         r"(?:ix|iv|v?i{0,3})"
-        r"|(?:Xc|Xl|Xx{0,2}|L)(?:ix|iv|v?i{0,3})"
-        r"|(?:Iv|Ix|Vi{0,3}|Ii{0,2})))\."
+        r"|(?:Xc|Xl|Xx{0,2}|Lx{1,3}|L)(?:ix|iv|v?i{0,3})"
+        r"|(?:Iv|Ix|Vi{0,3}|Ii{0,2})|(?=[MDCLXVImdclxvi]+\.)[Mm]{0,3}(?:[Cc][Mm]|[Cc][Dd]|[Dd]?[Cc]{0,3})(?:[Xx][Cc]|[Xx][Ll]|[Ll]?[Xx]{0,3})(?:[Ii][Xx]|[Ii][Vv]|[Vv]?[Ii]{0,3})))\."
+        r"|[Ⅰ-Ⅻⅰ-ⅻ]\."
+        r"|[Ⅰ-Ⅻⅰ-ⅻ](?:\)|\])"
         r"|(?:(?=[MDCLXVImdclxvi]+[\)\]])"
         r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})"
         r"(?:IX|IV|V?I{0,3})"
@@ -529,8 +569,8 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
         r"(?:ix|iv|v?i{0,3})"
         r"|(?:Cm|Cd|Dc{0,3}|C)(?:xc|xl|l?x{0,3})"
         r"(?:ix|iv|v?i{0,3})"
-        r"|(?:Xc|Xl|Xx{0,2}|L)(?:ix|iv|v?i{0,3})"
-        r"|(?:Iv|Ix|Vi{0,3}|Ii{0,2})))(?:\)|\])"
+        r"|(?:Xc|Xl|Xx{0,2}|Lx{1,3}|L)(?:ix|iv|v?i{0,3})"
+        r"|(?:Iv|Ix|Vi{0,3}|Ii{0,2})|(?=[MDCLXVImdclxvi]+[\)\]])[Mm]{0,3}(?:[Cc][Mm]|[Cc][Dd]|[Dd]?[Cc]{0,3})(?:[Xx][Cc]|[Xx][Ll]|[Ll]?[Xx]{0,3})(?:[Ii][Xx]|[Ii][Vv]|[Vv]?[Ii]{0,3})))(?:\)|\])"
         r"|\((?:(?=[MDCLXVImdclxvi]+\))"
         r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})"
         r"(?:IX|IV|V?I{0,3})"
@@ -542,8 +582,8 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
         r"(?:ix|iv|v?i{0,3})"
         r"|(?:Cm|Cd|Dc{0,3}|C)(?:xc|xl|l?x{0,3})"
         r"(?:ix|iv|v?i{0,3})"
-        r"|(?:Xc|Xl|Xx{0,2}|L)(?:ix|iv|v?i{0,3})"
-        r"|(?:Iv|Ix|Vi{0,3}|Ii{0,2})))\)"
+        r"|(?:Xc|Xl|Xx{0,2}|Lx{1,3}|L)(?:ix|iv|v?i{0,3})"
+        r"|(?:Iv|Ix|Vi{0,3}|Ii{0,2})|(?=[MDCLXVImdclxvi]+\))[Mm]{0,3}(?:[Cc][Mm]|[Cc][Dd]|[Dd]?[Cc]{0,3})(?:[Xx][Cc]|[Xx][Ll]|[Ll]?[Xx]{0,3})(?:[Ii][Xx]|[Ii][Vv]|[Vv]?[Ii]{0,3})))\)"
         r")"
         r"\s+(.*)$", stripped)
     if bullet is not None:
@@ -590,7 +630,24 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
         # same guards; case mixes beyond the titlecase form
         # stand outside this limb. An item whose content
         # carries a colon is read as a labelled line on
-        # that colon above and is not reached here.
+        # that colon above and is not reached here. The
+        # titlecase tens alternatives carry the Lx family
+        # (Lx, Lxx, and Lxxx, the sixty to eighty nine
+        # forms) from Step 17 round 10, charge CH-259,
+        # ATK10-2-05, in every closing form the set
+        # reaches, under the same guards. A mixed case
+        # form of the standard numeral (each letter of the
+        # numeral in either case) stands in the set from
+        # Step 17 round 10, charge CH-260, seat 13 F-3, in
+        # every closing form the set reaches, under the
+        # same guards; a form that is no standard numeral
+        # in any case matches no alternative. The single
+        # character Unicode roman numerals (the capital
+        # forms U+2160 to U+216B and the small forms
+        # U+2170 to U+217B) stand in the set from Step 17
+        # round 10, charge CH-263, ATK10-2-06, in the full
+        # stop form and in the closing parenthesis and
+        # bracket form, under the same guards.
         # The content is also tested for a cut DQ reference
         # (charge CH-81, ATK5-2-04): a reference token is not
         # alphabetic in the fragment guard form, so a cut
@@ -719,12 +776,48 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
     # guillemet beside them (Step 17 round 9, charge
     # CH-217, ATK9-2-03): a group standing behind a right
     # guillemet takes the same reading as a group standing
-    # last. No other character joins this strip, and a
-    # group standing behind an interleaved run and a
-    # closing quote takes no reading here, as it took
-    # none before.
+    # last. The strip carries seven further members (Step
+    # 17 round 10, charge CH-261, ATK10-2-04): the single
+    # guillemet, the asterisk, the underscore, the
+    # backtick, the left double quotation mark, the
+    # fullwidth closing parenthesis, and the closing
+    # corner bracket, and it disregards a trailing run of
+    # the ground classes in alternation with them (charge
+    # CH-262, ATK10-2-04 case q28 and seat 13 case q26),
+    # so a group standing behind any of them, or behind a
+    # run and one of them, takes the same reading. No
+    # ASCII closing bracket joins this strip, so a group
+    # standing last keeps its own closing bracket. The
+    # widened reading stands narrowed in the open: it
+    # counts only where matter stands before the group
+    # once the quote characters and the run are
+    # disregarded, so a line carrying nothing before its
+    # group but a quote and a run (the fix wave 8 K9 cut
+    # side at test_prose_interleave_no_sentence_close)
+    # takes no widened reading and stands as the
+    # sentence test leaves it; the standing quote strip
+    # reading above it stands unnarrowed, exactly as
+    # CH-217 left it.
     if _final_bracket_group_start(
             stripped.rstrip("\"'”’»")) is not None:
+        return False
+    group_core = stripped
+    while True:
+        reduced = group_core
+        while reduced and _in_leading_run(reduced[-1]):
+            reduced = reduced[:-1]
+        reduced = reduced.rstrip("\"'”’»›*`_“）」")
+        if reduced == group_core:
+            break
+        group_core = reduced
+    group_start = _final_bracket_group_start(group_core)
+    if group_start is not None and \
+            group_core[:group_start].strip(
+                "\"'”’ \t") and \
+            "".join(
+                char for char in group_core[:group_start]
+                if not _in_leading_run(char)).strip(
+                    "\"'”’ \t"):
         return False
     core = stripped
     # The prose branch disregards a trailing run of the
@@ -761,19 +854,33 @@ def _final_line_is_cut_off(line_text, inside_fence=False,
     # mark, the fullwidth closing parenthesis, and the
     # closing corner bracket, and the sentence close test
     # carries the single character ellipsis beside the
-    # three standing marks (charge CH-218, ATK9-2-04). A
-    # closing character of the set, or the ellipsis,
+    # three standing marks (charge CH-218, ATK9-2-04). The
+    # set carries eight further members (Step 17 round
+    # 10, charge CH-257, ATK10-2-01 and seat 13 F-1): the
+    # left guillemet, the single left guillemet, the
+    # closing white corner bracket, the closing black
+    # lenticular bracket, the fullwidth closing bracket,
+    # the fullwidth closing brace, the tilde of a
+    # strikethrough span, and the closing angle bracket,
+    # and the sentence close test carries seven further
+    # marks beside the standing marks (charge CH-258,
+    # ATK10-2-02 and ATK10-2-03 and seat 13 F-2): the
+    # ideographic full stop, the fullwidth exclamation
+    # mark, the fullwidth question mark, the fullwidth
+    # full stop, the interrobang, the two dot leader, and
+    # the midline horizontal ellipsis. A closing
+    # character of the set, or a mark of the test,
     # rescues no line that closes no sentence.
     while True:
         reduced = core
         while reduced and _in_leading_run(reduced[-1]):
             reduced = reduced[:-1]
         reduced = reduced.rstrip("\"')]}"
-                                 "”’»*›“_`)）」")
+                                 "”’»*›“_`)）」«‹』】］｝~⟩")
         if reduced == core:
             break
         core = reduced
-    return not core.endswith((".", "?", "!", "…"))
+    return not core.endswith((".", "?", "!", "…", "。", "！", "？", "．", "‽", "‥", "⋯"))
 
 
 # Labels whose values are sentences in the taught forms: a
@@ -925,8 +1032,28 @@ def _labelled_value_stands_whole(label, value):
     behind one of them, or on the ellipsis, is read in
     this branch as in the prose branch. The probe stands
     on the sentence close test alone, as at round 8.
+
+    Round 10 limbs (charges CH-257, CH-258, and CH-262,
+    record section 83): the probe's closing character
+    set carries the eight further members of charge
+    CH-257 beside the standing members, and the
+    sentence close tests of this branch, the standing
+    order's own test and the probe alike, carry the
+    seven further marks of charge CH-258 beside the
+    standing marks, so a sentence closing behind a
+    member of the widened set, or on one of the further
+    marks, is read in this branch as in the prose
+    branch. The bracket group reading takes a further
+    probe on the value as written (charge CH-262): it
+    disregards, in alternation, a trailing run and the
+    two guillemet forms standing behind the group, and
+    carries no quote character, so the p17 form (a
+    group behind an interleaved run and a closing
+    double quote) takes no probe reading and stands at
+    its bound under ruling (f) of record section 81.
     """
     raw = value.strip()
+    initial = raw
     # The value is read with a trailing run of the ground
     # classes disregarded before its closing quote and
     # bracket characters are stripped, and the core again
@@ -941,7 +1068,7 @@ def _labelled_value_stands_whole(label, value):
     core = raw.rstrip(")]}")
     while core and _in_leading_run(core[-1]):
         core = core[:-1]
-    if core.endswith((".", "?", "!", "…")):
+    if core.endswith((".", "?", "!", "…", "。", "！", "？", "．", "‽", "‥", "⋯")):
         return True
     # The sentence close test also reads the value end in
     # alternation (Step 17 round 8, charges CH-173 and
@@ -968,16 +1095,47 @@ def _labelled_value_stands_whole(label, value):
         while reduced and _in_leading_run(reduced[-1]):
             reduced = reduced[:-1]
         reduced = reduced.rstrip("\"')]}"
-                                 "”’»*›“_`)）」")
+                                 "”’»*›“_`)）」«‹』】］｝~⟩")
         if reduced == probe:
             break
         probe = reduced
-    if probe.endswith((".", "?", "!", "…")):
+    if probe.endswith((".", "?", "!", "…", "。", "！", "？", "．", "‽", "‥", "⋯")):
         return True
     group_start = _final_bracket_group_start(raw)
+    group_text = raw
+    if group_start is None:
+        # The bracket group reading also takes a probe on
+        # the value as written (Step 17 round 10, charge
+        # CH-262, seat 13 cases q24 and q25 and seat 2 case
+        # q40): the probe disregards, in alternation, a
+        # trailing run of the ground classes and the two
+        # guillemet forms (the right guillemet and the
+        # single guillemet) standing behind the group, so a
+        # group standing behind a guillemet alone, or
+        # behind an interleaved run and a guillemet, takes
+        # the group reading. The probe strip carries no
+        # quote character: a group standing behind an
+        # interleaved run and a closing double quote (seat
+        # 2's p17 form) takes no probe reading on the value
+        # as written, exactly as it took no reading on the
+        # raw value, and stands at its bound under ruling
+        # (f) of record section 81, unmoved.
+        probe_group = initial
+        while True:
+            reduced = probe_group
+            while reduced and _in_leading_run(reduced[-1]):
+                reduced = reduced[:-1]
+            reduced = reduced.rstrip("»›")
+            if reduced == probe_group:
+                break
+            probe_group = reduced
+        probe_start = _final_bracket_group_start(probe_group)
+        if probe_start is not None:
+            group_start = probe_start
+            group_text = probe_group
     if group_start is not None:
         before = [token for token in re.findall(
-            r"\w+(?:['’./-]\w+)*", raw[:group_start])]
+            r"\w+(?:['’./-]\w+)*", group_text[:group_start])]
         if not before:
             return True
         return not _last_token_is_fragment(before) and \
@@ -1326,10 +1484,37 @@ _GUARD_COUNT_TALLY = (
 # ruling (a)) the word sum stands as a total word in
 # its plural form sums beside its singular, in the
 # plain form and in the grand form alike, as the word
-# aggregate already stands in both its forms.
+# aggregate already stands in both its forms. At
+# CH-235 (record section 83, ruling (a)) the prefix
+# width stands restated at the charged limb: up to
+# four word tokens other than the word in standing
+# before the total word at a non word joint stand as
+# its prefix, on the same terms at the grand total
+# form, at the word sum, and at the word aggregate in
+# its singular and plural forms. Five words standing
+# before the total word stand outside this
+# restatement. At the grand total form the same four
+# word terms stand before the word grand itself, as
+# seat 10 case g10-prefix-four-grand charges, so five
+# word tokens standing before the total word at that
+# form stand inside this restatement and six stand
+# outside it. At CH-237 (record section 83, ruling
+# (a)) the grand sums form with three words standing
+# before the word grand stands cured at the same limb
+# in the open: those three words and the word grand
+# stand as four word tokens before the word sums, so
+# the CH-235 restatement reads that form at the word
+# sums, and the grand alternative itself carries no
+# prefix terms of its own, as before. At CH-238
+# (record section 83, ruling (a)) the word summation
+# stands as a total word beside the words total, sum,
+# and aggregate. No other form of the word summation
+# stands admitted by this restatement.
 _GUARD_TOTAL_WORD = (
-    r"(?:(?:(?!(?i:in)(?!\w))[^\s;:!?,|]+[^\w]+){0,3}"
-    r"(?i:(?:sub)?totals?|sums?|aggregates?)|"
+    r"(?:(?:(?!(?i:in)(?!\w))[^\s;:!?,|]+[^\w]+){0,4}"
+    r"(?i:(?:sub)?totals?|summation|sums?|aggregates?)|"
+    r"(?:(?!(?i:in)(?!\w))[^\s;:!?,|]+[^\w]+){0,4}"
+    r"(?i:grand)[^\w]+(?i:totals?)|"
     r"(?i:grand)[^\w]+(?i:sums?))")
 
 # The count row pattern. At CH-122 (record section
@@ -1448,6 +1633,50 @@ _COUNT_ROW_RE = re.compile(
 # not close the line or stand followed by its one
 # closing whitespace token, and any matter past the
 # fourth token takes its labelled element as before.
+# At CH-236 (record section 83, ruling (a)) the tail
+# width stands restated at its trailing matter
+# points: in the whitespace forms above one further,
+# fifth, word token standing after the fourth at a
+# whitespace joint is row matter, where the token
+# before its joint does not end at a period; the
+# joint run of the noun form takes an at sign, a hash
+# sign, a tilde, a plus sign, a percent sign, a caret,
+# a dollar sign, an asterisk, a backslash, an opening
+# parenthesis, or a double quote beside the joints
+# above; a second word token standing after the first
+# at a pipe, exclamation, or question joint is row
+# matter where that token closes the line; a second
+# word token standing after the first at a semicolon
+# or colon joint is row matter where one further word
+# token stands after it at a whitespace joint and
+# closes the line; a third word token standing after
+# the second at a semicolon, colon, or pipe joint is
+# row matter where that token closes the line; a
+# third word token standing after a period ending
+# second token is row matter where one further word
+# token stands after it at a whitespace joint and
+# closes the line, on the same line closing terms as
+# the CH-195 after period form; a fourth word token
+# standing after the third at a comma joint is row
+# matter where that token closes the line, and a
+# fourth word token standing after a period ending
+# third token is row matter where that token closes
+# the line; a first word token that is no row noun
+# standing at a colon, pipe, exclamation, or question
+# joint is row matter where it closes the line,
+# beside the semicolon form above; and a comma joint
+# token is row matter where two further word tokens
+# stand after it at whitespace joints and the last
+# closes the line, at the first token place and at
+# the second token place alike. The confinement
+# edges stand as the forms bound them: the joint run
+# still takes no trailing token where the word after
+# the joint is no row noun outside the noun form
+# itself, the joint forms beyond the noun form take
+# no token that does not close the line or stand
+# followed by its closing whitespace tokens, and any
+# matter past the fifth token takes its labelled
+# element as before.
 _CROSSWALK_ROW_RE = re.compile(
     _GUARD_STATE + _GUARD_JOINT_OPT + r":" + _GUARD_JOINT +
     _GUARD_STATE + _GUARD_JOINT + _GUARD_COUNT_TALLY +
@@ -1455,7 +1684,7 @@ _CROSSWALK_ROW_RE = re.compile(
     _GUARD_JOINT + _GUARD_COUNT_TALLY +
     r"(?:(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
     r"[^\s;:!?,|]+|"
-    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])|[,.\-;:/!?=|])+"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])|[,.\-;:/!?=|@#~+%^$*\\(\x22])+"
     r"(?i:entries|entry|items|questions|cases)"
     r"_*(?!\w))"
     r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
@@ -1464,12 +1693,36 @@ _CROSSWALK_ROW_RE = re.compile(
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
     r"[^\s;:!?,|]+"
     r"(?:\s|[\u200b\u200c\u200d\ufeff])+"
-    r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)|"
+    r"[^\s;:!?,|]+"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+)?(?=[ \t.,:;!?]*$)|"
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*[,]+"
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
     r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)|"
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*[;:]+"
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
+    r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*[;:]+"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
+    r"[^\s;:!?,|]+"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*[!?|]+"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
+    r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$))?"
+    r"(?:(?<!\.)(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*[,]+"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
+    r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*[;:|]+"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
+    r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])+"
     r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$))?"
     r"(?:(?<!\.)(?:\s|[\u200b\u200c\u200d\ufeff])+"
     r"[^\s;:!?,|]+|"
@@ -1484,8 +1737,10 @@ _CROSSWALK_ROW_RE = re.compile(
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
     r"[^\s;:!?,|]+"
     r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
-    r"[^\s;:!?,|]+)?(?=[ \t.,:;!?]*$)|"
-    r"(?:\s|[\u200b\u200c\u200d\ufeff])*[;]+"
+    r"[^\s;:!?,|]+"
+    r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
+    r"[^\s;:!?,|]+)?)?(?=[ \t.,:;!?]*$)|"
+    r"(?:\s|[\u200b\u200c\u200d\ufeff])*[;:|!?]+"
     r"(?:\s|[\u200b\u200c\u200d\ufeff])*"
     r"[^\s;:!?,|]+(?=[ \t.,:;!?]*$)))?|" +
     _GUARD_JOINT + r"(?i:in)" + _GUARD_JOINT +
@@ -1528,12 +1783,18 @@ _CROSSWALK_ROW_RE = re.compile(
 # as one to seven word tokens joined by whitespace
 # between its pipes. A kind spelled in more tokens
 # than seven stands outside this restatement.
+# At CH-234 (record section 83, ruling (a)) the kind
+# width stands restated at the charged limb: the
+# kind slot stands as one to eight word tokens
+# joined by whitespace between its pipes. A kind
+# spelled in more tokens than eight stands outside
+# this restatement.
 _APPENDIX_ROW_RE = re.compile(
     _GUARD_STATE + _GUARD_JOINT_OPT +
     r"\|" + _GUARD_JOINT_OPT +
     r"(?:[^\s;:!?,|]+"
     r"(?:(?:\s|[\u200b\u200c\u200d\ufeff])+"
-    r"[^\s;:!?,|]+){0,6})" + _GUARD_JOINT_OPT +
+    r"[^\s;:!?,|]+){0,7})" + _GUARD_JOINT_OPT +
     r"\|" + _GUARD_JOINT_OPT + _GUARD_COUNT_TALLY +
     _GUARD_JOINT_OPT + r"[^\s;:!?,|]+")
 
@@ -2232,6 +2493,50 @@ def _is_run_ground_case_joint_label_damage(label):
     return restored != "Status"
 
 
+def _is_run_ground_insertion_case_joint_label_damage(label):
+    """Whether a label carries one character of the run
+    ground inserted beside its whole letters together
+    with a letter case damage (round 10 charge CH-265,
+    seat 17 finding S17-ATK10-17-02): the label stands
+    seven characters long, exactly one character stands
+    in the run ground of record section 52 ruling (a),
+    read at _in_leading_run, that character stands at
+    an interior position of the label, not before the
+    first letter and not after the last letter, and the
+    label with that character removed is the whole
+    Status word in a letter case other than the
+    capitalised form. The insertion alone takes the
+    near marker report through the cleaning at
+    _is_near_marker, which removes the ground character
+    and compares the cleaned label against the
+    capitalised word, and a case damage alone takes it
+    through the case reading, which reads a run of ASCII
+    letters only, so standing together they took
+    nothing: the cleaning comparison is made against
+    the capitalised word, which the case damage defeats,
+    and the case reading is broken by the ground
+    character. The bounds stand stated here: two such
+    characters in one label stand outside this joint; a
+    joint form at any other label length stands outside
+    it; a ground character standing before the first
+    letter or after the last letter stands outside it;
+    and the capitalised form of the insertion is the
+    cleaning form itself and stands outside this joint,
+    already signalled."""
+    if len(label) != 7:
+        return False
+    inserted = [index for index in range(7)
+                if _in_leading_run(label[index])]
+    if len(inserted) != 1:
+        return False
+    index = inserted[0]
+    if index == 0 or index == 6:
+        return False
+    remaining = label[:index] + label[index + 1:]
+    return remaining.lower() == "status" and \
+        remaining != "Status"
+
+
 def _is_near_marker(text):
     """The near marker forms.
 
@@ -2279,6 +2584,35 @@ def _is_near_marker(text):
         joint_label = text[:semicolon]
         if _is_label_interior_damage(joint_label) or \
                 _is_run_ground_label_substitution(joint_label):
+            return True
+        # The same separator joint one damage further, in
+        # the two forms round 10 charges (charges CH-264
+        # and CH-266, seat 17 findings S17-ATK10-17-01 and
+        # S17-ATK10-17-03): a label standing in the CH-219
+        # run ground case joint form before the semicolon
+        # (one run ground character in place of one label
+        # letter, standing with a letter case damage), on
+        # the bound stated at
+        # _is_run_ground_case_joint_label_damage, and a
+        # label carrying a letter case damage alone before
+        # the semicolon (the whole label word in a letter
+        # case other than the capitalised form). Each pair
+        # of the CH-264 damages takes the report through
+        # the limbs above and at the colon block below,
+        # and the case damage alone takes it at the colon
+        # separator through the case reading, while the
+        # triples and the case and separator pair stood
+        # outside each reading. The pinned member of the
+        # neighbouring triple stands outside both forms
+        # and stays silent: a case damage standing with a
+        # CH-128 interior damage before the semicolon is
+        # in neither form, as the CH-220 bound above
+        # states it.
+        if _is_run_ground_case_joint_label_damage(
+                joint_label):
+            return True
+        if joint_label.lower() == "status" and \
+                joint_label != "Status":
             return True
     match = re.match(r"^([A-Za-z]+):", text)
     if match and match.group(1).lower() == "status" and \
@@ -2388,6 +2722,60 @@ def _is_near_marker(text):
         # _is_run_ground_case_joint_label_damage.
         if _is_run_ground_case_joint_label_damage(label):
             return True
+        # A label carrying one character of the run ground
+        # inserted beside its whole letters together with
+        # a letter case damage (round 10 charge CH-265,
+        # seat 17 finding S17-ATK10-17-02): the cleaning
+        # above compares the cleaned label against the
+        # capitalised word, which the case damage defeats,
+        # and the case reading above reads a run of ASCII
+        # letters only, which the ground character breaks,
+        # so the joint form took no report, its Ambiguous
+        # standing unexplained where the insertion alone
+        # and the case damage alone each take the report.
+        # The near marker reading takes the joint form, on
+        # the bound stated at
+        # _is_run_ground_insertion_case_joint_label_damage.
+        if _is_run_ground_insertion_case_joint_label_damage(
+                label):
+            return True
+        # A label standing before a space or tab run and
+        # its colon, carrying one further damage (round 10
+        # charges CH-266 and CH-267, seat 17 findings
+        # S17-ATK10-17-03 and S17-ATK10-17-04): the
+        # separator reading at the head of this function
+        # takes the whole capitalised word before its
+        # space or tab run, and the readings in this block
+        # read the label as the text before the colon,
+        # which on these lines carries the space or tab as
+        # a further character and stands in none of the
+        # stated forms, so a case damage standing with the
+        # separator damage, and an interior damage
+        # standing with the separator damage on the run
+        # ground member at a plain space and on the full
+        # stop member at a tab, each took no report where
+        # each damage alone takes it. The near marker
+        # reading takes the joint forms on the label
+        # before the space or tab run: the whole label
+        # word in a letter case other than the capitalised
+        # form (the CH-266 member), and the CH-128
+        # interior damage form and the CH-185 run ground
+        # substitution form, each with its remaining
+        # letters in the capitalised form (the CH-267
+        # members), on the bounds those readings state.
+        # The full stop member at the plain space
+        # separator already takes the report in this block
+        # and stands as the charged finding's contrast
+        # pin, outside the charge.
+        spaced_label = label.rstrip(" \t")
+        if spaced_label != label and spaced_label:
+            if spaced_label.lower() == "status" and \
+                    spaced_label != "Status":
+                return True
+            if _is_label_interior_damage(spaced_label) or \
+                    _is_run_ground_label_substitution(
+                        spaced_label):
+                return True
     return False
 
 
@@ -2943,6 +3331,11 @@ class _EntryBuilder:
         # construction m24): one character of the run
         # ground in place of one label letter standing
         # together with a letter case damage.
+        # The scan takes the round 10 semicolon joint forms
+        # at this position beside the colon forms (charges
+        # CH-264 and CH-268, seat 17 findings
+        # S17-ATK10-17-01 and S17-ATK10-17-05), on the bound
+        # stated at the semicolon loop below.
         # The reading stands in its linear form (Step 17
         # fix wave 8, charge CH-155, finding F8-18-1): the
         # line is read once for its runs of non whitespace,
@@ -2968,6 +3361,53 @@ class _EntryBuilder:
                     _is_case_joint_label_damage(token.group(0)) or \
                     _is_run_ground_case_joint_label_damage(
                         token.group(0)):
+                self.near.append(NearMarkerOccurrence(
+                    line=number, text=text))
+        # An embedded damaged label standing before a
+        # semicolon separator (round 10 charges CH-264 and
+        # CH-268, seat 17 findings S17-ATK10-17-01 and
+        # S17-ATK10-17-05): the scan above requires a colon
+        # after its token, and the CH-220 limb stands at
+        # _is_near_marker only, so the joint forms at the
+        # embedded only position took no report, where
+        # their line start twins and the embedded colon
+        # forms of the same damage classes take it. The
+        # scan takes a whole token standing before a
+        # semicolon, closed by the end of the line or by a
+        # space or a tab, where the label before the
+        # semicolon stands in the CH-128 interior damage
+        # form or in the CH-185 run ground substitution
+        # form (the CH-220 forms, charge CH-268), or in
+        # the CH-219 run ground case joint form (the
+        # CH-264 embedded member), each on the bounds
+        # those helpers state, and nothing wider: the
+        # clean label before a semicolon at this position
+        # (separator damage alone, case n34 of round 10
+        # seat 17) stands in none of the forms and stays
+        # silent, the pinned case and interior triple
+        # before a semicolon stands in none of them, and a
+        # case damage alone before a semicolon at this
+        # position stands outside this taking, its line
+        # start form cured at CH-266 in _is_near_marker.
+        # The embedded only semicolon joint form of round
+        # 10 seat 19 observation O-3 is the CH-268 full
+        # stop member on its own base and takes this same
+        # report, riding inside the bound stated here.
+        for token in re.finditer(r"[^\s:]+", effective):
+            if token.start() == 0:
+                continue
+            token_text = token.group(0)
+            if not token_text.endswith(";"):
+                continue
+            if token.end() < len(effective) and \
+                    effective[token.end()] not in " \t":
+                continue
+            joint_label = token_text[:-1]
+            if _is_label_interior_damage(joint_label) or \
+                    _is_run_ground_label_substitution(
+                        joint_label) or \
+                    _is_run_ground_case_joint_label_damage(
+                        joint_label):
                 self.near.append(NearMarkerOccurrence(
                     line=number, text=text))
         if effective.startswith(_STATUS_MARKER) and \
@@ -3278,6 +3718,30 @@ class _EntryBuilder:
                 # flavour the guard stands whole as bounded,
                 # and where no closed segment stands in the
                 # span this limb is not reached.
+                # That bound is read one limb wider at the
+                # third marker position on the marker first
+                # head line (round 10 observation O-11R10-1,
+                # ruled TO FIX at record section 83 ruling
+                # (d) as its own unnumbered charge in the K1
+                # family, in the route of O-11R9-3): where
+                # the line start element carries the marker
+                # flavour, this element stands at the third
+                # marker position, a closed segment stands at
+                # or after the start of this element's value,
+                # and an unclosed segment stands in the same
+                # span, the value is read from the stored
+                # form of the span on the same CH-125 and
+                # CH-154 terms, the stored value credited
+                # whole and nothing past the unclosed opening
+                # credited, so the embedded element stands at
+                # its plain twin's standing. The limb is
+                # narrowed to the third marker position
+                # exactly: at the second marker position the
+                # guard stands whole as cases b2 and b3 pin
+                # it, and at the fourth marker position the
+                # masked reading of the span stands whole as
+                # it stood, no limb of this charge reaching
+                # either.
                 value_start = offset + end + len(
                     embedded_separator)
                 span_end = offset + stop \
@@ -3298,6 +3762,13 @@ class _EntryBuilder:
                              other_flavour == "variant"
                              for other_start, other_flavour,
                              _other_end in starts):
+                        stored_value = stored_span.lstrip(" ")
+                        value = stored_value.rstrip(" \t")
+                    elif index == 2 and any(
+                            other_start == 0 and
+                            other_flavour == "marker"
+                            for other_start, other_flavour,
+                            _other_end in starts):
                         stored_value = stored_span.lstrip(" ")
                         value = stored_value.rstrip(" \t")
             if value.strip() == "":
@@ -4751,11 +5222,161 @@ def parse_queue(input_value, limits):
     # before it where the one body in the span is the host
     # heading's own; the test now reads the comparison
     # together with the span's body count and the part's
-    # own form, in the bound its own comment states.
+    # own form, in the bound its own comment states. The
+    # test stands cured again at round 10 (charges CH-226
+    # to CH-233, seat 1 findings A10-1-F1 to A10-1-F5 and
+    # seat 3 findings A10-3-F1 to A10-3-F5): its word
+    # readings are the title readings, its segment is
+    # measured without a fake embedded in its title, and
+    # each limb's bound stands stated expressly in the
+    # test's own comment, the long title limb at six or
+    # seven words of excess beside the one shared body,
+    # the two body limb at the next number and at the
+    # number after next where the skipped entry stands
+    # later, and the single shared body limb on the
+    # constructions its comment names.
     heading_by_number = {
         number: (level, heading_text)
         for number, level, heading_text in headings}
     heading_numbers = sorted(heading_by_number)
+    headed_entry_numbers = set()
+    for _headed_line, _headed_level, _headed_text in headings:
+        _headed_form = entry_form(_headed_level, _headed_text)
+        if _headed_form is not None and \
+                _headed_form[0] == "numbered":
+            headed_entry_numbers.add(_headed_form[1][1])
+
+    _ORDINAL_WORDS = (
+        "first", "second", "third", "fourth", "fifth",
+        "sixth", "seventh", "eighth", "ninth", "tenth",
+        "eleventh", "twelfth", "thirteenth", "fourteenth",
+        "fifteenth", "sixteenth", "seventeenth",
+        "eighteenth", "nineteenth", "twentieth")
+
+    def _ordinal_word(number):
+        # The ordinal word of an entry number, for the
+        # single shared body limb bound at
+        # _joined_part_is_title_matter: the file's own
+        # entry titles open with the ordinal word of their
+        # number (First question, Second question, Third
+        # question), and a part whose title opens with the
+        # ordinal word of its own number stands in that
+        # form. Numbers past the twentieth carry no ordinal
+        # word under this reading, as the bound there
+        # states.
+        if 1 <= number <= len(_ORDINAL_WORDS):
+            return _ORDINAL_WORDS[number - 1]
+        return None
+
+    def _title_words(title):
+        # The words of a title as the title is read (round
+        # 10, charges CH-228 and CH-231, seat 1 finding
+        # A10-1-F1 and seat 3 finding A10-3-F4): the heading
+        # readers take the title text whole, so a title's
+        # words stand separated by whitespace, by hyphens,
+        # and by zero width spaces, letter case does not
+        # divide a word, and sentence punctuation standing
+        # at a word's edge is not part of the word. The
+        # earlier reading counted split tokens alone, so a
+        # word standing in the segment's own title terms
+        # under this reading, and a two word title standing
+        # in one split token, were each misread.
+        words = []
+        for token in re.split(r"[\s\-\u200b]+", title):
+            word = token.strip(".,;:!?").casefold()
+            if word:
+                words.append(word)
+        return words
+
+    def _segment_title_reading(title):
+        # The segment title as the title matter test
+        # measures it (round 10, charge CH-230, seat 1
+        # finding A10-1-F2): where the title carries a
+        # space joined heading shaped fragment in numbered
+        # entry form inside itself, the measured title ends
+        # where that fragment begins. The fragment is the
+        # title fake form that takes no signal of its own,
+        # and counting its words as segment title inflated
+        # the measurement and suppressed a genuine joined
+        # heading standing behind the segment on the same
+        # line.
+        start = 0
+        while True:
+            index = title.find(" ### ", start)
+            if index < 0:
+                return title
+            info = _heading_info(title[index + 1:])
+            if info is not None:
+                form = entry_form(info[0], info[1])
+                if form is not None and \
+                        form[0] == "numbered":
+                    return title[:index]
+            start = index + 1
+
+    def _joined_heading_span_occurrences(number):
+        # The line numbers of the entry span's Status
+        # occurrences behind the heading line at number,
+        # counted in the form _joined_heading_body_count
+        # states, with the span's end line beside them.
+        span_end = line_count + 1
+        for other in heading_numbers:
+            if other > number:
+                span_end = other
+                break
+        found = []
+        for span_number in range(number + 1, span_end):
+            span_text = inert_texts.get(
+                span_number, lines[span_number - 1])
+            candidate = span_text[_leading_status_run(span_text):]
+            if candidate.startswith(_STATUS_MARKER) or \
+                    candidate.startswith(_VARIANT_MARKER) or \
+                    _is_near_marker(candidate):
+                found.append(span_number)
+        return found, span_end
+
+    def _joined_heading_extra_occurrences_are_tail(number):
+        # Whether every Status occurrence after the first
+        # in the span stands at the span's end, with no
+        # non blank line behind it in the span (round 10,
+        # charge CH-231 case u14 and charge CH-233, seat 3
+        # finding A10-3-F4 and seat 1 finding A10-1-F5):
+        # such an occurrence begins no further body, it is
+        # a further occurrence inside the host entry's own
+        # body (a second Status line standing in that body,
+        # or a near marker line standing in its prose), so
+        # it does not raise the span's body count against
+        # the single shared body limb.
+        found, span_end = _joined_heading_span_occurrences(
+            number)
+        if len(found) < 2:
+            return False
+        for occurrence in found[1:]:
+            for span_number in range(occurrence + 1, span_end):
+                span_text = inert_texts.get(
+                    span_number, lines[span_number - 1])
+                if span_text.strip():
+                    return False
+        return True
+
+    def _joined_heading_one_body_is_full(number):
+        # Whether the span's one body stands as a full
+        # body, carrying its Question field line behind
+        # its Status occurrence (round 10, charge CH-231,
+        # seat 3 case u12): the single shared body limb's
+        # two word floor was stated beside the near marker
+        # body forms, and a part beside a full body stands
+        # on the host heading's own complete body, not on
+        # a damaged label line and its prose.
+        found, span_end = _joined_heading_span_occurrences(
+            number)
+        if len(found) != 1:
+            return False
+        for span_number in range(found[0] + 1, span_end):
+            span_text = inert_texts.get(
+                span_number, lines[span_number - 1])
+            if span_text.startswith("Question:"):
+                return True
+        return False
 
     def _joined_heading_body_count(number):
         # The number of entry bodies standing in the file
@@ -4780,27 +5401,17 @@ def parse_queue(input_value, limits):
         # bound took no signal for a genuine joined entry
         # heading on that body, deleting the entry in
         # silence.
-        occurrences = 0
-        span_end = line_count + 1
-        for other in heading_numbers:
-            if other > number:
-                span_end = other
-                break
-        for span_number in range(number + 1, span_end):
-            span_text = inert_texts.get(
-                span_number, lines[span_number - 1])
-            candidate = span_text[_leading_status_run(span_text):]
-            if candidate.startswith(_STATUS_MARKER) or \
-                    candidate.startswith(_VARIANT_MARKER) or \
-                    _is_near_marker(candidate):
-                occurrences += 1
-        return occurrences
+        found, _span_end = _joined_heading_span_occurrences(
+            number)
+        return len(found)
 
     def _joined_heading_body_stands(number):
         return _joined_heading_body_count(number) >= 1
 
     def _joined_part_is_title_matter(parts, part_index,
-                                     joined_info, body_count):
+                                     joined_info, body_count,
+                                     extra_tail_only,
+                                     one_full_body):
         # Whether the joined part at part_index stands
         # inside the title of the heading segment before it
         # on its line, for the title limb bound above, in
@@ -4868,11 +5479,61 @@ def parse_queue(input_value, limits):
         # heading, never a title continuation. Where no
         # entry heading segment stands before the part on
         # the line, this test suppresses nothing.
+        # The test stands cured again at round 10
+        # (charges CH-226 to CH-233, seat 1 findings
+        # A10-1-F1 to A10-1-F5 and seat 3 findings
+        # A10-3-F1 to A10-3-F5), and its bound stands
+        # stated here in the open, per limb. The word
+        # readings of this test are the title readings at
+        # _title_words, not split token counts (CH-228,
+        # and the two word condition of CH-231), and the
+        # segment's title is measured at
+        # _segment_title_reading, without a space joined
+        # fake embedded in it (CH-230). The long title
+        # limb: beside the one shared body, a part whose
+        # title exceeds the segment's by six or seven
+        # words stands in heading position (CH-226); at
+        # eight words of excess or more the part stands
+        # as title matter under the cut short limb, the
+        # one body in the span being the host heading's
+        # own (CH-232), and below six words of excess the
+        # cut short limb stands as before. The two body
+        # limb: beside two or more standing bodies, a part
+        # carrying the next entry number after the
+        # segment stands in heading position, and so does
+        # a part carrying the number after next where the
+        # skipped number stands as a complete entry later
+        # in the file (CH-227); a part at any wider number
+        # distance stands as title matter under the cut
+        # short limb, as the chain fakes of the held forms
+        # stand. The single shared body limb: the part is
+        # title matter where the bodies in the span are
+        # the host heading's own, read with the tail rule
+        # at _joined_heading_extra_occurrences_are_tail,
+        # so a further occurrence standing at the span's
+        # end inside the host entry's own body raises no
+        # count against the limb (CH-231, CH-233), the
+        # part's title differs from the segment's title,
+        # and the part's title carries two words or more,
+        # that floor standing waived where the span's one
+        # body is a full body carrying its Question field
+        # (CH-231), and either the part's title shares no
+        # word with the segment's title or every word of
+        # the part's title stands in the segment's own
+        # title terms (CH-231); a part whose title opens
+        # with the ordinal word of its own number stands
+        # in heading position under this limb, whether or
+        # not its title shares a word with the segment's
+        # (CH-229), and a part carrying the segment's own
+        # title stands in heading position, as the pins
+        # state.
         joined_form = entry_form(joined_info[0], joined_info[1])
         if joined_form is None or joined_form[0] != "numbered":
             return False
         joined_title = joined_form[1][2]
-        joined_words = len(joined_title.split())
+        joined_number = joined_form[1][1]
+        joined_word_list = _title_words(joined_title)
+        joined_words = len(joined_word_list)
         for back in range(part_index - 1, -1, -1):
             segment_info = _heading_info(parts[back])
             if segment_info is None:
@@ -4889,22 +5550,38 @@ def parse_queue(input_value, limits):
             else:
                 segment_title = segment_form[1][1]
                 segment_number = None
-            segment_words = len(segment_title.split())
+            segment_title = _segment_title_reading(
+                segment_title)
+            segment_word_list = _title_words(segment_title)
+            segment_words = len(segment_word_list)
             if segment_words < joined_words:
                 if body_count == 1 and \
-                        joined_words - segment_words >= 7:
+                        6 <= joined_words - segment_words <= 7:
                     return False
                 if body_count >= 2 and \
                         segment_number is not None and \
-                        joined_form[1][1] == segment_number + 1:
+                        (joined_number == segment_number + 1 or
+                         (joined_number == segment_number + 2
+                          and segment_number + 1 in
+                          headed_entry_numbers)):
                     return False
                 return True
-            if body_count == 1 and \
+            if (body_count == 1 or extra_tail_only) and \
                     segment_title != joined_title and \
-                    joined_words >= 2 and \
-                    not set(segment_title.split()) & \
-                    set(joined_title.split()):
-                return True
+                    (joined_words >= 2 or
+                     (joined_words == 1 and one_full_body)):
+                if joined_word_list and \
+                        set(joined_word_list) <= \
+                        set(segment_word_list):
+                    return True
+                if joined_word_list and \
+                        _ordinal_word(joined_number) is not None and \
+                        joined_word_list[0] == \
+                        _ordinal_word(joined_number):
+                    return False
+                if not set(segment_word_list) & \
+                        set(joined_word_list):
+                    return True
             return False
         return False
 
@@ -4978,7 +5655,11 @@ def parse_queue(input_value, limits):
             if own_live and (not _joined_heading_body_stands(
                     number) or _joined_part_is_title_matter(
                         parts, part_index, joined_info,
-                        _joined_heading_body_count(number))):
+                        _joined_heading_body_count(number),
+                        _joined_heading_extra_occurrences_are_tail(
+                            number),
+                        _joined_heading_one_body_is_full(
+                            number))):
                 continue
             orphans.append(OrphanSegment(
                 kind="other file level segment",

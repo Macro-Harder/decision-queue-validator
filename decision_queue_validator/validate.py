@@ -1739,6 +1739,26 @@ def _derive(entry):
         # bound guards stand pinned deriving Open in both
         # directions, and no cure here widens by pattern
         # family.
+        # CH-246, S17-ATK10-7-07, named crossings only
+        # under the same ruling: the closure words
+        # finished, concluded, and complete stand as
+        # closure forms beside the decided verb, the
+        # resolved verb, and the settlement noun only,
+        # the three forms the standing reading already
+        # crosses with closed, shut, and sealed. No noun
+        # pairing widens: the decision noun, the verdict
+        # noun, and the ruling noun stand outside these
+        # crossings, and the two bound guards stand
+        # pinned deriving Open in both directions.
+        _finished_form = re.search(r"\bfinished\b",
+                                   claim_statement,
+                                   re.IGNORECASE)
+        _concluded_form = re.search(r"\bconcluded\b",
+                                    claim_statement,
+                                    re.IGNORECASE)
+        _complete_form = re.search(r"\bcomplete\b",
+                                   claim_statement,
+                                   re.IGNORECASE)
         if ((_decided_verb and _closed_form)
                 or (_resolved_verb and _closed_form)
                 or (_sealed_form and _closed_form)
@@ -1756,7 +1776,16 @@ def _derive(entry):
                 or (_ruling_noun and _sealed_form)
                 or (_settlement_noun and _shut_form)
                 or (_settlement_noun and _closed_form)
-                or (_settlement_noun and _sealed_form)):
+                or (_settlement_noun and _sealed_form)
+                or (_decided_verb and _finished_form)
+                or (_resolved_verb and _finished_form)
+                or (_settlement_noun and _finished_form)
+                or (_decided_verb and _concluded_form)
+                or (_resolved_verb and _concluded_form)
+                or (_settlement_noun and _concluded_form)
+                or (_decided_verb and _complete_form)
+                or (_resolved_verb and _complete_form)
+                or (_settlement_noun and _complete_form)):
             others = [e for e in effective
                       if e is not determining
                       and _denoted_state(entry, e, elements)
@@ -2345,6 +2374,16 @@ def _check2(entry, display_id):
     # (a triple asterisk run on each side, its colon
     # inside the dress), in the same combined form; no
     # other dress is read.
+    # CH-255, F10-8-7: the heading limb also reads the
+    # Status marker standing in triple underscore dress
+    # (a triple underscore run on each side, its colon
+    # inside the dress), in tilde dress (a tilde run on
+    # each side, its colon inside the dress), or in mixed
+    # asterisk and underscore dress (a double asterisk
+    # and underscore run on each side, its colon inside
+    # the dress), in the same combined form; no other
+    # dress is read. The damaged marker reading below
+    # stands unmoved by this charge.
     # CH-221, S17-ATK9-17-03: the heading limb also reads
     # the Status marker carrying one interior damage of a
     # cured class inside the marker word, in the same
@@ -2354,9 +2393,9 @@ def _check2(entry, display_id):
     # nowhere in silence at a clean exit, where the clean
     # heading forms take this signal.
     for line_number, text in _body_lines(entry):
-        if re.match(r"^\s*#{1,6}\s+(?:(?:\*\*\*|\*\*|\*|__|_)\s*)?Status\s*"
-                    r"(?:(?:\*\*\*|\*\*|\*|__|_)\s*)?:"
-                    r"(?:\s*(?:\*\*\*|\*\*|\*|__|_))?", text or "",
+        if re.match(r"^\s*#{1,6}\s+(?:(?:\*\*\*|\*\*_|\*\*|\*|___|__|_|~~)\s*)?Status\s*"
+                    r"(?:(?:\*\*\*|\*\*_|\*\*|\*|___|__|_|~~)\s*)?:"
+                    r"(?:\s*(?:\*\*\*|\*\*_|\*\*|\*|___|__|_|~~))?", text or "",
                     re.IGNORECASE):
             findings.append(_finding(
                 2, "Warning", display_id,
@@ -2860,8 +2899,13 @@ _GHOST_SUBJECT_PATTERNS = (
     # scan carry both since CH-133, the is pattern carries
     # both since CH-165, and the claim was list has
     # carried both all along.
+    # CH-242, S17-ATK10-7-01: the was pattern carries
+    # resolved beside its standing words, as the is, has
+    # been, got, stands, and remains and stays patterns of
+    # this scan carry it since CH-199 and the claim was
+    # list carries it since CH-203 and CH-205.
     re.compile(r"\bDQ-([0-9]+)\s+was\s+(?:decided|closed|settled|"
-               r"ruled|shut|sealed|parked|presented)\b",
+               r"ruled|shut|sealed|parked|presented|resolved)\b",
                re.IGNORECASE),
     # CH-60, S17-ATK4-7-02: this scan reads the Status line
     # forms the prose claim scan reads, the has been, has,
@@ -2885,17 +2929,32 @@ _GHOST_SUBJECT_PATTERNS = (
     # sealed beside its standing words, as the was, has
     # been, and got patterns of this scan carry it since
     # CH-164.
+    # CH-242, S17-ATK10-7-01: the has pattern carries
+    # resolved beside its standing words, on the same
+    # ground as the was pattern above.
     re.compile(r"\bDQ-([0-9]+)\s+has\s+(?:settled|ruled|"
-               r"closed|decided|shut|sealed)\b", re.IGNORECASE),
-    re.compile(r"\bDQ-([0-9]+)\s+got\s+(?:settled|ruled|"
                r"closed|decided|shut|sealed|resolved)\b",
+               re.IGNORECASE),
+    # CH-244, S17-ATK10-7-03: the got pattern carries
+    # parked and presented beside its standing words, as
+    # the is pattern of this scan carries both since
+    # CH-165, the was pattern carries both since CH-200,
+    # and the has been, stands, and remains and stays
+    # patterns carry both since CH-133.
+    re.compile(r"\bDQ-([0-9]+)\s+got\s+(?:settled|ruled|"
+               r"closed|decided|shut|sealed|resolved|parked|"
+               r"presented)\b",
                re.IGNORECASE),
     # CH-201, S17-ATK9-7-03: the bare past pattern carries
     # the sealed verb beside its standing verbs, as the
     # bare past lists of the claim scan carry it since
     # CH-177.
+    # CH-242, S17-ATK10-7-01: the bare past pattern
+    # carries the resolved verb beside its standing
+    # verbs, as the bare past lists of the claim scan
+    # carry it since CH-205.
     re.compile(r"\bDQ-([0-9]+)\s+(?:settled|ruled|closed|"
-               r"decided|shut|sealed)(?:\s+(?:yesterday|today|"
+               r"decided|shut|sealed|resolved)(?:\s+(?:yesterday|today|"
                r"already|earlier|recently|now|last\s+week|"
                r"in\s+full)\b"
                r"|\s*\.)", re.IGNORECASE),
@@ -2929,8 +2988,14 @@ _GHOST_SUBJECT_PATTERNS = (
     # CH-202, S17-ATK9-7-04: the left pattern carries
     # sealed beside closed, decided, and shut, the word
     # every sibling ghost list gained at CH-164.
+    # CH-243, S17-ATK10-7-02: the left pattern carries
+    # settled, ruled, and resolved beside its standing
+    # words: settled and ruled stand in every sibling
+    # ghost list of this scan, and resolved stands in
+    # five of them since CH-199 and in the was and has
+    # patterns since CH-242.
     re.compile(r"\bDQ-([0-9]+)\s+left\s+(?:closed|decided|shut|"
-               r"sealed)\b",
+               r"sealed|settled|ruled|resolved)\b",
                re.IGNORECASE),
     # CH-83, S17-ATK5-7-01: the remains and stays forms the
     # prose claim scan reads stand in this scan beside the
@@ -2939,6 +3004,21 @@ _GHOST_SUBJECT_PATTERNS = (
     re.compile(r"\bDQ-([0-9]+)\s+(?:remains|stays)\s+"
                r"(?:closed|settled|ruled|banked|open|shut|"
                r"decided|parked|presented|sealed|resolved)\b",
+               re.IGNORECASE),
+    # CH-247, S17-ATK10-7-04: the is still pattern and
+    # the is now pattern carry the same state list the
+    # is pattern carries, no ghost pattern reading a word
+    # standing between is and the state word before this
+    # cure, although the claim scan beside it carries an
+    # is still list since its standing form and reads
+    # the is now form for closed on the round 2 set.
+    re.compile(r"\bDQ-([0-9]+)\s+is\s+still\s+(?:decided|closed|"
+               r"settled|ruled|shut|sealed|parked|presented|"
+               r"resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+is\s+now\s+(?:decided|closed|"
+               r"settled|ruled|shut|sealed|parked|presented|"
+               r"resolved)\b",
                re.IGNORECASE),
 )
 
@@ -3406,15 +3486,27 @@ def _check5(entry, display_id, derived, elements,
     # an ideographic space does, and a ratio sign (U+2236)
     # stands after the word by as the ASCII colon does,
     # with no space before it, as the bound above states
-    # for the space form still.
+    # for the space form still. Round 10 charge CH-254,
+    # F10-8-6, widens the reading again: the letter marker
+    # widens to eight letters, the black rightwards
+    # pointer (U+25BA) and the black rightwards arrow
+    # (U+27A1) join the marker set, a digit and letter
+    # marker joins the marker readings, a figure space
+    # (U+2007) or a punctuation space (U+2008) stands
+    # inside the verb phrase as a space, a tab, a no
+    # break space, an ideographic space, a hair space, or
+    # a thin space does, and a semicolon stands after the
+    # word by as the ASCII colon does, with no space
+    # before it, as the bound above states for the space
+    # form still.
     decider_names = []
     body_lines = _body_lines(entry)
     for index, (_line, text) in enumerate(body_lines):
         decider_match = re.match(
-            r"^\s*(?:(?:[-*+\u2022\u25e6\u2023\u00b7\u25b8\u25b6]|\d+[.)]"
-            r"|[A-Za-z]{1,7}[.)]|[A-Za-z]\d+[.)]|>)\s+)*"
-            r"(?:Ruled|Settled|Decided)[ \t\u00a0\u3000\u200a\u2009]+by"
-            r"(?::|\uff1a|\ufe55|\ua789|\u2236)\s*(.*?)\s*$",
+            r"^\s*(?:(?:[-*+\u2022\u25e6\u2023\u00b7\u25b8\u25b6\u25ba\u27a1]|\d+[.)]"
+            r"|\d+[A-Za-z][.)]|[A-Za-z]{1,8}[.)]|[A-Za-z]\d+[.)]|>)\s+)*"
+            r"(?:Ruled|Settled|Decided)[ \t\u00a0\u3000\u200a\u2009\u2007\u2008]+by"
+            r"(?::|\uff1a|\ufe55|\ua789|\u2236|;)\s*(.*?)\s*$",
             text or "", re.IGNORECASE)
         if not decider_match:
             continue
@@ -4600,6 +4692,34 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
     seen_claims = set()
     token_pattern = re.compile(r"\bDQ-([0-9]+)\b")
     predicate_patterns = (
+        # CH-256, seat 4 finding F-1 and seat 6 Finding 1
+        # of round 10: every anchored pattern of this scan
+        # now also reads the token in its possessive dress,
+        # in the CH-214 form (an apostrophe, U+0027 or
+        # U+2019, and the letter s standing immediately
+        # after the digits and immediately before the verb
+        # of the pattern), so the possessive token standing
+        # directly before any anchored predicate of this
+        # scan takes its claim Note where the plain token
+        # takes it, in the entry body form and in the
+        # heading form. The bound stands stated in the
+        # open: the dress stands only where it stands
+        # immediately after the digits and immediately
+        # before the verb, so the intervening word forms
+        # take no Note in either dress, as they take none
+        # for the plain token; the shorter is open form,
+        # which no anchored list of this scan carries in
+        # the lower case dress, takes no Note in either
+        # dress; and a bare past verb carrying an object
+        # after it still reads as a ruling mention, not a
+        # claim, in either dress. The bridge patterns of
+        # this scan gain nothing by this charge: they
+        # already read the dress without loss since
+        # CH-190. The CH-214 cure on the is still form
+        # stands unmoved, and the direct patterns landed
+        # at CH-245 and CH-248 beside the charged forms
+        # gain the dress on the same terms, as anchored
+        # patterns of this same scan.
         # CH-136, S17-ATK7-7-05: the is list carries sealed
         # in both its cases beside its standing words, no
         # claim pattern of this scan carrying the word
@@ -4611,7 +4731,7 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # Resolve family standing in the ghost verb first
         # list and in the evidence verb first list of this
         # product since CH-60 and CH-101.
-        re.compile(r"DQ-[0-9]+\s+is\s+(Settled|Ruled|Open|Banked|Closed|"
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+is\s+(Settled|Ruled|Open|Banked|Closed|"
                    r"Parked|Presented|Decided|decided|Sealed|"
                    r"sealed|Resolved|resolved)\b"),
         # CH-83, S17-ATK5-7-05: the word decided stands in
@@ -4640,7 +4760,34 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         re.compile(r"[^.;]{0,110}?\b(stays|remains|stands|left)\s+"
                    r"(banked|open|settled|ruled|closed|shut|"
                    r"decided|parked|presented|sealed)\b"),
-        re.compile(r"DQ-[0-9]+\s+(?:remains|stands)\s+resolved\b",
+        # CH-245, S17-ATK10-7-05, and CH-248,
+        # S17-ATK10-7-06: the direct pattern also reads
+        # stays directly before resolved, in this direct
+        # form only, as the ghost remains and stays
+        # pattern of this product reads stays for every
+        # other state word it carries. The shared list
+        # above stands unmoved, on the CH-205 narrowing
+        # recorded there: resolved stands in no list form
+        # of this scan that reads intervening prose.
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+(?:remains|stands|stays)\s+resolved\b",
+                   re.IGNORECASE),
+        # CH-248, S17-ATK10-7-06: three further direct
+        # forms stand in their own patterns, on the same
+        # direct bound as the pattern above: the left
+        # resolved form (the shared list verb set carries
+        # left and its state list carries no resolved),
+        # the remains fully resolved form (the verb
+        # directly after the number, one adverb standing
+        # between the verb and the state word, a position
+        # the direct pattern does not read and the shared
+        # list does not carry), and the is now resolved
+        # form (read for closed on the round 2 set and for
+        # no resolved claim before this cure).
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+left\s+resolved\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+remains\s+fully\s+resolved\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+is\s+now\s+resolved\b",
                    re.IGNORECASE),
         # The still forms of the same claims, in the ordinary
         # phrasings a stale claim takes: a state stated with
@@ -4692,7 +4839,7 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # beside its standing words, for the was resolved
         # form, on the same ground as the remains and
         # stands list above.
-        re.compile(r"DQ-[0-9]+\s+was\s+(settled|ruled|closed|"
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+was\s+(settled|ruled|closed|"
                    r"decided|banked|parked|presented|open|shut|"
                    r"sealed|resolved)\b",
                    re.IGNORECASE),
@@ -4707,26 +4854,40 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # resolved beside its standing words, for the has
         # been resolved form, on the same ground as the
         # remains and stands list above.
-        re.compile(r"DQ-[0-9]+\s+has\s+been\s+(settled|ruled|"
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+has\s+been\s+(settled|ruled|"
                    r"closed|decided|shut|parked|presented|sealed|"
                    r"resolved)\b",
                    re.IGNORECASE),
         # CH-60, S17-ATK4-7-06: the is shut form, stated in the
         # lower case dress the paper measures, beside the
         # capitalised state list of the first pattern.
-        re.compile(r"DQ-[0-9]+\s+is\s+shut\b", re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+is\s+shut\b", re.IGNORECASE),
         # CH-39, S17-ATK3-7-05: the present perfect without
         # been, the got passive, and the bare past forms state
         # the same decided state and take the same Note. The
         # future, progressive, and gerund forms state no such
         # state and stand outside the charge.
-        re.compile(r"DQ-[0-9]+\s+has\s+(settled|ruled|"
-                   r"closed|decided|shut)\b", re.IGNORECASE),
+        # CH-245, S17-ATK10-7-05, and CH-248,
+        # S17-ATK10-7-06: the has list carries sealed and
+        # resolved beside its standing words: sealed
+        # stands in the was, has been, got, and bare past
+        # lists of this scan since CH-177 and in the
+        # ghost has pattern since CH-201, and resolved
+        # stands in the was and has been lists since
+        # CH-205.
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+has\s+(settled|ruled|"
+                   r"closed|decided|shut|sealed|resolved)\b",
+                   re.IGNORECASE),
         # CH-177, S17-ATK8-7-06: the got list carries sealed
         # beside its standing words, on the same ground as
         # the was and has been lists above.
-        re.compile(r"DQ-[0-9]+\s+got\s+(settled|ruled|"
-                   r"closed|decided|shut|sealed)\b", re.IGNORECASE),
+        # CH-245, S17-ATK10-7-05, and CH-248,
+        # S17-ATK10-7-06: the got list carries resolved
+        # beside its standing words, as the was and has
+        # been lists carry it since CH-205.
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+got\s+(settled|ruled|"
+                   r"closed|decided|shut|sealed|resolved)\b",
+                   re.IGNORECASE),
         # The bare past form stands as a sentence closing
         # on a time adverb (DQ-338 closed yesterday.); a
         # ruling reference carrying an object after the verb
@@ -4746,7 +4907,7 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # resolved verb carrying an object after it still
         # reads as a ruling mention, not a claim, on the
         # standing bound stated below.
-        re.compile(r"DQ-[0-9]+\s+(settled|ruled|closed|"
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+(settled|ruled|closed|"
                    r"decided|shut|sealed|resolved)\s+(yesterday|"
                    r"today|already|"
                    r"earlier|recently|now)\b", re.IGNORECASE),
@@ -4766,7 +4927,7 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # the governed corpus pin the narrowing protects
         # (DQ-031 ruled that, DQ-029 settled R-92) stands
         # unmoved on this reading.
-        re.compile(r"DQ-[0-9]+\s+(settled|ruled|closed|"
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+(settled|ruled|closed|"
                    r"decided|shut|sealed|resolved)(?:\s+(?:"
                    r"last\s+week|"
                    r"in\s+full)\b|\.(?=\s|$))", re.IGNORECASE),
@@ -5082,6 +5243,25 @@ _CH222_JOINER_CHARACTERS = frozenset(
     "؛" + "⁏" + "︔" + "*@#%")
 
 
+# The space characters of the Zs class charged at
+# Step 17 round 10, CH-269, beside the two characters
+# CH-222 names: the en quad U+2000, the en space
+# U+2002, the em space U+2003, the ideographic space
+# U+3000, the narrow no break space U+202F, and the
+# no break space U+00A0 itself, which stands charged
+# at CH-269 in the after only and mixed pairings the
+# symmetric CH-222 form does not name.
+_CH269_SPACE_CHARACTERS = frozenset(
+    " " + " " + " " + "　" + " " + " ")
+
+
+# The joiners charged at CH-269 in the Unicode space
+# spacing: the charged semicolon, the plus form of
+# CH-145, and the asterisk form of CH-183, on the
+# cases the charge names and no other joiner.
+_CH269_SPACED_JOINERS = frozenset(";+*")
+
+
 def _list_target_stands_at(sentence, position):
     """Whether a list target of the DQ form, its first
     digit included, stands at position in sentence."""
@@ -5111,11 +5291,54 @@ def _token_heads_list_at(sentence, end):
     space and the tab stand excepted as governed
     terminators, so the semicolon list spaced by one of
     them loses its head as the no space form did.
-    Every other continuation stands outside this
-    reading and refused whole, exactly as before."""
+    Step 17 round 10, CH-269, beside it: a CH-223 joiner
+    form standing with no space on either side of it,
+    followed at once by the next target of its list (the
+    underscore and the fullwidth comma U+FF0C, one
+    character wide, and the double plus and the
+    semicolon with modifier letter colon U+02F8, two
+    characters wide, read before the one character
+    forms they share a first character with); and a
+    charged joiner of the CH-269 spaced set (the charged
+    semicolon, the plus, and the asterisk) spaced by a
+    space character of the charged Zs set, or by a tab
+    on the after side of the charged en space and
+    semicolon pairing, standing on one side of the
+    joiner only, on both sides in a mismatched pair, or
+    on both sides in the same character where that
+    character stands outside the two CH-222 names, the
+    next target following the after side space character
+    or the joiner itself at once. No middle pointer
+    derives from any CH-223 list on this limb either:
+    the head reading its spaced form derives stands
+    restored on these forms only, in the signal only
+    posture of CH-223. Every other continuation stands
+    outside this reading and refused whole, exactly as
+    before."""
     if end >= len(sentence):
         return False
     if sentence[end:end + 2] == "//":
+        return _list_target_stands_at(sentence, end + 2)
+    if sentence[end:end + 2] == "++" \
+            or sentence[end:end + 2] == ";˸":
+        return _list_target_stands_at(sentence, end + 2)
+    if sentence[end] == "_" or sentence[end] == "，":
+        return _list_target_stands_at(sentence, end + 1)
+    if sentence[end] in _CH269_SPACE_CHARACTERS:
+        joiner_at = end + 1
+        if joiner_at < len(sentence) \
+                and sentence[joiner_at] in _CH269_SPACED_JOINERS:
+            after = joiner_at + 1
+            if after < len(sentence) \
+                    and (sentence[after]
+                         in _CH269_SPACE_CHARACTERS
+                         or sentence[after] == "\t"):
+                after += 1
+            return _list_target_stands_at(sentence, after)
+        return False
+    if sentence[end] in _CH269_SPACED_JOINERS \
+            and end + 1 < len(sentence) \
+            and sentence[end + 1] in _CH269_SPACE_CHARACTERS:
         return _list_target_stands_at(sentence, end + 2)
     if sentence[end] in _CH166_JOINER_CHARACTERS \
             or sentence[end] in _CH222_JOINER_CHARACTERS:
@@ -5165,8 +5388,15 @@ def _identifications(sentence):
                 # head reading its spaced form derives
                 # stands restored on those forms only,
                 # and no middle pointer derives from any
-                # CH-183 list. Every other continuation
-                # stands refused whole.
+                # CH-183 list. CH-269, seat 9 Finding 1
+                # of round 10: the exception stands
+                # extended on the same terms to the
+                # CH-223 joiner forms at the no space
+                # adjacency and to the charged Unicode
+                # space spacings, as _token_heads_list_at
+                # states them, and no middle pointer
+                # derives from any CH-223 list. Every
+                # other continuation stands refused whole.
                 end = list_start + token.end()
                 if not _token_heads_list_at(sentence, end):
                     continue
@@ -5401,6 +5631,36 @@ _CH223_JOINER_LIST_RES = (
 )
 
 
+# The joiner silence list forms of Step 17 round 10,
+# CH-270: a target list joined by a doubled charged
+# joiner outside the three CH-223 doubles (the double
+# backslash, double greater than, double equals,
+# double Greek question mark U+037E, and double
+# fullwidth question mark U+FF1F forms), by a tripled
+# charged joiner (the triple plus), by a doubled
+# underscore, by a further comma lookalike (the small
+# comma U+FE50 or the Arabic comma U+060C), or by a
+# doubled colon. Like the forms above, these lists are
+# read for the near miss signal only, on the same
+# bound: the charge is the silence only, no derivation
+# is charged, and no pointer derives from any list in
+# this set past the end readings those lists already
+# took. The caret form stands outside this set, as its
+# fix wave 8 K7 pin states: it takes no signal.
+_CH270_JOINER_LIST_RES = (
+    re.compile(r"DQ-[0-9]+(?:\s*\\\\\s*DQ-[0-9]+)+"),
+    re.compile(r"DQ-[0-9]+(?:\s*>>\s*DQ-[0-9]+)+"),
+    re.compile(r"DQ-[0-9]+(?:\s*==\s*DQ-[0-9]+)+"),
+    re.compile("DQ-[0-9]+(?:\\s*;;\\s*DQ-[0-9]+)+"),
+    re.compile("DQ-[0-9]+(?:\\s*？？\\s*DQ-[0-9]+)+"),
+    re.compile(r"DQ-[0-9]+(?:\s*\+\+\+\s*DQ-[0-9]+)+"),
+    re.compile(r"DQ-[0-9]+(?:\s*__\s*DQ-[0-9]+)+"),
+    re.compile("DQ-[0-9]+(?:\\s*﹐\\s*DQ-[0-9]+)+"),
+    re.compile("DQ-[0-9]+(?:\\s*،\\s*DQ-[0-9]+)+"),
+    re.compile(r"DQ-[0-9]+(?:\s*::\s*DQ-[0-9]+)+"),
+)
+
+
 def _semicolon_list_identifications(sentence):
     """The entry identifiers a sentence names in a target
     list joined by semicolons, in list order. The CH-64
@@ -5457,7 +5717,13 @@ def _charged_list_identifications(sentence):
     (the doubled plus, pipe, and ampersand forms, the
     semicolon with modifier letter colon U+02F8, the
     comma lookalikes U+FF0C and U+3001, and the
-    underscore form). Signal only,
+    underscore form), and the joiner silence forms of
+    Step 17 round 10, CH-270 (the double backslash,
+    double greater than, double equals, double Greek
+    question mark, and double fullwidth question mark
+    forms, the triple plus, the double underscore, the
+    comma lookalikes U+FE50 and U+060C, and the double
+    colon form). Signal only,
     on the same bound as the semicolon reading: it widens
     no derivation, the CH-64 joiner set stands unmoved,
     and the supersession unit reports the named targets
@@ -5468,7 +5734,8 @@ def _charged_list_identifications(sentence):
     for pattern in (_CHARGED_JOINER_LIST_RES
                     + _CH145_JOINER_LIST_RES
                     + _CH183_JOINER_LIST_RES
-                    + _CH223_JOINER_LIST_RES):
+                    + _CH223_JOINER_LIST_RES
+                    + _CH270_JOINER_LIST_RES):
         for match in pattern.finditer(sentence or ""):
             # The plain token form inside the match
             # only, as the semicolon reading above states
@@ -5798,6 +6065,46 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
 
     memo = {}
 
+    # The memo key's filtered ancestor sets, interned (Step
+    # 17 fix wave 10, CH-272): a root frame's filtered set is
+    # interned by the set itself, and a child frame's filtered
+    # set, which is its parent frame's filtered set with the
+    # parent entry added where parent and child stand in one
+    # component and the empty set where they do not (an
+    # ancestor of the child in the child's own component
+    # would place the parent in that component as well), is
+    # interned by that parent set's identifier and the added
+    # entry. An identifier therefore names one filtered set
+    # exactly, while two identifiers may name one set built
+    # by different addition orders, in which case the memo
+    # simply computes the frame again: the continuation
+    # value is a function of the entry and its filtered set,
+    # as the frame key comment below states, so every total
+    # stands exactly as counted, and no filtered set is
+    # stored whole per frame.
+    _filtered_ids = {}
+    _filtered_child_ids = {}
+    _filtered_counter = [0]
+
+    def _intern_filtered(filtered):
+        ident = _filtered_ids.get(filtered)
+        if ident is None:
+            _filtered_counter[0] += 1
+            ident = _filtered_counter[0]
+            _filtered_ids[filtered] = ident
+        return ident
+
+    def _intern_filtered_child(parent_ident, added):
+        key = (parent_ident, added)
+        ident = _filtered_child_ids.get(key)
+        if ident is None:
+            _filtered_counter[0] += 1
+            ident = _filtered_counter[0]
+            _filtered_child_ids[key] = ident
+        return ident
+
+    _empty_filtered_id = _intern_filtered(frozenset())
+
     def continuation(root, root_ancestors):
         # The continuation of an entry, computed with an
         # explicit stack instead of recursion, and with the
@@ -5813,17 +6120,34 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
         # any other pointer contributes its own continuation
         # widened by the entry and the separator once per
         # chain it carries, every total capped at the cap.
-        def make_frame(entry, ancestors):
+        def make_frame(entry, filtered_id):
+            return {
+                "entry": entry,
+                "filtered_id": filtered_id,
+                "key": (entry, filtered_id),
+                "holders": None, "index": 0,
+                "total_count": 0, "total_chars": 0,
+            }
+
+        def root_frame(entry, ancestors):
             entry_component = component.get(entry)
-            key = (entry, frozenset(
+            filtered_id = _intern_filtered(frozenset(
                 a for a in ancestors
                 if entry_component is not None
                 and component.get(a) == entry_component))
-            return {
-                "entry": entry, "ancestors": ancestors,
-                "key": key, "holders": None, "index": 0,
-                "total_count": 0, "total_chars": 0,
-            }
+            return make_frame(entry, filtered_id)
+
+        def child_frame(frame, pointer):
+            entry = frame["entry"]
+            entry_component = component.get(entry)
+            pointer_component = component.get(pointer)
+            if pointer_component is None or \
+                    pointer_component != entry_component:
+                filtered_id = _empty_filtered_id
+            else:
+                filtered_id = _intern_filtered_child(
+                    frame["filtered_id"], entry)
+            return make_frame(pointer, filtered_id)
 
         def deliver(done_frame, result):
             if not stack:
@@ -5837,12 +6161,28 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
                 + sub_count * (len(parent["entry"]) + sep))
             return None
 
-        stack = [make_frame(root, list(root_ancestors))]
+        stack = [root_frame(root, list(root_ancestors))]
+        # The ancestor set of the frame on top of the stack,
+        # held once for the whole walk (CH-272): a frame's
+        # ancestors are the root ancestors together with the
+        # entries of the frames below it, so the set is the
+        # root ancestors with the entry of each frame below
+        # the top added as that frame was pushed and removed
+        # as the frame above it is popped. The membership
+        # reading below reads this set exactly where it read
+        # the top frame's own ancestor list before.
+        on_path = set(root_ancestors)
+
+        def pop_frame():
+            stack.pop()
+            if stack:
+                on_path.discard(stack[-1]["entry"])
+
         result = None
         while stack:
             frame = stack[-1]
             if frame["key"] in memo:
-                stack.pop()
+                pop_frame()
                 result = deliver(frame, memo[frame["key"]])
                 continue
             if frame["holders"] is None:
@@ -5852,7 +6192,7 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
             if not holders:
                 leaf = (1, min(cap, len(entry) + 1))
                 memo[frame["key"]] = leaf
-                stack.pop()
+                pop_frame()
                 result = deliver(frame, leaf)
                 continue
             pushed = False
@@ -5860,15 +6200,14 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
                    and frame["total_chars"] < cap):
                 pointer = holders[frame["index"]]
                 frame["index"] += 1
-                if pointer == entry or pointer in frame["ancestors"]:
+                if pointer == entry or pointer in on_path:
                     frame["total_count"] = min(
                         cap, frame["total_count"] + 1)
                     frame["total_chars"] = min(
                         cap, frame["total_chars"] + len(entry)
                         + sep + len(pointer) + mark + 1)
                     continue
-                child = make_frame(
-                    pointer, frame["ancestors"] + [entry])
+                child = child_frame(frame, pointer)
                 if child["key"] in memo:
                     sub_count, sub_chars = memo[child["key"]]
                     frame["total_count"] = min(
@@ -5877,6 +6216,7 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
                         cap, frame["total_chars"] + sub_chars
                         + sub_count * (len(entry) + sep))
                     continue
+                on_path.add(entry)
                 stack.append(child)
                 pushed = True
                 break
@@ -5884,7 +6224,7 @@ def _map_print_size(pointers, headed_ids, pointer_cycles):
                 continue
             done = (frame["total_count"], frame["total_chars"])
             memo[frame["key"]] = done
-            stack.pop()
+            pop_frame()
             result = deliver(frame, done)
         return result
 
@@ -6562,10 +6902,13 @@ def _supersession_unit(model, entries, derived_list):
                     continue
                 counted = degsum[last + 1] - degsum[base]
                 trapped = True
+                jump = None
+                segment_hazards = []
                 for at, entry, edge in hazards:
                     here = at if at >= base else at + span
                     if here > last:
                         continue
+                    segment_hazards.append((here, entry, edge))
                     if edge == start:
                         trapped = False
                         break
@@ -6580,6 +6923,18 @@ def _supersession_unit(model, entries, derived_list):
                             else target + span
                         if fo[target] >= start_order \
                                 and occ > here:
+                            # A hazard edge that would
+                            # descend: the reading ends here,
+                            # except for the one forward jump
+                            # form of the CH-272 limb below,
+                            # a single such edge landing on
+                            # this same cycle inside the
+                            # segment, whose two forced paths
+                            # the limb tallies in the walk
+                            # own terms.
+                            if occ <= last and jump is None:
+                                jump = (here, entry, edge, occ)
+                                continue
                             trapped = False
                             break
                     for other in cycle_edge_cycles.get(
@@ -6591,6 +6946,128 @@ def _supersession_unit(model, entries, derived_list):
                                   base, here):
                             counted -= 1
                             break
+                if trapped and jump is not None:
+                    # The one forward jump limb (Step 17
+                    # fix wave 10, CH-272). The descent from
+                    # this start is forced onto this cycle
+                    # everywhere on the segment: every other
+                    # hazard edge of the segment stands
+                    # refused by file order, points off the
+                    # cycle at an entry the walk refuses, or
+                    # points back along the cycle at an
+                    # entry already on the path, and the one
+                    # jump edge lands on this cycle inside
+                    # the segment, past which the landing
+                    # segment carries no hazard edge that
+                    # would leave the cycle from the branch
+                    # path. The walk therefore stands as
+                    # exactly two forced paths, the main
+                    # path along the cycle and the branch
+                    # path from the jump landing, and it
+                    # records no cycle, since no edge of
+                    # either path points back to the start.
+                    # The tally below counts the walk own
+                    # examinations on the two paths, in the
+                    # walk own terms: an examination is
+                    # counted except where a candidate
+                    # cycle of the descent, narrowed to the
+                    # cycles that have followed the path at
+                    # every step before it, follows that
+                    # edge at that entry. Where any further
+                    # form stands on the segment, the limb
+                    # does not stand and the start is
+                    # walked exactly as before.
+                    j_here, j_entry, j_edge, j_occ = jump
+                    for here2, entry2, edge2 in segment_hazards:
+                        if here2 < j_occ:
+                            continue
+                        target2 = pos.get(edge2)
+                        if target2 is None:
+                            continue
+                        occ2 = target2 if target2 >= base \
+                            else target2 + span
+                        if fo[target2] >= start_order \
+                                and j_here < occ2 < j_occ:
+                            trapped = False
+                            break
+                if trapped and jump is not None:
+                    def pair_pref(other):
+                        pref = pair_diff.get((ci0, other))
+                        if pref is None:
+                            smap = cycle_successors[other]
+                            pref = [0] * (2 * span + 1)
+                            for k in range(2 * span):
+                                pref[k + 1] = pref[k] + (
+                                    1 if smap.get(cyc[k % span])
+                                    != cyc[(k + 1) % span]
+                                    else 0)
+                            pair_diff[(ci0, other)] = pref
+                        return pref
+
+                    def first_diff(other, a):
+                        if other == ci0:
+                            return None
+                        pref = pair_pref(other)
+                        if pref[2 * span] == pref[a]:
+                            return None
+                        lo, hi = a, 2 * span
+                        while lo + 1 < hi:
+                            mid = (lo + hi) // 2
+                            if pref[mid] > pref[a]:
+                                hi = mid
+                            else:
+                                lo = mid
+                        return hi - 1
+
+                    def run_tally(a, b, cands):
+                        if a > b:
+                            return 0
+                        total_run = degsum[b + 1] - degsum[a]
+                        best = a - 1
+                        forever = False
+                        for ci in cands:
+                            d = first_diff(ci, a)
+                            if d is None:
+                                forever = True
+                                break
+                            if d - 1 > best:
+                                best = d - 1
+                        if forever:
+                            cycle_counted = 0
+                        else:
+                            cycle_counted = max(0, b - best)
+                        excused = 0
+                        for here2, entry2, edge2 in \
+                                segment_hazards:
+                            if here2 < a or here2 > b:
+                                continue
+                            for ci in cands:
+                                d = first_diff(ci, a)
+                                if (d is None or d >= here2) \
+                                        and cycle_successors[
+                                            ci].get(entry2) \
+                                        == edge2:
+                                    excused += 1
+                                    break
+                        return total_run - excused \
+                            + cycle_counted
+
+                    at_jump = [
+                        ci for ci in carried
+                        if first_diff(ci, base) is None
+                        or first_diff(ci, base) >= j_here]
+                    c_main = [
+                        ci for ci in at_jump
+                        if cycle_successors[ci].get(j_entry)
+                        == cycle_successors[ci0].get(j_entry)]
+                    c_branch = [
+                        ci for ci in at_jump
+                        if cycle_successors[ci].get(j_entry)
+                        == j_edge]
+                    counted = (
+                        run_tally(base, j_here, carried)
+                        + run_tally(j_here + 1, last, c_main)
+                        + run_tally(j_occ, last, c_branch))
                 if trapped:
                     return counted
             return None
@@ -7461,7 +7938,13 @@ def _is_identifier_only_line(text):
                      ("‘", "’"), ("_", "_"),
                      ("«", "»"),
                      ("„", "“"),
-                     ("（", "）"))
+                     ("（", "）"),
+                     ("‹", "›"),
+                     ("「", "」"),
+                     ("⟦", "⟧"),
+                     ("【", "】"),
+                     ("»", "«"),
+                     ("〚", "〛"))
     while len(line) >= 2:
         # Punctuation standing after a closing wrapper is
         # wrapper punctuation, read off before the wrapper
@@ -7511,8 +7994,9 @@ def _is_identifier_only_line(text):
                 position += 1
                 separated = True
                 continue
-            word = re.match(r"(?:and|or|versus)(?![A-Za-z])",
-                            line[position:], re.IGNORECASE)
+            word = re.match(
+                r"(?:and|or|versus|against|vs\.?)(?![A-Za-z])",
+                line[position:], re.IGNORECASE)
             if word:
                 # The word and standing as a joiner between
                 # two identifiers (round 7 charge CH-138,
@@ -7523,7 +8007,15 @@ def _is_identifier_only_line(text):
                 # a guillemet pair, a low and high quotation
                 # pair, and a fullwidth parenthesis pair
                 # stand in the wrapper set above on the same
-                # ground (round 9 charge CH-209, F9-8-1). A word standing
+                # ground (round 9 charge CH-209, F9-8-1). Round
+                # 10 charge CH-252, F10-8-1, joins a single
+                # guillemet pair, a corner bracket pair, a
+                # double angle bracket pair, a lenticular
+                # bracket pair, a reversed guillemet pair,
+                # and a white square bracket pair to the
+                # wrapper set above, and the words vs (with
+                # or without a full stop) and against to this
+                # joiner reading, on the same ground. A word standing
                 # after the joiner that is no identifier ends
                 # the scan as a failing scan above, so an
                 # identifier standing beside genuine words
@@ -7597,20 +8089,27 @@ def _line_carries_content(text):
         # guillemet pair, a low and high quotation pair, or
         # a fullwidth parenthesis pair standing as a
         # wrapper, and the word versus standing as a
-        # joiner. Round 7 charge CH-144, A7-21-1,
+        # joiner. Round 10 charge CH-252, F10-8-1, widens
+        # the forms the scan reads again: a single
+        # guillemet pair, a corner bracket pair, a double
+        # angle bracket pair, a lenticular bracket pair, a
+        # reversed guillemet pair, or a white square
+        # bracket pair standing as a wrapper, and the word
+        # vs, vs with a full stop, or against standing as
+        # a joiner. Round 7 charge CH-144, A7-21-1,
         # stands at the same locus: the reading is the scan
         # at _is_identifier_only_line, not the fullmatch
         # whose repeated group redivided a failing line.
         return False
     stripped = visible.strip()
-    if re.match(r"Landed(?:\s|:|,|;)", stripped, re.IGNORECASE) or \
-            re.match(r"Origins?(?:\s*:|\s*;)", stripped,
+    if re.match(r"Landed(?:\s|:|,|;|\.)", stripped, re.IGNORECASE) or \
+            re.match(r"Origins?(?:\s*:|\s*;|\.|\,)", stripped,
                        re.IGNORECASE) or \
-            re.match(r"Filed(?:\s|:|,|;|\.)", stripped,
+            re.match(r"Filed(?:\s|:|,|;|\.|!)", stripped,
                        re.IGNORECASE) or \
-            re.match(r"Recorded(?:\s|:|,|;)", stripped,
+            re.match(r"Recorded(?:\s|:|,|;|\.)", stripped,
                        re.IGNORECASE) or \
-            re.match(r"Sources?\s*[:,;]", stripped, re.IGNORECASE):
+            re.match(r"Sources?\s*[:,;.]", stripped, re.IGNORECASE):
         # A landed line states where a ruling landed and
         # no disposition, and an Origin line is a label
         # only and carries no element by itself: a block
@@ -7647,7 +8146,15 @@ def _line_carries_content(text):
         # Recorded, the word Source, or the word Origin
         # closes that line as a comma or a colon does, and
         # a full stop standing after the word Filed closes
-        # that line on the same ground.
+        # that line on the same ground. Round 10 charge
+        # CH-249, F10-8-2, widens the reading again on the
+        # same grounds: a full stop standing after the
+        # word Recorded, the word Origin, the word Source,
+        # or the word Landed closes that line as a
+        # semicolon does, an exclamation mark standing
+        # after the word Filed closes that line on the
+        # same ground, and a comma standing after the word
+        # Origin closes that line as a colon does.
         return False
     words = re.findall(r"[^\W_]+", visible)
     return any(
@@ -7714,10 +8221,16 @@ def _is_heading_shaped_line(text):
         # marker to seven letters, and joins the black
         # rightwards triangle (U+25B6) and the black
         # rightwards arrow (U+27A1) to the bullet set.
+        # Round 10 charge CH-253, F10-8-4, widens the
+        # letter marker to eight letters, and joins the
+        # black rightwards pointer (U+25BA), the black
+        # rightwards arrowhead (U+27A4), and the three
+        # dimensional arrowhead (U+27A2) to the bullet
+        # set.
         match = re.match(
-            r"(?:[-*+\u2022\u25e6\u2013\u2014\u2023\u00b7\u00bb\u2192\u25b8\u21d2\u25b6\u27a1]"
+            r"(?:[-*+\u2022\u25e6\u2013\u2014\u2023\u00b7\u00bb\u2192\u25b8\u21d2\u25b6\u27a1\u25ba\u27a4\u27a2]"
             r"|\d+[.)]|\d+[A-Za-z][.)]|[A-Za-z]\d+[.)]"
-            r"|[A-Za-z]{1,7}[.)]|[ivxlcdmIVXLCDM]+[.)])\s+",
+            r"|[A-Za-z]{1,8}[.)]|[ivxlcdmIVXLCDM]+[.)])\s+",
             stripped)
         if match:
             stripped = stripped[match.end():].lstrip()
@@ -7770,12 +8283,26 @@ def _is_open_field_labelled_line(text):
     # below on the same ground.
     read = read.replace("\u0430", "a").replace(
         "\u039f", "O")
+    # Three further letters that respell their Latin
+    # shapes read as the letters they respell on the
+    # same ground (round 10 charge CH-250, F10-8-3): the
+    # Cyrillic small letter o (U+043E) reads as the
+    # letter o, the Cyrillic small letter er (U+0440)
+    # reads as the letter p, and the Cyrillic capital
+    # letter Es (U+0421) reads as the letter C. An em
+    # space (U+2003), an en space (U+2002), a six per em
+    # space (U+2006), or a medium mathematical space
+    # (U+205F) standing inside the label stands in the
+    # space set of the label pattern below on the same
+    # ground.
+    read = read.replace("\u043e", "o").replace(
+        "\u0440", "p").replace("\u0421", "C")
     read = "".join(
         chr(ord(char) - 0xFEE0)
         if "\uff01" <= char <= "\uff5e" else char
         for char in read)
     match = re.match(
-        r"^([A-Za-z][A-Za-z0-9 \t\u00a0\u2009\u200a\u2007\u2008\u202f\u3000()_-]{0,80})"
+        r"^([A-Za-z][A-Za-z0-9 \t\u00a0\u2002\u2003\u2006\u2009\u200a\u2007\u2008\u202f\u205f\u3000()_-]{0,80})"
         r"[ \t\u00a0\u2009\u3000]*"
         r"(?::|\uff1a)",
         read)
@@ -8102,7 +8629,7 @@ def _absorbed_h4_entry_heading(entry):
                 re.match(r"^DQ_[0-9]+(?::|\s)", heading_text) or \
                 re.match(r"^DQ[\u2013\uff0d][0-9]+(?::|\s)",
                          heading_text) or \
-                re.match(r"^(?i:dq)[\u2010\u2012\u2013\u2212\u00ad]"
+                re.match(r"^(?i:dq)[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u00ad\ufe63\uff0d]"
                          r"[0-9]+(?::|\s)",
                          heading_text) or \
                 re.match(r"^(?i:dq)_[0-9]+(?::|\s)",
@@ -8129,7 +8656,16 @@ def _absorbed_h4_entry_heading(entry):
             # under a mixed case prefix, which stands
             # between the upper case en dash reading and
             # the case aside hyphen reading and is named
-            # by neither. The exact form, a colon and
+            # by neither. Round 10 charge CH-251, F10-8-5,
+            # joins a non breaking hyphen (U+2011), an em
+            # dash (U+2014), a horizontal bar (U+2015), or
+            # a small hyphen minus (U+FE63) standing in
+            # place of the hyphen under a prefix in any
+            # case, and the fullwidth hyphen form under a
+            # mixed case prefix, which stands between the
+            # upper case fullwidth reading and the case
+            # aside dash reading and is named by neither.
+            # The exact form, a colon and
             # one space, stands outside this reading and keeps
             # its standing treatment, as the numbered branch
             # above leaves it.
@@ -8661,6 +9197,32 @@ _BLOCKS_NO_ITEM_VALUES = frozenset({
     "blocks no questions", "blocks no decisions",
     "no question is blocked", "path is clear",
     "clear of blockers",
+    "blocks zero questions", "zero questions blocked",
+    "zero decisions blocked", "blocks zero decisions",
+    "zero items are blocked",
+    "zero questions are blocked",
+    "blocks 0 items", "blocks nil items",
+    "0 questions blocked",
+    "no question blocked", "blocks no rulings",
+    "no ruling is blocked", "no decisions blocked",
+    "not a single question blocked",
+    "blocks not a single question",
+    "nothing is obstructed", "obstructs nothing at all",
+    "is not obstructing", "holds up no item",
+    "holds nothing up", "no barrier", "no barriers",
+    "free of barriers", "the path is clear",
+    "way is clear", "blocks no blockers",
+    "blocks zero blockers", "0 blockers blocked",
+    "no questions blocked",
+    "not one question is blocked",
+    "hinders no item", "obstructs no item",
+    "the road is clear", "free of hindrance",
+    "no obstruction at all", "blocks nothing at all",
+    "holds no item", "impedes no item",
+    "no item blocks anything", "zero entries are blocked",
+    "blocks no item at all", "clear of obstacles",
+    "not blocking any item", "no decision is blocked",
+    "blocks no items at all",
 })
 
 
@@ -8778,6 +9340,33 @@ def _blocks_names_an_item(blocks):
     cure. The whole part reading stands first, and the
     D2 exact form stands first in the part reading and
     is untouched by the exclamation joiner.
+    The reading widened again at round 10 charges
+    CH-239, CH-240, and CH-241 (A10-10-F1, F-10-12-1
+    to F-10-12-3, and F-20-10-5 and F-20-10-6), around
+    the same two bounds: the no item set gains the
+    further phrases the round 10 findings name (the
+    zero forms in the questions and decisions wordings
+    and in the are blocked dress, the question, ruling,
+    and blocker nouns standing where the item forms
+    stand cured, the obstruct, hinder, holds up, holds,
+    and impedes verbs read against the item noun, the
+    barrier and clear forms, and the at all extensions
+    of cured phrases), a part joined by an apostrophe,
+    by a less than sign, by a greater than sign, by a
+    pound sign, by a euro sign, by a degree sign, by a
+    pilcrow, by a dagger, by a middle dot, by a
+    copyright sign, by an asterisk, by a backtick, by
+    a parenthesis, or by an inverted exclamation mark
+    is read by its joined parts as the slash, plus,
+    and colon forms are, and a part standing inside
+    one of the charged mismatched wrapper pairs, or
+    inside the fullwidth parenthesis pair or the white
+    corner bracket pair, is read by its wrapped words
+    as the standing wrappers are. No mismatched
+    wrapper pair outside the charged pairs stands in
+    this cure. The whole part reading stands first,
+    and the D2 exact form stands first in the part
+    reading and is untouched by the fresh joiners.
     """
     value = (blocks or "").strip().lower()
     if not value:
@@ -8822,7 +9411,13 @@ def _blocks_part_names_an_item(part):
                      ("\u2039", "\u203a"),
                      ("\u201e", "\u201c"),
                      ("\u300c", "\u300d"),
-                     ("(", "]"))
+                     ("(", "]"),
+                     ("[", ")"), ("{", ")"), ("[", "}"),
+                     ("(", "}"), ("{", "]"), ("(", ">"),
+                     ("\u00ab", ")"), ("\u00ab", "]"),
+                     ("<", "]"), ('"', "'"), ("'", '"'),
+                     ("\uff08", "\uff09"),
+                     ("\u300e", "\u300f"))
     changed = True
     while changed and len(read) >= 2:
         changed = False
@@ -8848,8 +9443,10 @@ def _blocks_part_names_an_item(part):
             changed = True
     if read in _BLOCKS_NO_ITEM_VALUES:
         return False
-    joined = re.split(r"\s*[/+:|~\\=@#\-._!"
-                      r"\u2014\u2013\u2022%^$?\u00a7]\s*"
+    joined = re.split(r"\s*[/+:|~\\=@#\-._!'`*()\[\]{}<>"
+                      r"\u2014\u2013\u2022%^$?\u00a7"
+                      r"\u00a3\u20ac\u00b0\u00b6\u2020"
+                      r"\u00b7\u00a9\u00a1]\s*"
                       r"|\s+", read)
     if len(joined) > 1:
         return any(

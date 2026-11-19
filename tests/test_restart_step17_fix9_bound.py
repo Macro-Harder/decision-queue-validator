@@ -34,7 +34,22 @@ it), and the bound ceiling this module asserts:
 - 2,498 entries, compact two line form, 1 chord, 2 cycles:
   round 9 excess 0.83 s; ceiling 1.15 s.
 - 4,000 entries, compact two line form, 1 chord, 2 cycles:
-  round 9 excess 2.29 s; ceiling 2.65 s.
+  round 9 excess 2.29 s; ceiling 3.20 s, as restated in
+  fix wave 10. The first stated ceiling for this term was
+  2.65 s. Round 10 read the term past that ceiling in 2
+  of 10 readings (worst stated reading 2.828 s, median
+  about 2.41 s, behaviour exact in every reading), and
+  the fix wave 10 bound restatement seat read it in a
+  fresh serial series of 12 readings at a median of
+  2.288 s and a worst of 2.560 s, no reading past the
+  first ceiling. On the full stated distribution (22
+  readings across the round 10 and fix wave 10 sittings,
+  median 2.321 s, worst 2.828 s) the ceiling stands
+  restated at 3.20 s, a margin of 0.37 s over the worst
+  stated reading, in the margin shape of the first
+  statement, which stood 0.36 s over the round 9 figure.
+  The restatement stands recorded in the open in the
+  seat paper, design/steps/step-17r-fix10-bound-restatement.md.
 - 2,498 entries, four line form, 2 chords, 3 cycles:
   round 9 excess 2.82 s; ceiling 3.20 s.
 - 2,498 entries, four line form, 4 chords, 8 cycles:
@@ -50,6 +65,13 @@ it), and the bound ceiling this module asserts:
   round 9 excess 12.36 s; ceiling 13.05 s.
 - 4,990 entries, compact two line form, 1 chord, 2 cycles:
   round 9 excess 3.24 s; ceiling 3.65 s.
+- 4,990 entries, compact two line form, 2 chords, 4 cycles:
+  round 10 excess 19.30 s and 18.53 s, re-measured first
+  in fix wave 10 at excess 21.77 s and 22.21 s and peak
+  1,265.1 MB; cured excess 2.71 s and 2.03 s and cured
+  peak 160.0 MB, as stated in the CH-272 closing act in
+  design/steps/step-17r-fix10-j.md section 8; ceiling
+  10.00 s of excess and ceiling 400 MB of peak.
 - 2,498 entries, four line form, self edge at the middle
   entry, 1 cycle: no second cycle stands, and round 9
   measured the form at its pure control figure (1.96 s
@@ -72,7 +94,12 @@ peak ceilings asserted are 330 MB for the earliest chord
 at 2,498 entries, 300 MB for the later chord at 2,498
 entries, and 100 MB at 1,200 entries, with the pure
 control at 2,498 entries standing at or under 80 MB as
-the control pin beside them.
+the control pin beside them. The peak form for the
+4,990 entry, compact two line form, 2 chords term
+stated in the ladder above stands at a ceiling of
+400 MB, on its cured peak of 160.0 MB measured alone
+in a fresh process against its pure control at
+85.3 MB.
 
 Bound statement for the Step 18 plan, in the exact words
 this seat files it in design/steps/step-17r-fix9-bound.md:
@@ -242,7 +269,7 @@ class K12RemainderBoundTest(unittest.TestCase):
 
     def test_bound_4000_compact_2_cycles(self):
         self._pair(_ring2(4000, chords=((2000, 1),)),
-                   _ring2(4000), 2, 2.65, "r4000-2l-1chord")
+                   _ring2(4000), 2, 3.20, "r4000-2l-1chord")
 
     def test_bound_2498_four_line_3_cycles(self):
         self._pair(
@@ -269,6 +296,11 @@ class K12RemainderBoundTest(unittest.TestCase):
     def test_bound_4990_compact_2_cycles(self):
         self._pair(_ring2(4990, chords=((2495, 1),)),
                    _ring2(4990), 2, 3.65, "r4990-2l-1chord")
+
+    def test_bound_4990_compact_4_cycles(self):
+        self._pair(
+            _ring2(4990, chords=((1250, 1), (3750, 2000))),
+            _ring2(4990), 4, 10.00, "r4990-2l-2chords")
 
     def test_bound_vanishes_with_no_second_cycle(self):
         chorded, pure = _measure(
@@ -334,6 +366,15 @@ class K12RemainderPeakBoundTest(unittest.TestCase):
             pure["peak_mb"], 80.0,
             "pure control peak %.1f MB stands past its "
             "control ceiling of 80 MB" % pure["peak_mb"])
+
+    def test_peak_4990_compact_2_chords(self):
+        chorded = self._peak(
+            _ring2(4990, chords=((1250, 1), (3750, 2000))))
+        self.assertEqual(chorded["pin10"], 9)
+        self.assertLessEqual(
+            chorded["peak_mb"], 400.0,
+            "4,990 entry 2 chords peak %.1f MB stands past "
+            "its bound ceiling of 400 MB" % chorded["peak_mb"])
 
 
 if __name__ == "__main__":
