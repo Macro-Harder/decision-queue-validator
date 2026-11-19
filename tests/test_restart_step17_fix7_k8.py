@@ -55,6 +55,7 @@ shape, and no banked question is named in any construction.
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -601,6 +602,26 @@ def _content_within_bound(line, bound_seconds=20):
     return True, proc.stdout.strip() == "True"
 
 
+def _content_within_bound_timed(line, bound_seconds=20):
+    """The content reading of a line under the stated
+    bound, with the wall time of the reading measured.
+    Returns (completed, result, elapsed): elapsed is the
+    measured wall seconds of the reading, standing as a
+    measurement only, under ruling (f) of section 66 and
+    ruling (c) of section 77. The reading itself is taken
+    by _content_within_bound in a child process under the
+    bound, so a reading that does not finish inside the
+    bound is killed at the bound and this call returns
+    with completed False at the bound: the test using it
+    terminates at the bound as a failure, and no runner
+    is relied on for the bound."""
+    start = time.monotonic()
+    completed, result = _content_within_bound(
+        line, bound_seconds=bound_seconds)
+    elapsed = time.monotonic() - start
+    return completed, result, elapsed
+
+
 def _identifier_run(count):
     return ", ".join("DQ-%03d" % number
                      for number in range(1, count + 1))
@@ -614,7 +635,16 @@ class Ch144FullmatchCostTest(unittest.TestCase):
     identifier only line of the same run still states no
     content. The verdict rests on this behaviour and on
     the governed pins; cost figures stand as measurements
-    in the seat paper only, under ruling (f)."""
+    in the seat paper only, under ruling (f). TS-1 (record
+    section 77, ruling (c)): the two tests of this class
+    named at record section 72, the 100 identifier failing
+    run and the separator closed failing run, carry their
+    bound in the tests themselves, in the child process
+    form stated at _content_within_bound, at a stated 20
+    seconds with the measured wall time of each reading
+    recorded as a measurement, so each of them terminates
+    at its bound in every runner form, including a runner
+    carrying no timeout of its own."""
 
     def test_failing_run_of_30_identifiers_reads_as_content(self):
         line = (_identifier_run(30)
@@ -624,16 +654,43 @@ class Ch144FullmatchCostTest(unittest.TestCase):
         self.assertEqual(result, True)
 
     def test_failing_run_of_100_identifiers_reads_as_content(self):
+        # TS-1 (record section 77, ruling (c)): this test
+        # stands named at record section 72 and in the
+        # bench guard notes as a test that did not
+        # terminate as written. Its reading is taken under
+        # a stated bound of 20 seconds, in the child
+        # process form the governing text of
+        # _content_within_bound states, with the wall time
+        # of the reading measured and standing as a
+        # measurement only. A reading that does not finish
+        # inside the bound is killed at the bound and the
+        # test terminates there as a failure.
         line = (_identifier_run(100)
                 + " are the superseded entries.")
-        completed, result = _content_within_bound(line)
-        self.assertTrue(completed)
+        completed, result, elapsed = \
+            _content_within_bound_timed(line, bound_seconds=20)
+        self.assertTrue(
+            completed,
+            "the reading did not complete inside the "
+            "stated 20 second bound (measured %.2f "
+            "seconds)" % elapsed)
         self.assertEqual(result, True)
 
     def test_failing_run_closed_by_a_separator_reads_as_content(self):
+        # TS-1 (record section 77, ruling (c)): this test
+        # stands named at record section 72 and in the
+        # bench guard notes beside the 100 identifier test
+        # above, in the same form and under the same
+        # stated bound, with its measured wall time
+        # standing as a measurement only.
         line = _identifier_run(50) + ", and the rest follows."
-        completed, result = _content_within_bound(line)
-        self.assertTrue(completed)
+        completed, result, elapsed = \
+            _content_within_bound_timed(line, bound_seconds=20)
+        self.assertTrue(
+            completed,
+            "the reading did not complete inside the "
+            "stated 20 second bound (measured %.2f "
+            "seconds)" % elapsed)
         self.assertEqual(result, True)
 
     def test_identifier_only_long_list_still_states_no_content(self):

@@ -122,6 +122,10 @@ def _closing_line_of(text):
     return None
 
 
+_SURROGATE_TABLE = {
+    code: "\\u%04X" % code for code in range(0xD800, 0xE000)}
+
+
 def _surrogate_safe(text):
     """The text with lone surrogate code points in escaped form.
 
@@ -131,15 +135,15 @@ def _surrogate_safe(text):
     UTF-8 encoding, so they print in the backslash, u form
     escape_text uses, and the delivery encode cannot crash on
     them.
+
+    The reading stands as a translation by the table above
+    (Step 17 round 8, CH-188): the per character loop this
+    restates paid its test on every character of a composed
+    output at delivery, and the table carries the same
+    replacement for every lone surrogate code point, so the
+    delivered form stands character for character as before.
     """
-    out = []
-    for char in text:
-        code = ord(char)
-        if 0xD800 <= code <= 0xDFFF:
-            out.append("\\u%04X" % code)
-        else:
-            out.append(char)
-    return "".join(out)
+    return text.translate(_SURROGATE_TABLE)
 
 
 def _deliver_stdout(text):

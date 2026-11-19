@@ -91,6 +91,39 @@ _TAG_FORM = set([0xE0001])
 _TAG_FORM.update(range(0xE0020, 0xE0080))
 
 
+def _escape_table():
+    """The replacement of every code point escape_text
+    names, built once in the branch order of the reading it
+    restates (Step 17 round 8, CH-188): the generic control
+    forms first, then the whitespace and backslash forms
+    that stand over them, then the tag forms, the invisible
+    forms, and the lone surrogate forms. No code point
+    stands in two of those classes except the three
+    whitespace controls inside the C0 range, which the
+    later assignment carries, as the branch order carried
+    them."""
+    table = {}
+    for code in range(0x20):
+        table[code] = "\\x%02X" % code
+    table[0x7F] = "\\x7F"
+    for code in range(0x80, 0xA0):
+        table[code] = "\\x%02X" % code
+    table[0x09] = "\\t"
+    table[0x0A] = "\\n"
+    table[0x0D] = "\\r"
+    table[0x5C] = "\\\\"
+    for code in _TAG_FORM:
+        table[code] = "\\u%05X" % code
+    for code in _U_FORM:
+        table[code] = "\\u%04X" % code
+    for code in range(0xD800, 0xE000):
+        table[code] = "\\u%04X" % code
+    return table
+
+
+_ESCAPE_TABLE = _escape_table()
+
+
 def escape_text(value):
     """The visible escaped form of one operator supplied text.
 
@@ -108,33 +141,17 @@ def escape_text(value):
     no UTF-8 encoding, print in the backslash, u, and four
     uppercase hexadecimal digit form. Every other character
     prints as itself.
+
+    The reading stands as a translation by the table above
+    (Step 17 round 8, CH-188): the per character loop this
+    restates paid its branch tests on every character of a
+    composed output, and the table carries the same
+    replacement for every code point the loop named, so the
+    escaped form stands character for character as before.
     """
     if value is None:
         return ""
-    out = []
-    for char in str(value):
-        code = ord(char)
-        if char == "\\":
-            out.append("\\\\")
-        elif char == "\n":
-            out.append("\\n")
-        elif char == "\r":
-            out.append("\\r")
-        elif char == "\t":
-            out.append("\\t")
-        elif code == 0x1B:
-            out.append("\\x1B")
-        elif code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F:
-            out.append("\\x%02X" % code)
-        elif code in _TAG_FORM:
-            out.append("\\u%05X" % code)
-        elif code in _U_FORM:
-            out.append("\\u%04X" % code)
-        elif 0xD800 <= code <= 0xDFFF:
-            out.append("\\u%04X" % code)
-        else:
-            out.append(char)
-    return "".join(out)
+    return str(value).translate(_ESCAPE_TABLE)
 
 
 _FINDINGS_INDEX_FORM = re.compile(
