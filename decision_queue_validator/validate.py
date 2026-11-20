@@ -1781,6 +1781,36 @@ def _derive(entry):
                                 claim_statement, re.IGNORECASE)
         _over_form = re.search(r"\bover\b",
                                claim_statement, re.IGNORECASE)
+        # CH-333, S17-ATK12-6-05, named crossings only
+        # under the same ruling: the decision noun, the
+        # ruling noun, and the verdict noun stand as
+        # closure statement forms beside the done, ended,
+        # and over closure words, the second closure word
+        # set of CH-292 standing beside the decided verb,
+        # the resolved verb, and the settlement noun
+        # since that cure and beside no noun before this
+        # cure; the sealed verb stands as a closure
+        # statement form beside the finished closure
+        # word, the sealed form standing in this reading
+        # beside closed, shut, and its own sealed form
+        # before this cure and beside no CH-246 or CH-292
+        # closure word; and the closure words wrapped up
+        # and finalized stand as closure forms beside the
+        # decided verb, the resolved verb, and the
+        # settlement noun, the three forms CH-246 and
+        # CH-292 crossed with their closure word sets.
+        # No other pairing widens: the two K7 bound
+        # guards (the decision noun beside sealed, the
+        # verdict noun beside shut) stand pinned deriving
+        # Open in both directions, expressly outside this
+        # charge, and no crossing here touches the sealed
+        # or shut forms beside any noun.
+        _wrapped_up_form = re.search(r"\bwrapped\s+up\b",
+                                     claim_statement,
+                                     re.IGNORECASE)
+        _finalized_form = re.search(r"\bfinalized\b",
+                                    claim_statement,
+                                    re.IGNORECASE)
         if ((_decided_verb and _closed_form)
                 or (_resolved_verb and _closed_form)
                 or (_sealed_form and _closed_form)
@@ -1825,7 +1855,23 @@ def _derive(entry):
                 or (_settlement_noun and _ended_form)
                 or (_decided_verb and _over_form)
                 or (_resolved_verb and _over_form)
-                or (_settlement_noun and _over_form)):
+                or (_settlement_noun and _over_form)
+                or (_decision_noun and _done_form)
+                or (_ruling_noun and _done_form)
+                or (_verdict_noun and _done_form)
+                or (_decision_noun and _ended_form)
+                or (_ruling_noun and _ended_form)
+                or (_verdict_noun and _ended_form)
+                or (_decision_noun and _over_form)
+                or (_ruling_noun and _over_form)
+                or (_verdict_noun and _over_form)
+                or (_sealed_form and _finished_form)
+                or (_decided_verb and _wrapped_up_form)
+                or (_resolved_verb and _wrapped_up_form)
+                or (_settlement_noun and _wrapped_up_form)
+                or (_decided_verb and _finalized_form)
+                or (_resolved_verb and _finalized_form)
+                or (_settlement_noun and _finalized_form)):
             others = [e for e in effective
                       if e is not determining
                       and _denoted_state(entry, e, elements)
@@ -2440,6 +2486,19 @@ def _check2(entry, display_id):
     # standing without its colon stands outside the
     # Status line form itself, as the bound probe in
     # this seat's tests records.
+    # CH-341, F12-7-7: the heading limb also reads the
+    # Status marker standing in sextuple asterisk dress,
+    # in quintuple underscore dress, in asterisk and
+    # underscore dress, in double asterisk and tilde
+    # dress, in tilde and asterisk dress, or in
+    # underscore and tilde dress, in the same combined
+    # form and in the clean marker form only. The bound
+    # stands restated expressly: the dress runs are the
+    # set as restated here and at the earlier rounds of
+    # this limb, in the clean marker form only; a dress
+    # outside that set stands outside this cure, and a
+    # heading marker standing without its colon stands
+    # outside the Status line form itself still.
     # CH-221, S17-ATK9-17-03: the heading limb also reads
     # the Status marker carrying one interior damage of a
     # cured class inside the marker word, in the same
@@ -2449,9 +2508,9 @@ def _check2(entry, display_id):
     # nowhere in silence at a clean exit, where the clean
     # heading forms take this signal.
     for line_number, text in _body_lines(entry):
-        if re.match(r"^\s*#{1,6}\s+(?:(?:\*\*\*\*\*|\*\*\*\*|\*\*\*|\*\*_|\*\*|\*|____|___|__|_|_\*|\*~|~~|~)\s*)?Status\s*"
-                    r"(?:(?:\*\*\*\*\*|\*\*\*\*|\*\*\*|\*\*_|\*\*|\*|____|___|__|_|_\*|\*~|~~|~)\s*)?:"
-                    r"(?:\s*(?:\*\*\*\*\*|\*\*\*\*|\*\*\*|\*\*_|\*\*|\*|____|___|__|_|_\*|\*~|~~|~))?", text or "",
+        if re.match(r"^\s*#{1,6}\s+(?:(?:\*\*\*\*\*\*|\*\*\*\*\*|\*\*\*\*|\*\*\*|\*\*~|\*\*_|\*\*|\*~|\*|_____|____|___|__|_|_\*|_~|~\*|~~|~)\s*)?Status\s*"
+                    r"(?:(?:\*\*\*\*\*\*|\*\*\*\*\*|\*\*\*\*|\*\*\*|\*\*~|\*\*_|\*\*|\*~|\*|_____|____|___|__|_|_\*|_~|~\*|~~|~)\s*)?:"
+                    r"(?:\s*(?:\*\*\*\*\*\*|\*\*\*\*\*|\*\*\*\*|\*\*\*|\*\*~|\*\*_|\*\*|\*~|\*|_____|____|___|__|_|_\*|_~|~\*|~~|~))?", text or "",
                     re.IGNORECASE):
             findings.append(_finding(
                 2, "Warning", display_id,
@@ -2940,10 +2999,15 @@ _GHOST_SUBJECT_PATTERNS = (
     # in every subject form list of this scan since
     # CH-290 and before, and in no verb first list
     # before this cure.
+    # CH-331, S17-ATK12-6-02 and F-15-12-1: the present
+    # tense verb first forms Parks and Presents stand in
+    # this list beside Parked and Presented, the standing
+    # verb families of this list carrying present forms
+    # beside their past forms since CH-60 and CH-101.
     re.compile(r"\b(?:Settle|Settles|Close|Closes|Rule|Rules|"
                r"Decide|Decides|Ruled|Decided|Settled|Closed|"
                r"Resolve|Resolves|Resolved|Seal|Seals|Sealed|"
-               r"Shut|Shuts|Parked|Presented)\s+"
+               r"Shut|Shuts|Parked|Presented|Parks|Presents)\s+"
                r"DQ-([0-9]+)\b", re.IGNORECASE),
     re.compile(r"\bquestion for DQ-([0-9]+)\b", re.IGNORECASE),
     # CH-39, S17-ATK3-7-02: the was form on the entry own
@@ -3028,10 +3092,17 @@ _GHOST_SUBJECT_PATTERNS = (
     # claim scan gain both at CH-294 in this wave and
     # the was and has been patterns of this scan carry
     # both since CH-200 and CH-133.
+    # CH-330, S17-ATK12-6-01: the bare past pattern
+    # closing set carries the month and year phrases
+    # last month and last year beside last week, the
+    # same bare past claim in the same position closing
+    # on a month or year phrase instead of a week
+    # phrase. No other closing phrase stands added.
     re.compile(r"\bDQ-([0-9]+)\s+(?:settled|ruled|closed|"
                r"decided|shut|sealed|resolved|parked|presented)"
                r"(?:\s+(?:yesterday|today|"
                r"already|earlier|recently|now|last\s+week|"
+               r"last\s+month|last\s+year|"
                r"in\s+full)\b"
                r"|\s*\.)", re.IGNORECASE),
     # CH-101, S17-ATK6-7-02: the stands pattern carries
@@ -3126,6 +3197,67 @@ _GHOST_SUBJECT_PATTERNS = (
     re.compile(r"\bDQ-([0-9]+)\s+has\s+(?:now|finally|already|"
                r"still|yet)\s+(?:decided|closed|settled|ruled|"
                r"shut|sealed|parked|presented|resolved)\b",
+               re.IGNORECASE),
+    # CH-331, S17-ATK12-6-02 and F-15-12-1, at Medium
+    # as the governing grade of the two seats: further
+    # patterns, each carrying the same state list the
+    # is pattern carries, for the intervening word
+    # forms one step past the CH-293 sets. The bound
+    # stands stated in the open: one intervening word
+    # from the sets named in each pattern only (the
+    # remains, stands, or stays verb with still,
+    # already, yet, now, or completely; the is verb
+    # with finally or soon and the was verb with now
+    # or finally, the is and was forms of CH-293 and
+    # CH-247 standing in their own patterns above; the
+    # has verb with fully or just; and the got verb
+    # with fully, the got verb carrying no intervening
+    # word pattern before this cure); two intervening
+    # words in the named pairs only (very fully after
+    # remains, stands, or stays; still fully after is;
+    # now fully after has); and a word standing on
+    # either side of been (has been with fully, still,
+    # already, yet, now, or finally, and has with
+    # already, still, yet, now, or finally before
+    # been). No other intervening word and no other
+    # word pair stands in any of these patterns, and
+    # no state word is added to or removed from the
+    # is list.
+    re.compile(r"\bDQ-([0-9]+)\s+(?:remains|stands|stays)\s+"
+               r"(?:still|already|yet|now|completely)\s+"
+               r"(?:decided|closed|settled|ruled|shut|"
+               r"sealed|parked|presented|resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+(?:is\s+(?:finally|soon)|"
+               r"was\s+(?:now|finally))\s+"
+               r"(?:decided|closed|settled|ruled|shut|sealed|"
+               r"parked|presented|resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+has\s+(?:fully|just)\s+"
+               r"(?:decided|closed|settled|ruled|shut|sealed|"
+               r"parked|presented|resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+got\s+fully\s+"
+               r"(?:decided|closed|settled|ruled|shut|sealed|"
+               r"parked|presented|resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+(?:remains|stands|stays)\s+"
+               r"very\s+fully\s+(?:decided|closed|settled|"
+               r"ruled|shut|sealed|parked|presented|resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+(?:is\s+still|has\s+now)\s+"
+               r"fully\s+(?:decided|closed|settled|ruled|shut|"
+               r"sealed|parked|presented|resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+has\s+been\s+(?:fully|still|"
+               r"already|yet|now|finally)\s+"
+               r"(?:decided|closed|settled|ruled|shut|sealed|"
+               r"parked|presented|resolved)\b",
+               re.IGNORECASE),
+    re.compile(r"\bDQ-([0-9]+)\s+has\s+(?:already|still|yet|"
+               r"now|finally)\s+been\s+"
+               r"(?:decided|closed|settled|ruled|shut|sealed|"
+               r"parked|presented|resolved)\b",
                re.IGNORECASE),
 )
 
@@ -3627,14 +3759,31 @@ def _check5(entry, display_id, derived, elements,
     # this cure asks the tool to judge which decider was
     # entitled to rule, and the limb names at most the
     # first two distinct names, as the pins state.
+    # Round 12 charge CH-340, F12-7-6, widens the
+    # reading again: the letter marker widens to ten
+    # letters, the heavy round tipped rightwards arrow
+    # (U+279C) joins the marker set, an en quad (U+2000)
+    # or a six per em space (U+2006) stands inside the
+    # verb phrase as the spaces above do, and a fullwidth
+    # semicolon (U+FF1B) or a modifier letter colon
+    # (U+02F8) stands after the word by as the ASCII colon
+    # does, with no space before it, as the bound above
+    # states for the space form still. The bound stands
+    # restated expressly: the marker, space, and colon
+    # forms are the sets as restated here and at the
+    # earlier rounds of this limb; a form outside those
+    # sets stands outside this cure, the space before
+    # colon form stands outside the colon form still, and
+    # no part of this cure asks the tool to judge which
+    # decider was entitled to rule.
     decider_names = []
     body_lines = _body_lines(entry)
     for index, (_line, text) in enumerate(body_lines):
         decider_match = re.match(
-            r"^\s*(?:(?:[-*+\u2022\u25e6\u2023\u00b7\u25b8\u25b6\u25ba\u27a1\u27a4\u27a2]|\d+[.)]"
-            r"|\d+[A-Za-z][.)]|[A-Za-z]{1,9}[.)]|[A-Za-z]\d+[.)]|[A-Za-z]\d+[A-Za-z][.)]|>)\s+)*"
-            r"(?:Ruled|Settled|Decided)[ \t\u00a0\u3000\u200a\u2009\u2007\u2008\u2003\u202f]+by"
-            r"(?::|\uff1a|\ufe55|\ua789|\u2236|;|\u037e|\ufe54)\s*(.*?)\s*$",
+            r"^\s*(?:(?:[-*+\u2022\u25e6\u2023\u00b7\u25b8\u25b6\u25ba\u27a1\u27a4\u27a2\u279c]|\d+[.)]"
+            r"|\d+[A-Za-z][.)]|[A-Za-z]{1,10}[.)]|[A-Za-z]\d+[.)]|[A-Za-z]\d+[A-Za-z][.)]|>)\s+)*"
+            r"(?:Ruled|Settled|Decided)[ \t\u00a0\u3000\u200a\u2009\u2007\u2008\u2003\u202f\u2000\u2006]+by"
+            r"(?::|\uff1a|\ufe55|\ua789|\u2236|;|\u037e|\ufe54|\uff1b|\u02f8)\s*(.*?)\s*$",
             text or "", re.IGNORECASE)
         if not decider_match:
             continue
@@ -4924,16 +5073,33 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # narrowing recorded at CH-205 governs intervening
         # prose between the number and the verb, and no
         # part of these forms stands in that position.
+        # CH-332, S17-ATK12-6-03 and F-15-12-2, and
+        # CH-334, S17-ATK12-6-04 and F-15-12-3: the fully
+        # direct pattern carries the whole decided state
+        # list of this scan beside resolved and sealed
+        # (parked, presented, closed, decided, settled,
+        # ruled, and shut), the ghost scan beside it
+        # reading the same fully form for its whole state
+        # list since CH-293. Decision evidence and cross
+        # entry claims read the one scan, so the one cure
+        # carries both charges on these forms.
         re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+(?:remains|stands|stays)"
-                   r"\s+fully\s+(?:resolved|sealed)\b",
+                   r"\s+fully\s+(?:resolved|sealed|parked|"
+                   r"presented|closed|decided|settled|ruled|"
+                   r"shut)\b",
                    re.IGNORECASE),
         # CH-291, S17-ATK11-7-03, and CH-294,
         # S17-ATK11-7-04: the is now direct pattern
         # carries sealed beside resolved, the ghost scan
         # beside it reading the is now form for its whole
         # state list since CH-247.
+        # CH-332 and CH-334, as above: the is now direct
+        # pattern carries the same whole decided state
+        # list beside resolved and sealed, on the same
+        # ground as the fully pattern above.
         re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+is\s+now\s+(?:resolved|"
-                   r"sealed)\b",
+                   r"sealed|parked|presented|closed|decided|"
+                   r"settled|ruled|shut)\b",
                    re.IGNORECASE),
         # CH-294, S17-ATK11-7-04: the was still form and
         # the is already form stand in their own pattern,
@@ -4947,6 +5113,57 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
                    r"is\s+already)\s+"
                    r"(settled|ruled|open|banked|closed|parked|"
                    r"presented|decided|shut|sealed|resolved)\b",
+                   re.IGNORECASE),
+        # CH-332, S17-ATK12-6-03 and F-15-12-2, and
+        # CH-334, S17-ATK12-6-04 and F-15-12-3: further
+        # direct patterns for the adverb forms this scan
+        # did not read, each in the direct form only (the
+        # number, then the verb form, then the state
+        # word), decision evidence and cross entry claims
+        # reading the one scan: the is yet form and the
+        # was already form, carrying the same state list
+        # the was still pattern above carries; the has
+        # verb with one intervening word from the set
+        # now, finally, already, still, yet, fully, or
+        # just; the remains, stands, or stays verb with
+        # one intervening word from the set still,
+        # already, yet, now, or finally; the got verb
+        # with the intervening word fully; the has been
+        # form with one intervening word from the set
+        # fully, still, already, yet, now, or finally
+        # standing after been; and the two word form is
+        # still fully. The adverb patterns carry the
+        # decided state list (settled, ruled, closed,
+        # decided, shut, sealed, resolved, parked,
+        # presented). No other intervening word stands
+        # in any of these patterns.
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+(?:is\s+yet|"
+                   r"was\s+already)\s+"
+                   r"(settled|ruled|open|banked|closed|parked|"
+                   r"presented|decided|shut|sealed|resolved)\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+has\s+(?:now|"
+                   r"finally|already|still|yet|fully|just)\s+"
+                   r"(settled|ruled|closed|decided|shut|sealed|"
+                   r"resolved|parked|presented)\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+(?:remains|"
+                   r"stands|stays)\s+(?:still|already|yet|now|"
+                   r"finally)\s+(settled|ruled|closed|decided|"
+                   r"shut|sealed|resolved|parked|presented)\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+got\s+fully\s+"
+                   r"(settled|ruled|closed|decided|shut|sealed|"
+                   r"resolved|parked|presented)\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+has\s+been\s+"
+                   r"(?:fully|still|already|yet|now|finally)\s+"
+                   r"(settled|ruled|closed|decided|shut|sealed|"
+                   r"resolved|parked|presented)\b",
+                   re.IGNORECASE),
+        re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+is\s+still\s+"
+                   r"fully\s+(settled|ruled|closed|decided|"
+                   r"shut|sealed|resolved|parked|presented)\b",
                    re.IGNORECASE),
         # The still forms of the same claims, in the ordinary
         # phrasings a stale claim takes: a state stated with
@@ -5111,10 +5328,18 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
         # the governed corpus pin the narrowing protects
         # (DQ-031 ruled that, DQ-029 settled R-92) stands
         # unmoved on this reading.
+        # CH-332, S17-ATK12-6-03, and CH-334,
+        # S17-ATK12-6-04: the week phrase limb of this
+        # pattern carries the month and year phrases last
+        # month and last year beside last week, on the
+        # same ground as the ghost bare past cure at
+        # CH-330. The bound above stands otherwise
+        # unmoved: a verb carrying an object after it
+        # still reads as a ruling mention, not a claim.
         re.compile(r"DQ-[0-9]+(?:'s|\u2019s)?\s+(settled|ruled|closed|"
                    r"decided|shut|sealed|resolved|parked|presented)"
                    r"(?:\s+(?:"
-                   r"last\s+week|"
+                   r"last\s+week|last\s+month|last\s+year|"
                    r"in\s+full)\b|\.(?=\s|$))", re.IGNORECASE),
     )
     # CH-39, S17-ATK3-7-03: the verb first form reads its
@@ -5146,11 +5371,15 @@ def _check8(model, entries, derived_by_id, derived_lists=None,
     # forms, the parked and presented states standing
     # in the was and has been lists of this scan all
     # along and in no verb first list before this cure.
+    # CH-332, F-15-12-2: the present tense verb first
+    # forms Parks and Presents stand in this list beside
+    # Parked and Presented, on the same ground as the
+    # ghost verb first cure at CH-331.
     verb_claim_pattern = re.compile(
         r"\b(?:Settle|Settles|Rule|Rules|Close|Closes|Decide|"
         r"Decides|Closed|Settled|Resolve|Resolves|Resolved|"
         r"Ruled|Decided|Seal|Seals|Sealed|Shut|Shuts|Parked|"
-        r"Presented)\s+"
+        r"Presented|Parks|Presents)\s+"
         r"DQ-([0-9]+)\b", re.IGNORECASE)
     # CH-60, S17-ATK4-7-07: the Decision on noun form naming
     # a headed entry in decision evidence takes the same
@@ -5487,6 +5716,59 @@ _CH310_SPACED_JOINERS = frozenset(";+*#@%_")
 _CH310_SPACED_DOUBLE_JOINERS = ("//", "++")
 
 
+# The further space characters charged at Step 17
+# round 12, CH-349, beside the twelve CH-310 names:
+# the ogham space mark U+1680, the three per em space
+# U+2004, the four per em space U+2005, and the
+# punctuation space U+2008. The restated space set of
+# the head exception is the sixteen characters
+# together: the CH-269 six, the CH-310 six, and these
+# four.
+_CH349_SPACE_CHARACTERS = frozenset(
+    chr(c) for c in (0x1680, 0x2004, 0x2005, 0x2008))
+_CH349_ALL_SPACE_CHARACTERS = (
+    _CH310_ALL_SPACE_CHARACTERS | _CH349_SPACE_CHARACTERS)
+
+
+# The joiners charged at CH-349 in the Unicode space
+# spacing, beside the nine CH-310 spaced joiners: the
+# slash, the equals sign, the ampersand, the pipe, and
+# the backslash, each one character wide. The restated
+# spaced joiner set of the head exception is: the
+# semicolon, the plus, the asterisk, the hash, the at
+# sign, the percent, the underscore, the slash, the
+# equals sign, the ampersand, the pipe, and the
+# backslash, one character wide, and the multi
+# character forms of _CH349_SPACED_MULTI_JOINERS, read
+# before the one character forms.
+_CH349_SPACED_JOINERS = frozenset(";+*#@%_/=&|" + chr(92))
+
+
+# The multi character joiners charged at CH-349 in the
+# Unicode space spacing: the triple backslash form of
+# CH-311 and the double hash and double greater than
+# forms of CH-311 and CH-270, beside the double slash
+# and double plus forms CH-310 already names, each
+# spaced by a space character of the restated sixteen.
+_CH349_SPACED_MULTI_JOINERS = (
+    chr(92) * 3, "##", ">>", "//", "++")
+
+
+# The joiner forms charged at CH-349 at the no space
+# spacing: the CH-311 forms the earlier no space limbs
+# did not name, stated expressly: the quadruple plus,
+# four characters wide; the triple backslash, the
+# triple greater than, and the triple colon, three
+# characters wide; and the double hash, the double
+# dollar, the double asterisk, and the double small
+# comma U+FE50, two characters wide. Read longest
+# first, before every shorter form they share a prefix
+# with.
+_CH349_NOSPACE_MULTI_JOINERS = (
+    "++++", chr(92) * 3, ">>>", ":::",
+    "##", "$$", "**", chr(0xFE50) * 2)
+
+
 def _list_target_stands_at(sentence, position):
     """Whether a list target of the DQ form, its first
     digit included, stands at position in sentence."""
@@ -5553,12 +5835,31 @@ def _token_heads_list_at(sentence, end):
     _CH310_SPACED_JOINERS and
     _CH310_SPACED_DOUBLE_JOINERS. No middle pointer
     derives from any list on this limb either: the
-    signal only ruling stands, in its own terms. Every
-    other continuation stands
+    signal only ruling stands, in its own terms.
+    Step 17 round 12, CH-349, beside it, the restated
+    sets stated expressly: at the charged semicolon,
+    the sixteen space characters of
+    _CH349_ALL_SPACE_CHARACTERS; at a charged Unicode
+    spacing, the restated spaced joiner set of
+    _CH349_SPACED_JOINERS and the multi character
+    forms of _CH349_SPACED_MULTI_JOINERS; and at the
+    no space spacing, the CH-311 forms restated at
+    _CH349_NOSPACE_MULTI_JOINERS. The single dollar
+    and the single hyphen stand outside this reading:
+    no cure names them at the head exception, and
+    their lists take the CH-350 signal only. No middle
+    pointer derives from any list on this limb either:
+    the signal only ruling stands, in its own terms.
+    Every other continuation stands
     outside this reading and refused whole, exactly as
     before."""
     if end >= len(sentence):
         return False
+    for joiner in _CH349_NOSPACE_MULTI_JOINERS:
+        if sentence[end:end + len(joiner)] == joiner:
+            if _list_target_stands_at(
+                    sentence, end + len(joiner)):
+                return True
     if sentence[end:end + 3] == "+++":
         if _list_target_stands_at(sentence, end + 3):
             return True
@@ -5577,31 +5878,33 @@ def _token_heads_list_at(sentence, end):
         return _list_target_stands_at(sentence, end + 2)
     if sentence[end] == "_" or sentence[end] == "，":
         return _list_target_stands_at(sentence, end + 1)
-    if sentence[end] in _CH310_ALL_SPACE_CHARACTERS:
+    if sentence[end] in _CH349_ALL_SPACE_CHARACTERS:
         joiner_at = end + 1
+        if joiner_at < len(sentence):
+            for joiner in _CH349_SPACED_MULTI_JOINERS:
+                if sentence[joiner_at:joiner_at
+                            + len(joiner)] == joiner:
+                    after = joiner_at + len(joiner)
+                    if after < len(sentence) \
+                            and (sentence[after]
+                                 in _CH349_ALL_SPACE_CHARACTERS
+                                 or sentence[after] == "\t"):
+                        after += 1
+                    return _list_target_stands_at(
+                        sentence, after)
         if joiner_at < len(sentence) \
-                and sentence[joiner_at:joiner_at + 2] \
-                in _CH310_SPACED_DOUBLE_JOINERS:
-            after = joiner_at + 2
-            if after < len(sentence) \
-                    and (sentence[after]
-                         in _CH310_ALL_SPACE_CHARACTERS
-                         or sentence[after] == "\t"):
-                after += 1
-            return _list_target_stands_at(sentence, after)
-        if joiner_at < len(sentence) \
-                and sentence[joiner_at] in _CH310_SPACED_JOINERS:
+                and sentence[joiner_at] in _CH349_SPACED_JOINERS:
             after = joiner_at + 1
             if after < len(sentence) \
                     and (sentence[after]
-                         in _CH310_ALL_SPACE_CHARACTERS
+                         in _CH349_ALL_SPACE_CHARACTERS
                          or sentence[after] == "\t"):
                 after += 1
             return _list_target_stands_at(sentence, after)
         return False
-    if sentence[end] in _CH310_SPACED_JOINERS \
+    if sentence[end] in _CH349_SPACED_JOINERS \
             and end + 1 < len(sentence) \
-            and sentence[end + 1] in _CH310_ALL_SPACE_CHARACTERS:
+            and sentence[end + 1] in _CH349_ALL_SPACE_CHARACTERS:
         return _list_target_stands_at(sentence, end + 2)
     if sentence[end] in _CH166_JOINER_CHARACTERS \
             or sentence[end] in _CH222_JOINER_CHARACTERS:
@@ -5665,6 +5968,12 @@ def _identifications(sentence):
                 # _token_heads_list_at, and no middle
                 # pointer derives from any list on this
                 # limb, the signal only ruling standing.
+                # CH-349, seat 8 Finding 1 of round 12:
+                # the exception stands extended on the
+                # same terms to the forms and sets
+                # restated at _token_heads_list_at beside
+                # CH-349, and no middle pointer derives
+                # from any list on this limb.
                 # Every
                 # other continuation stands refused whole.
                 end = list_start + token.end()
@@ -5964,6 +6273,40 @@ _CH311_JOINER_LIST_RES = tuple(
         chr(0xFE50) * 2, chr(0xFF0C) * 2, "$$"))
 
 
+# The joiner silence list forms of Step 17 round 12,
+# CH-350: a target list joined by a quadrupled CH-311
+# joiner one character past its charged form (the
+# quadruple backslash, the quadruple greater than,
+# the quadruple underscore, and the quadruple colon),
+# by the quintuple plus (the CH-311 quadruple plus one
+# character further), by a tripled doubled CH-183
+# joiner (the triple hash, the triple asterisk, the
+# triple at sign, and the triple percent), by a
+# doubled punctuation form outside every charged
+# signal set (the double hyphen, the double semicolon,
+# the double question mark, the double tilde, and the
+# double exclamation mark), or by a single dollar or
+# a single hyphen. The restated set is exactly these
+# sixteen forms. Like the forms above, these lists
+# are read for the near miss signal only, on the same
+# bound: the charge is the silence, not the
+# derivation, no derivation is charged, and no
+# pointer derives from any list in this set past the
+# end readings those lists already took. The single
+# dollar and single hyphen forms stand in this set at
+# every spacing the pattern reads, the en space forms
+# of the charge among them; their head stands outside
+# the head exception, as CH-349 states, so their
+# signal names the head beside the middles. The caret
+# form stands outside this set, as its fix wave 8 K7
+# pin states: it takes no signal.
+_CH350_JOINER_LIST_RES = tuple(
+    _ch311_joiner_pattern(joiner) for joiner in (
+        chr(92) * 4, ">>>>", "+++++", "###", "***",
+        "@@@", "%%%", "____", "::::", "--", ";;",
+        "??", "~~", "!!", "$", "-"))
+
+
 def _semicolon_list_identifications(sentence):
     """The entry identifiers a sentence names in a target
     list joined by semicolons, in list order. The CH-64
@@ -6028,7 +6371,10 @@ def _charged_list_identifications(sentence):
     comma lookalikes U+FE50 and U+060C, and the double
     colon form), and the joiner silence forms of
     Step 17 round 11, CH-311 (the thirteen forms
-    restated at _CH311_JOINER_LIST_RES). Signal only,
+    restated at _CH311_JOINER_LIST_RES), and the
+    joiner silence forms of Step 17 round 12, CH-350
+    (the sixteen forms restated at
+    _CH350_JOINER_LIST_RES). Signal only,
     on the same bound as the semicolon reading: it widens
     no derivation, the CH-64 joiner set stands unmoved,
     and the supersession unit reports the named targets
@@ -6041,7 +6387,8 @@ def _charged_list_identifications(sentence):
                     + _CH183_JOINER_LIST_RES
                     + _CH223_JOINER_LIST_RES
                     + _CH270_JOINER_LIST_RES
-                    + _CH311_JOINER_LIST_RES):
+                    + _CH311_JOINER_LIST_RES
+                    + _CH350_JOINER_LIST_RES):
         for match in pattern.finditer(sentence or ""):
             # The plain token form inside the match
             # only, as the semicolon reading above states
@@ -8465,7 +8812,11 @@ def _is_identifier_only_line(text):
                      ("《", "》"),
                      ("〈", "〉"),
                      ("［", "］"),
-                     ("⟨", "⟩"))
+                     ("⟨", "⟩"),
+                     ("〖", "〗"),
+                     ("⟪", "⟫"),
+                     ("❨", "❩"),
+                     ("〘", "〙"))
     while len(line) >= 2:
         # Punctuation standing after a closing wrapper is
         # wrapper punctuation, read off before the wrapper
@@ -8516,7 +8867,7 @@ def _is_identifier_only_line(text):
                 separated = True
                 continue
             word = re.match(
-                r"(?:and|or|versus\.?|against|vs\.?|v|contra|opposing|beside)(?![A-Za-z])",
+                r"(?:and|or|versus\.?|against|vs\.?|v|contra|opposing|beside|with|alongside|facing|meeting)(?![A-Za-z])",
                 line[position:], re.IGNORECASE)
             if word:
                 # The word and standing as a joiner between
@@ -8555,6 +8906,19 @@ def _is_identifier_only_line(text):
                 # here and at the earlier rounds of this scan;
                 # a wrapper pair or joiner word outside those
                 # sets stands outside this cure.
+                # Round 12 charge CH-338, F12-7-1, joins a
+                # white lenticular bracket pair, a
+                # mathematical double angle bracket pair, a
+                # parenthesis ornament bracket pair, and a
+                # white tortoise shell bracket pair to the
+                # wrapper set above, and the words with,
+                # alongside, facing, and meeting to this
+                # joiner reading, on the same ground. The
+                # bound stands restated expressly: the
+                # wrapper pairs and joiner words are the sets
+                # as restated here and at the earlier rounds
+                # of this scan; a wrapper pair or joiner word
+                # outside those sets stands outside this cure.
                 position += word.end()
                 separated = True
                 continue
@@ -8637,14 +9001,14 @@ def _line_carries_content(text):
         # whose repeated group redivided a failing line.
         return False
     stripped = visible.strip()
-    if re.match(r"Landed(?:\s|:|,|;|\.|!|\?)", stripped, re.IGNORECASE) or \
-            re.match(r"Origins?(?:\s*:|\s*;|\.|\,|!|\?)", stripped,
+    if re.match(r"Landed(?:\s|:|,|;|\.|!|\?|\uff01|\uff1f|-|/|\)|\u2026)", stripped, re.IGNORECASE) or \
+            re.match(r"Origins?(?:\s*:|\s*;|\.|\,|!|\?|\uff01|\uff1f|-|/|\)|\u2026)", stripped,
                        re.IGNORECASE) or \
-            re.match(r"Filed(?:\s|:|,|;|\.|!|\?)", stripped,
+            re.match(r"Filed(?:\s|:|,|;|\.|!|\?|\uff01|\uff1f|-|/|\)|\u2026)", stripped,
                        re.IGNORECASE) or \
-            re.match(r"Recorded(?:\s|:|,|;|\.|!|\?)", stripped,
+            re.match(r"Recorded(?:\s|:|,|;|\.|!|\?|\uff01|\uff1f|-|/|\)|\u2026)", stripped,
                        re.IGNORECASE) or \
-            re.match(r"Sources?\s*[:,;.!?]", stripped, re.IGNORECASE):
+            re.match(r"Sources?\s*[:,;.!?\uff01\uff1f\-/\)\u2026]", stripped, re.IGNORECASE):
         # A landed line states where a ruling landed and
         # no disposition, and an Origin line is a label
         # only and carries no element by itself: a block
@@ -8704,6 +9068,18 @@ def _line_carries_content(text):
         # mark after each of the six words named here; a
         # record word closed by a mark outside that set
         # stands outside this cure.
+        # Round 12 charge CH-335, F12-7-2, widens the
+        # reading again on the same grounds: a fullwidth
+        # exclamation mark, a fullwidth question mark, a
+        # hyphen, a slash, a closing parenthesis, or an
+        # ellipsis standing after the word Recorded, the
+        # word Filed, the word Source, the word Sources,
+        # the word Landed, or the word Origin closes that
+        # line as a full stop does. The bound stands
+        # restated expressly: the closers of this reading
+        # are the sets as restated here and at the earlier
+        # rounds of this reading; a record word closed by
+        # a mark outside that set stands outside this cure.
         return False
     words = re.findall(r"[^\W_]+", visible)
     return any(
@@ -8792,10 +9168,25 @@ def _is_heading_shaped_line(text):
         # set, stands outside this cure, and genuine prose
         # behind every marker in the set keeps its credit,
         # as the pins state.
+        # Round 12 charge CH-339, F12-7-4, widens the
+        # letter marker to eleven letters, joins the heavy
+        # round tipped rightwards arrow (U+279C), the white
+        # small right pointing triangle (U+25B9), and the
+        # single right pointing angle quotation mark
+        # (U+203A) to the bullet set, and joins a two
+        # letter and one digit marker. The bound stands
+        # restated expressly: the letter marker stands at
+        # eleven letters, the digit and letter markers at
+        # their restated forms, and the bullet set as
+        # restated here and at the earlier rounds; a marker
+        # one step past either width, or a bullet outside
+        # the set, stands outside this cure, and genuine
+        # prose behind every marker in the set keeps its
+        # credit, as the pins state.
         match = re.match(
-            r"(?:[-*+\u2022\u25e6\u2013\u2014\u2023\u00b7\u00bb\u2192\u25b8\u21d2\u25b6\u27a1\u25ba\u27a4\u27a2\u25b7\u2794\u21e8]"
+            r"(?:[-*+\u2022\u25e6\u2013\u2014\u2023\u00b7\u00bb\u2192\u25b8\u21d2\u25b6\u27a1\u25ba\u27a4\u27a2\u25b7\u2794\u21e8\u279c\u25b9\u203a]"
             r"|\d+[.)]|\d+[A-Za-z]{1,2}[.)]|[A-Za-z]\d+[.)]"
-            r"|[A-Za-z]{1,10}[.)]|[ivxlcdmIVXLCDM]+[.)])\s+",
+            r"|[A-Za-z]{1,11}[.)]|[A-Za-z]{2}\d[.)]|[ivxlcdmIVXLCDM]+[.)])\s+",
             stripped)
         if match:
             stripped = stripped[match.end():].lstrip()
@@ -8882,12 +9273,30 @@ def _is_open_field_labelled_line(text):
     read = read.replace("\u0422", "T").replace(
         "\u0412", "B").replace("\u041e", "O").replace(
         "\u0441", "c")
+    # Five further letters and one further space read as
+    # the forms they respell on the same ground (round 12
+    # charge CH-336, F12-7-3): the Greek capital letter
+    # Beta (U+0392) reads as the letter B, the Greek
+    # capital letter Tau (U+03A4) reads as the letter T,
+    # the Ukrainian small letter I (U+0456) reads as the
+    # letter i, and the Cyrillic capital letter A
+    # (U+0410) reads as the letter A. An ogham space mark
+    # (U+1680) standing inside the label stands in the
+    # space set of the label pattern below on the same
+    # ground. The bound stands restated expressly: the
+    # letters and spaces are the sets as restated here
+    # and at the earlier rounds of this reading; a letter
+    # respelling or a space outside those sets stands
+    # outside this cure.
+    read = read.replace("\u0392", "B").replace(
+        "\u03a4", "T").replace("\u0456", "i").replace(
+        "\u0410", "A")
     read = "".join(
         chr(ord(char) - 0xFEE0)
         if "\uff01" <= char <= "\uff5e" else char
         for char in read)
     match = re.match(
-        r"^([A-Za-z][A-Za-z0-9 \t\u00a0\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2009\u200a\u2007\u2008\u202f\u205f\u3000()_-]{0,80})"
+        r"^([A-Za-z][A-Za-z0-9 \t\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2009\u200a\u2007\u2008\u202f\u205f\u3000()_-]{0,80})"
         r"[ \t\u00a0\u2009\u3000]*"
         r"(?::|\uff1a)",
         read)
@@ -9214,7 +9623,7 @@ def _absorbed_h4_entry_heading(entry):
                 re.match(r"^DQ_[0-9]+(?::|\s)", heading_text) or \
                 re.match(r"^DQ[\u2013\uff0d][0-9]+(?::|\s)",
                          heading_text) or \
-                re.match(r"^(?i:dq)[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u00ad\ufe63\uff0d\ufe58\u2e3a\u2017\u2e3b\u301c]"
+                re.match(r"^(?i:dq)[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u00ad\ufe63\uff0d\ufe58\u2e3a\u2017\u2e3b\u301c\u2043\u30fc\u02d7]"
                          r"[0-9]+(?::|\s)",
                          heading_text) or \
                 re.match(r"^(?i:dq)_[0-9]+(?::|\s)",
@@ -9257,6 +9666,16 @@ def _absorbed_h4_entry_heading(entry):
             # standing in place of the hyphen under a
             # prefix in any case, the mixed case small em
             # dash form among them. The bound stands
+            # restated expressly: the dash forms are the
+            # set as restated here and at the earlier rounds
+            # of this reading, under a prefix in any case;
+            # a dash or prefix form outside that reading
+            # stands outside this cure.
+            # Round 12 charge CH-337, F12-7-5, joins a
+            # hyphen bullet (U+2043), a prolonged sound
+            # mark (U+30FC), or a modifier letter hyphen
+            # (U+02D7) standing in place of the hyphen
+            # under a prefix in any case. The bound stands
             # restated expressly: the dash forms are the
             # set as restated here and at the earlier rounds
             # of this reading, under a prefix in any case;
@@ -9851,6 +10270,18 @@ _BLOCKS_NO_ITEM_VALUES = frozenset({
     "blocks zero entries at all", "road is clear",
     "clear of obstructions", "holds up no decision",
     "no question is obstructed",
+    "blocks no delays", "no delays",
+    "blocks zero blockages", "free of impediments",
+    "no impediment", "holds up no items",
+    "impedes no ruling", "hinders no ruling",
+    "obstructs no ruling",
+    "blocks no barriers", "blocks zero barriers",
+    "no barrier is blocked", "blocks no holdups",
+    "zero barriers blocked", "holds up no entry",
+    "blocks no snags", "free of blockages",
+    "clear of barriers", "the way forward is clear",
+    "no blockage at all", "blocks nil rulings",
+    "not one ruling blocked", "blocks no blockage",
 })
 
 
@@ -10035,6 +10466,40 @@ def _blocks_names_an_item(blocks):
     this cure. The whole part reading stands first,
     and the D2 exact form stands first in the part
     reading and is untouched by the fresh joiners.
+    The reading widened again at round 12 charges
+    CH-327, CH-328, and CH-329 (T12-13, T12-14, and
+    T12-15), around the same two bounds: the no item
+    set gains the 23 further phrases the round 12
+    findings name (the delays noun in the blocks and
+    bare forms, the blockages noun in the zero dress,
+    the impediments noun in the free of dress, the
+    bare impediment noun, the holds up verb at the
+    items noun, the impede, hinder, and obstruct
+    verbs at the ruling noun, the barrier noun in the
+    no, zero, and is blocked dresses, the holdups,
+    snags, and blockage nouns, the holds up verb at
+    the entry noun, the free of and clear of barrier
+    and blockage forms, the way forward clear form,
+    the no blockage at all form, and the nil and not
+    one ruling forms), a part joined by a double
+    dagger, by a division slash, by a fraction slash,
+    by a fullwidth solidus, by a reverse solidus
+    operator, by a not sign, by a broken bar, by a
+    leftwards arrow, by a left right arrow, by a per
+    mille sign, or by an infinity sign is read by its
+    joined parts as the slash, plus, and colon forms
+    are, and a part standing inside one of the
+    charged wrapper pairs (the tortoise shell bracket
+    pair, the white lenticular bracket pair, the
+    corner bracket opened and bracket closed pair,
+    the low double quote opened and apostrophe closed
+    pair, and the white corner bracket opened and
+    bracket closed pair) is read by its wrapped words
+    as the standing wrappers are. No mismatched
+    wrapper pair outside the charged pairs stands in
+    this cure. The whole part reading stands first,
+    and the D2 exact form stands first in the part
+    reading and is untouched by the fresh joiners.
     """
     value = (blocks or "").strip().lower()
     if not value:
@@ -10095,7 +10560,12 @@ def _blocks_part_names_an_item(part):
                      ("\u201e", "\u201d"),
                      ("\u300e", "\u300d"),
                      ("\uff08", ")"), ("(", "\uff09"),
-                     ("\u201a", "'"), ("(", "\u00bb"))
+                     ("\u201a", "'"), ("(", "\u00bb"),
+                     ("\u3014", "\u3015"),
+                     ("\u3016", "\u3017"),
+                     ("\u300c", "]"),
+                     ("\u201e", "'"),
+                     ("\u300e", "]"))
     changed = True
     while changed and len(read) >= 2:
         changed = False
@@ -10127,7 +10597,9 @@ def _blocks_part_names_an_item(part):
                       r"\u00b7\u00a9\u00a1\u00bf\u00ab\u00bb"
                       r"\u2039\u203a\u201c\u201d\u2019"
                       r"\u00d7\u00f7\u2026\u2122\u2192"
-                      r"\u203d\u25e6]\s*"
+                      r"\u203d\u25e6\u2021\u2215\u2044"
+                      r"\uff0f\u29f5\u00ac\u00a6\u2190"
+                      r"\u2194\u2030\u221e]\s*"
                       r"|\s+", read)
     if len(joined) > 1:
         return any(
